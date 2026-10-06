@@ -1,0 +1,33 @@
+# Akash Network SDL — despliegue descentralizado (pago en AKT/USDC)
+---
+version: "2.0"
+services:
+  api:
+    image: ghcr.io/TU_USUARIO/cripto-api:1.0.0
+    env:
+      - PORT=8080
+      - ALCHEMY_NETWORK=eth-sepolia
+      - ALCHEMY_API_KEY=REEMPLAZAR
+      - API_KEYS=REEMPLAZAR
+      - ALCHEMY_WEBHOOK_SIGNING_KEY=REEMPLAZAR
+    expose:
+      - port: 8080
+        as: 80
+        to:
+          - global: true
+profiles:
+  compute:
+    api:
+      resources:
+        cpu: { units: 0.5 }
+        memory: { size: 512Mi }
+        storage: { size: 1Gi }
+  placement:
+    akash:
+      pricing:
+        api: { denom: uakt, amount: 1000 }
+deployment:
+  api:
+    akash:
+      profile: api
+      count: 1
