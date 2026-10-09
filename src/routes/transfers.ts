@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { idempotent } from '../idempotency.js';
 import { LedgerError } from '../ledger/service.js';
 import * as T from '../ledger/transfers.js';
+import { getOrCreateDepositAddress } from '../ledger/deposit-addresses.js';
+import { listSweeps } from '../ledger/sweeps.js';
 
 const amount = z.string().regex(/^[1-9]\d{0,77}$/, 'entero positivo en unidades base');
 const uuid = z.string().uuid();
@@ -33,6 +35,13 @@ export async function transferRoutes(app: FastifyInstance) {
   });
   app.get<{ Querystring: { client_id?: string; status?: string; limit?: string } }>('/deposits', async (req) =>
     ({ deposits: await T.listDeposits({ ...req.query, limit: Number(req.query.limit ?? 100) }) }));
+
+  // Dirección de depósito propia del cliente (derivada HD, registrada en el webhook)
+  app.post<{ Params: { id: string } }>('/clients/:id/deposit-address', async (req, reply) => {
+    const { rotate } = parse(z.object({ rotate: z.boolean().optional() }), req.body ?? {});
+    return reply.code(201).send(await getOrCreateDepositAddress(parse(uuid, req.params.id), rotate ?? false));
+  });
+  app.get<{ Querystring: { limit?: string } }>('/sweeps', async (req) => ({ sweeps: await listSweeps(Number(req.query.limit ?? 100)) }));
 
   // Tesorería y operación
   app.get('/treasury/hot-wallet', async () => T.hotWalletStatus());
