@@ -49,7 +49,30 @@ Reglas del motor:
 - Todo o nada: si un pagador neto no tiene saldo, la corrida se rechaza (`insufficient_funds`) y nada cambia.
 - Obligaciones bloqueadas durante la corrida: dos corridas simultáneas no liquidan lo mismo dos veces.
 
-Pruebas: `BASE=https://… KEY=<api key> bash test/smoke.sh` (libro) y `bash test/netting.sh` (compensación).
+### Transferencias on-chain (fase 3)
+| Método | Ruta | Notas |
+|---|---|---|
+| POST | `/v1/withdrawals` | **Idempotency-Key**. `{client_id, asset_id, to_address, amount}` → 202 `reserved` |
+| GET | `/v1/withdrawals` · `/v1/withdrawals/:id` | Estado, hash, confirmaciones, gas |
+| POST | `/v1/withdrawals/:id/cancel` | Solo en `reserved` (antes de firmar) |
+| POST | `/v1/deposits/report` | `{tx_hash}`: detecta depósitos nativos/ERC-20 a wallets `deposit` |
+| GET | `/v1/deposits` | `pending` → `credited` |
+| POST | `/v1/webhooks/alchemy` | Address Activity firmado: detecta depósitos automáticamente |
+| GET | `/v1/treasury/hot-wallet` | Conciliación: saldo on-chain de la hot wallet vs custodia en libro |
+| POST | `/v1/worker/tick` | Ejecuta un ciclo del worker (operación/pruebas) |
+
+Ciclo de un retiro: `reserved → signed → broadcast → confirmed` (o `failed` / `cancelled`).
+- **Reserva**: al aceptarlo, el saldo pasa de *disponible* a `withdrawals_pending` (no se puede gastar dos veces).
+- **Firma**: el worker firma y guarda la tx **antes** de enviarla; si el proceso cae, se reenvía la misma tx (mismo nonce, mismo hash).
+- **Confirmación**: con `CONFIRMATIONS` bloques se liquida: sale de custodia y el gas se registra en `network_fees`. Si revierte o no se puede firmar tras 5 intentos, el saldo vuelve al cliente.
+- Solo a direcciones en **lista blanca** del cliente (`wallets.purpose = withdrawal_whitelist`).
+- El ETH de la hot wallet para gas debe registrarse en el libro (asiento `adjustment`: débito `system:ETH-SEPOLIA:custody`, crédito `system:ETH-SEPOLIA:equity`); si no, la liquidación se detiene con un aviso en `last_error`.
+- Firma detrás de la interfaz `Signer` (`src/chain/signer.ts`). Hoy `LocalKeySigner` (**solo testnet**, bloqueado en mainnet); mañana MPC sin tocar el flujo.
+- Depósitos: se revalidan contra la cadena y se acreditan una sola vez (`tx_hash + log_index`) al llegar a N confirmaciones.
+
+Pendiente: barrido (*sweep*) de wallets de depósito a la hot wallet, reemplazo de tx atascadas (gas bump), TRON/BTC/LTC.
+
+Pruebas: `bash test/smoke.sh` (libro), `bash test/netting.sh` (compensación) y `node test/transfers.e2e.mjs` (on-chain, contra cadena local Hardhat/Anvil).
 
 ## Local
 ```bash

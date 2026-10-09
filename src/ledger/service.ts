@@ -33,10 +33,14 @@ export async function listAssets() {
 //  custody  (activo)     → lo que la master wallet tiene on-chain
 //  fees     (ingreso)    → spread y comisiones
 //  equity   (patrimonio) → ajustes/capital; puede quedar negativa
+//  withdrawals_pending (pasivo) → saldo reservado de retiros en vuelo
+//  network_fees (gasto)  → gas pagado por la plataforma
 const SYSTEM_ACCOUNTS = [
   ['custody', 'asset', 'debit', false, 'Custodia on-chain (master wallet)'],
   ['fees', 'revenue', 'credit', false, 'Ingresos por comisiones y spread'],
   ['equity', 'equity', 'credit', true, 'Patrimonio / ajustes'],
+  ['withdrawals_pending', 'liability', 'credit', false, 'Retiros en tránsito (reservados, aún no confirmados)'],
+  ['network_fees', 'expense', 'debit', false, 'Gas / comisiones de red pagadas'],
 ] as const;
 
 export async function ensureSystemAccounts(c: Tx, assetId: string) {
