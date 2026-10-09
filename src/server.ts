@@ -7,6 +7,9 @@ import { chainRoutes } from './routes/chain.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { ledgerRoutes } from './routes/ledger.js';
 import { nettingRoutes } from './routes/netting.js';
+import { transferRoutes } from './routes/transfers.js';
+import { ensureHotWalletRegistered, startWorker } from './ledger/transfers.js';
+import { getSigner } from './chain/signer.js';
 import { pool } from './db.js';
 import { migrate } from './migrations/index.js';
 import { ensureAllSystemAccounts } from './ledger/service.js';
@@ -15,11 +18,27 @@ const app = Fastify({ logger: true, trustProxy: true });
 
 if (config.MIGRATE_ON_START) await migrate(pool, (m) => app.log.info(m));
 await ensureAllSystemAccounts();
+await ensureHotWalletRegistered();
 
 // Conserva el cuerpo crudo para verificar firmas HMAC
 app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
   (req as unknown as { rawBody: string }).rawBody = body as string;
   try { done(null, body ? JSON.parse(body as string) : {}); } catch (e) { done(e as Error, undefined); }
+});
+
+// Debe registrarse ANTES de las rutas para que los plugins encapsulados (/v1) lo hereden
+app.setErrorHandler((e, req, reply) => {
+  const err = e as { statusCode?: number; message: string; code?: string };
+  // Errores de PostgreSQL traducidos a HTTP sin filtrar detalles internos
+  const pg: Record<string, [number, string]> = {
+    '23505': [409, 'El recurso ya existe'], '23503': [422, 'Referencia inexistente'],
+    '22P02': [400, 'Formato inválido'], '23514': [422, 'Restricción de negocio violada'], P0001: [422, err.message],
+  };
+  const mapped = err.code ? pg[err.code] : undefined;
+  if (mapped) return reply.code(mapped[0]).send({ error: mapped[1], code: err.code });
+  if (err.statusCode && err.statusCode < 500) return reply.code(err.statusCode).send({ error: err.message, code: err.code });
+  req.log.error(e);
+  reply.code(502).send({ error: 'Error interno' });
 });
 
 await app.register(helmet);
@@ -44,22 +63,15 @@ await app.register(async (v1) => {
   await v1.register(webhookRoutes);
   await v1.register(ledgerRoutes);
   await v1.register(nettingRoutes);
+  await v1.register(transferRoutes);
 }, { prefix: '/v1' });
-
-app.setErrorHandler((e, req, reply) => {
-  const err = e as { statusCode?: number; message: string; code?: string };
-  // Errores de PostgreSQL traducidos a HTTP sin filtrar detalles internos
-  const pg: Record<string, [number, string]> = {
-    '23505': [409, 'El recurso ya existe'], '23503': [422, 'Referencia inexistente'],
-    '22P02': [400, 'Formato inválido'], '23514': [422, 'Restricción de negocio violada'], P0001: [422, err.message],
-  };
-  const mapped = err.code ? pg[err.code] : undefined;
-  if (mapped) return reply.code(mapped[0]).send({ error: mapped[1], code: err.code });
-  if (err.statusCode && err.statusCode < 500) return reply.code(err.statusCode).send({ error: err.message, code: err.code });
-  req.log.error(e);
-  reply.code(502).send({ error: 'Error interno' });
-});
 
 for (const s of ['SIGINT', 'SIGTERM'] as const) process.on(s, () => app.close().then(() => pool.end()).then(() => process.exit(0)));
 
 await app.listen({ port: config.PORT, host: config.HOST });
+
+if (config.WORKER_ENABLED) {
+  const signer = getSigner();
+  app.log.info({ signer: signer?.kind ?? 'ninguno', address: signer?.address() }, 'worker de transferencias activo');
+  startWorker(app.log);
+}
