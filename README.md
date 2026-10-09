@@ -70,9 +70,21 @@ Ciclo de un retiro: `reserved → signed → broadcast → confirmed` (o `failed
 - Firma detrás de la interfaz `Signer` (`src/chain/signer.ts`). Hoy `LocalKeySigner` (**solo testnet**, bloqueado en mainnet); mañana MPC sin tocar el flujo.
 - Depósitos: se revalidan contra la cadena y se acreditan una sola vez (`tx_hash + log_index`) al llegar a N confirmaciones.
 
-Pendiente: barrido (*sweep*) de wallets de depósito a la hot wallet, reemplazo de tx atascadas (gas bump), TRON/BTC/LTC.
+### Direcciones de depósito y barrido
+| Método | Ruta | Notas |
+|---|---|---|
+| POST | `/v1/clients/:id/deposit-address` | Dirección propia del cliente (HD `m/44'/60'/0'/0/i`); `{rotate:true}` genera otra |
+| GET | `/v1/sweeps` | Movimientos internos depósito → hot wallet |
 
-Pruebas: `bash test/smoke.sh` (libro), `bash test/netting.sh` (compensación) y `node test/transfers.e2e.mjs` (on-chain, contra cadena local Hardhat/Anvil).
+- Cada dirección nueva se registra sola en el webhook Address Activity (Alchemy Notify API); si falla, el worker reintenta.
+- Barrido automático: tokens → si la dirección no tiene ETH, la hot wallet le envía gas (`gas_topup`) y luego se barre (`sweep_token`); ETH ≥ `SWEEP_MIN_NATIVE_WEI` → `sweep_native`.
+- El barrido no cambia la custodia (es interno); solo el gas se registra en `network_fees`. El gas enviado por la plataforma nunca se acredita como depósito.
+- Conciliación (`/v1/treasury/hot-wallet`): on-chain (hot + direcciones de depósito) − custodia en libro.
+- Nonces de la hot wallet compartidos entre retiros y barridos (`src/chain/nonce.ts`).
+
+Pendiente: reemplazo de tx atascadas (gas bump), TRON/BTC/LTC.
+
+Pruebas: `bash test/smoke.sh` (libro), `bash test/netting.sh` (compensación) `node test/transfers.e2e.mjs` y `node test/deposits-sweep.e2e.mjs` (on-chain, contra cadena local Hardhat/Anvil).
 
 ## Local
 ```bash
