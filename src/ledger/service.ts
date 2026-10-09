@@ -161,64 +161,67 @@ export async function getEntry(id: string) {
   return { ...e.rows[0], postings: p.rows };
 }
 
-export async function postEntry(input: EntryInput): Promise<{ entry: Awaited<ReturnType<typeof getEntry>>; replayed: boolean }> {
+// Registra un asiento dentro de una transacción ya abierta (lo usan otros motores, p.ej. compensación)
+export async function postEntryIn(c: Tx, input: EntryInput): Promise<{ id: string; replayed: boolean }> {
   if (input.postings.length < 2) throw new LedgerError(422, 'Un asiento requiere al menos 2 partidas', 'invalid_entry');
   for (const p of input.postings) {
     if (!AMOUNT_RE.test(p.amount)) throw new LedgerError(422, `Monto inválido: ${p.amount} (entero positivo en unidades base)`, 'invalid_amount');
   }
 
+  if (input.idempotency_key) {
+    const prev = await c.query('SELECT id FROM journal_entries WHERE idempotency_key = $1', [input.idempotency_key]);
+    if (prev.rows[0]) return { id: prev.rows[0].id as string, replayed: true };
+  }
+
+  // Resolver cuentas (por id o code) y bloquearlas en orden fijo para evitar interbloqueos
+  const refs = [...new Set(input.postings.map((p) => p.account))];
+  const { rows: accs } = await c.query(
+    `SELECT id, code, asset_id, normal_side, balance FROM accounts
+      WHERE id::text = ANY($1) OR code = ANY($1) ORDER BY id FOR UPDATE`,
+    [refs],
+  );
+  const byRef = new Map<string, (typeof accs)[number]>();
+  for (const a of accs) { byRef.set(a.id, a); byRef.set(a.code, a); }
+  const missing = refs.filter((r) => !byRef.has(r));
+  if (missing.length) throw new LedgerError(404, `Cuenta(s) no encontrada(s): ${missing.join(', ')}`, 'not_found');
+
+  // Cuadre por activo antes de tocar la base (el trigger lo vuelve a validar al COMMIT)
+  const net = new Map<string, bigint>();
+  for (const p of input.postings) {
+    const a = byRef.get(p.account)!;
+    const v = BigInt(p.amount) * (p.direction === 'debit' ? 1n : -1n);
+    net.set(a.asset_id, (net.get(a.asset_id) ?? 0n) + v);
+  }
+  for (const [asset, v] of net) if (v !== 0n) throw new LedgerError(422, `Asiento descuadrado en ${asset}: diferencia ${v}`, 'unbalanced');
+
+  const { rows: [entry] } = await c.query(
+    `INSERT INTO journal_entries (kind, description, external_ref, idempotency_key, metadata)
+     VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+    [input.kind, input.description ?? null, input.external_ref ?? null, input.idempotency_key ?? null, input.metadata ?? {}],
+  );
+
+  const running = new Map<string, bigint>(accs.map((a) => [a.id, BigInt(a.balance)]));
+  for (const p of input.postings) {
+    const a = byRef.get(p.account)!;
+    const delta = BigInt(p.amount) * (p.direction === a.normal_side ? 1n : -1n);
+    const after = running.get(a.id)! + delta;
+    running.set(a.id, after);
+    await c.query(
+      `INSERT INTO postings (entry_id, account_id, asset_id, direction, amount, balance_after)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [entry.id, a.id, a.asset_id, p.direction, p.amount, after.toString()],
+    );
+  }
+  for (const [id, bal] of running) {
+    // El CHECK (allow_negative OR balance >= 0) rechaza sobregiros
+    await c.query('UPDATE accounts SET balance = $2, version = version + 1 WHERE id = $1', [id, bal.toString()]);
+  }
+  return { id: entry.id as string, replayed: false };
+}
+
+export async function postEntry(input: EntryInput): Promise<{ entry: Awaited<ReturnType<typeof getEntry>>; replayed: boolean }> {
   try {
-    const entryId = await tx(async (c) => {
-      if (input.idempotency_key) {
-        const prev = await c.query('SELECT id FROM journal_entries WHERE idempotency_key = $1', [input.idempotency_key]);
-        if (prev.rows[0]) return { id: prev.rows[0].id as string, replayed: true };
-      }
-
-      // Resolver cuentas (por id o code) y bloquearlas en orden fijo para evitar interbloqueos
-      const refs = [...new Set(input.postings.map((p) => p.account))];
-      const { rows: accs } = await c.query(
-        `SELECT id, code, asset_id, normal_side, balance FROM accounts
-          WHERE id::text = ANY($1) OR code = ANY($1) ORDER BY id FOR UPDATE`,
-        [refs],
-      );
-      const byRef = new Map<string, (typeof accs)[number]>();
-      for (const a of accs) { byRef.set(a.id, a); byRef.set(a.code, a); }
-      const missing = refs.filter((r) => !byRef.has(r));
-      if (missing.length) throw new LedgerError(404, `Cuenta(s) no encontrada(s): ${missing.join(', ')}`, 'not_found');
-
-      // Cuadre por activo antes de tocar la base (el trigger lo vuelve a validar al COMMIT)
-      const net = new Map<string, bigint>();
-      for (const p of input.postings) {
-        const a = byRef.get(p.account)!;
-        const v = BigInt(p.amount) * (p.direction === 'debit' ? 1n : -1n);
-        net.set(a.asset_id, (net.get(a.asset_id) ?? 0n) + v);
-      }
-      for (const [asset, v] of net) if (v !== 0n) throw new LedgerError(422, `Asiento descuadrado en ${asset}: diferencia ${v}`, 'unbalanced');
-
-      const { rows: [entry] } = await c.query(
-        `INSERT INTO journal_entries (kind, description, external_ref, idempotency_key, metadata)
-         VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-        [input.kind, input.description ?? null, input.external_ref ?? null, input.idempotency_key ?? null, input.metadata ?? {}],
-      );
-
-      const running = new Map<string, bigint>(accs.map((a) => [a.id, BigInt(a.balance)]));
-      for (const p of input.postings) {
-        const a = byRef.get(p.account)!;
-        const delta = BigInt(p.amount) * (p.direction === a.normal_side ? 1n : -1n);
-        const after = running.get(a.id)! + delta;
-        running.set(a.id, after);
-        await c.query(
-          `INSERT INTO postings (entry_id, account_id, asset_id, direction, amount, balance_after)
-           VALUES ($1,$2,$3,$4,$5,$6)`,
-          [entry.id, a.id, a.asset_id, p.direction, p.amount, after.toString()],
-        );
-      }
-      for (const [id, bal] of running) {
-        // El CHECK (allow_negative OR balance >= 0) rechaza sobregiros
-        await c.query('UPDATE accounts SET balance = $2, version = version + 1 WHERE id = $1', [id, bal.toString()]);
-      }
-      return { id: entry.id as string, replayed: false };
-    });
+    const entryId = await tx((c) => postEntryIn(c, input));
     return { entry: await getEntry(entryId.id), replayed: entryId.replayed };
   } catch (e) {
     const err = e as { code?: string; constraint?: string };

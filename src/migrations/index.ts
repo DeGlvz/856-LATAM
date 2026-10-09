@@ -1,12 +1,14 @@
 import type { Pool } from 'pg';
 import m001 from './001_ledger.js';
 import m002 from './002_seed_assets.js';
+import m003 from './003_compensacion.js';
 
 // Migraciones embebidas en el build (no hay archivos .sql que copiar al contenedor).
 // Nunca editar una ya aplicada: agregar una nueva.
 const migrations: [string, string][] = [
   ['001_ledger', m001],
   ['002_seed_assets', m002],
+  ['003_compensacion', m003],
 ];
 
 export async function migrate(pool: Pool, log: (msg: string) => void = console.log) {

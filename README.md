@@ -34,7 +34,22 @@ Reglas del libro:
 - Idempotencia: misma llave + mismo cuerpo → misma respuesta (`idempotent-replayed: true`); otro cuerpo → 422.
 - Migraciones embebidas, se aplican al arrancar (`MIGRATE_ON_START`), con candado para varias réplicas.
 
-Prueba de humo: `BASE=https://… KEY=<api key> bash test/smoke.sh`
+### Compensación (fase 2)
+| Método | Ruta | Notas |
+|---|---|---|
+| POST | `/v1/obligations` | **Idempotency-Key**. `{debtor_id, creditor_id, asset_id, amount, due_at?, external_ref?}` (OC, factura, CFDI) |
+| GET | `/v1/obligations?client_id&status&asset_id` | |
+| POST | `/v1/obligations/:id/cancel` | Solo si está `open` |
+| POST | `/v1/netting/preview` | `{asset_id, cutoff?, obligation_ids?}` → posiciones netas, bruto, neto, `savings_bps`, faltantes |
+| POST | `/v1/netting/runs` | **Idempotency-Key**. Liquida el alcance en un solo asiento `netting` |
+| GET | `/v1/netting/runs/:id` | Corrida con posiciones y obligaciones liquidadas |
+
+Reglas del motor:
+- Netting multilateral: cada cliente solo paga o recibe `por cobrar − por pagar`. Un ciclo A→B→C→A se liquida sin mover saldo.
+- Todo o nada: si un pagador neto no tiene saldo, la corrida se rechaza (`insufficient_funds`) y nada cambia.
+- Obligaciones bloqueadas durante la corrida: dos corridas simultáneas no liquidan lo mismo dos veces.
+
+Pruebas: `BASE=https://… KEY=<api key> bash test/smoke.sh` (libro) y `bash test/netting.sh` (compensación).
 
 ## Local
 ```bash

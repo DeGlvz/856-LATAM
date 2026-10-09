@@ -6,6 +6,7 @@ import { client } from './chain.js';
 import { chainRoutes } from './routes/chain.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { ledgerRoutes } from './routes/ledger.js';
+import { nettingRoutes } from './routes/netting.js';
 import { pool } from './db.js';
 import { migrate } from './migrations/index.js';
 import { ensureAllSystemAccounts } from './ledger/service.js';
@@ -42,6 +43,7 @@ await app.register(async (v1) => {
   await v1.register(chainRoutes);
   await v1.register(webhookRoutes);
   await v1.register(ledgerRoutes);
+  await v1.register(nettingRoutes);
 }, { prefix: '/v1' });
 
 app.setErrorHandler((e, req, reply) => {
