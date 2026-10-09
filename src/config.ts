@@ -10,6 +10,9 @@ const Env = z.object({
   API_KEYS: z.string().min(1).transform((s) => new Set(s.split(',').map((k) => k.trim()).filter(Boolean))),
   ALCHEMY_WEBHOOK_SIGNING_KEY: z.string().optional(),
   RATE_LIMIT_PER_MIN: z.coerce.number().default(120),
+  DATABASE_URL: z.string().url(),
+  DB_POOL_MAX: z.coerce.number().default(10),
+  MIGRATE_ON_START: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
 });
 
 export const config = Env.parse(process.env);
