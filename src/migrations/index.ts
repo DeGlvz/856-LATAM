@@ -3,6 +3,7 @@ import m001 from './001_ledger.js';
 import m002 from './002_seed_assets.js';
 import m003 from './003_compensacion.js';
 import m004 from './004_transferencias.js';
+import m005 from './005_depositos_barrido.js';
 
 // Migraciones embebidas en el build (no hay archivos .sql que copiar al contenedor).
 // Nunca editar una ya aplicada: agregar una nueva.
@@ -11,6 +12,7 @@ const migrations: [string, string][] = [
   ['002_seed_assets', m002],
   ['003_compensacion', m003],
   ['004_transferencias', m004],
+  ['005_depositos_barrido', m005],
 ];
 
 export async function migrate(pool: Pool, log: (msg: string) => void = console.log) {
