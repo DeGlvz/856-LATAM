@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { config } from '../config.js';
+import { detectDeposits } from '../ledger/transfers.js';
 
 // Receptor de Alchemy Notify (Address Activity, Mined Tx, etc.)
 export async function webhookRoutes(app: FastifyInstance) {
@@ -16,9 +17,15 @@ export async function webhookRoutes(app: FastifyInstance) {
       return reply.code(401).send({ error: 'Firma inválida' });
     }
 
-    const evt = req.body as { id?: string; type?: string; event?: unknown };
+    const evt = req.body as { id?: string; type?: string; event?: { activity?: { hash?: string }[] } };
     req.log.info({ id: evt.id, type: evt.type }, 'Evento Alchemy recibido');
-    // TODO: encolar / persistir evt.event (idempotencia por evt.id)
-    return { ok: true };
+    // Address Activity: cada hash se analiza contra las wallets de depósito (idempotente por tx+log)
+    const hashes = [...new Set((evt.event?.activity ?? []).map((a) => a.hash).filter((h): h is string => !!h))];
+    let detected = 0;
+    for (const h of hashes) {
+      try { detected += (await detectDeposits(h, 'webhook')).deposits.length; }
+      catch (e) { req.log.warn({ tx: h, err: (e as Error).message }, 'hash del webhook no procesado'); }
+    }
+    return { ok: true, hashes: hashes.length, deposits: detected };
   });
 }
