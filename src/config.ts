@@ -16,6 +16,15 @@ const Env = z.object({
   RPC_URL: z.string().url().optional(),
   // Llave de PRUEBA (Sepolia) de la hot wallet. En producción se reemplaza por MPC (ver src/chain/signer.ts)
   SIGNER_PRIVATE_KEY: z.string().regex(/^0x[0-9a-fA-F]{64}$/, 'llave hex de 32 bytes con 0x').optional(),
+  // Semilla HD (hex 32-64 bytes) para direcciones de depósito. Si falta, se deriva de SIGNER_PRIVATE_KEY (solo testnet)
+  DEPOSIT_HD_SEED: z.string().regex(/^0x[0-9a-fA-F]{64,128}$/).optional(),
+  // Alchemy Notify: registrar direcciones de depósito en el webhook Address Activity
+  ALCHEMY_WEBHOOK_ID: z.string().optional(),
+  ALCHEMY_NOTIFY_TOKEN: z.string().optional(),
+  ALCHEMY_NOTIFY_URL: z.string().url().default('https://dashboard.alchemy.com/api/update-webhook-addresses'),
+  // Barrido: ETH mínimo (wei) para barrer saldo nativo de una dirección de depósito
+  SWEEP_MIN_NATIVE_WEI: z.coerce.bigint().default(1_000_000_000_000_000n), // 0.001 ETH
+  SWEEP_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
   CONFIRMATIONS: z.coerce.number().int().min(1).default(3),
   WORKER_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
   WORKER_INTERVAL_MS: z.coerce.number().int().min(1000).default(10_000),

@@ -3,9 +3,12 @@ import {
 } from 'viem';
 import { client } from '../chain.js';
 import { getSigner } from '../chain/signer.js';
+import { nextNonce } from '../chain/nonce.js';
 import { config } from '../config.js';
 import { pool, tx, type Tx } from '../db.js';
 import { LedgerError, openClientAccount, postEntryIn } from './service.js';
+import { registerPendingAddresses } from './deposit-addresses.js';
+import { sweepStep } from './sweeps.js';
 
 const MAX_ATTEMPTS = 5;
 const lower = (a: string) => a.toLowerCase();
@@ -138,12 +141,7 @@ async function signReserved(log: Logger) {
       if (!w) return true;
       const asset = await getAsset(c, w.asset_id);
       try {
-        const chainNonce = await client.getTransactionCount({ address: from as Address, blockTag: 'pending' });
-        const { rows: [m] } = await c.query(
-          `SELECT COALESCE(MAX(nonce) + 1, 0) AS n FROM withdrawals WHERE from_address = $1 AND status IN ('signed','broadcast','confirmed')`,
-          [from],
-        );
-        const nonce = Math.max(chainNonce, Number(m.n));
+        const nonce = await nextNonce(c, from);
         const call = asset.kind === 'native'
           ? { to: w.to_address as Address, value: BigInt(w.amount), data: undefined }
           : { to: asset.contract_address as Address, value: 0n,
@@ -287,12 +285,16 @@ export async function detectDeposits(txHash: string, source: 'api' | 'webhook' =
     `SELECT id, client_id, address FROM wallets WHERE network = $1 AND purpose = 'deposit' AND active AND client_id IS NOT NULL`, [network],
   );
   const byAddr = new Map(wallets.map((w) => [w.address as string, w]));
+  // Lo que envía la propia plataforma (p.ej. gas para barrido) no es un depósito de cliente
+  const { rows: own } = await pool.query(
+    `SELECT address FROM wallets WHERE network = $1 AND purpose IN ('master_hot','master_cold')`, [network]);
+  const platform = new Set(own.map((w) => w.address as string));
   const { rows: assets } = await pool.query(`SELECT id, kind, contract_address FROM assets WHERE network = $1 AND active`, [network]);
   const native = assets.find((a) => a.kind === 'native');
   const byContract = new Map(assets.filter((a) => a.contract_address).map((a) => [a.contract_address as string, a]));
 
   const found: { log_index: number; wallet: (typeof wallets)[number]; asset_id: string; from: string; amount: bigint }[] = [];
-  if (native && txn.to && txn.value > 0n && byAddr.has(lower(txn.to))) {
+  if (native && txn.to && txn.value > 0n && byAddr.has(lower(txn.to)) && !platform.has(lower(txn.from))) {
     found.push({ log_index: -1, wallet: byAddr.get(lower(txn.to))!, asset_id: native.id, from: lower(txn.from), amount: txn.value });
   }
   for (const lg of receipt.logs) {
@@ -302,7 +304,7 @@ export async function detectDeposits(txHash: string, source: 'api' | 'webhook' =
     if (ev.eventName !== 'Transfer') continue;
     const { from, to, value } = ev.args as { from: Address; to: Address; value: bigint };
     const w = byAddr.get(lower(to));
-    if (w && value > 0n) found.push({ log_index: lg.logIndex, wallet: w, asset_id: asset.id, from: lower(from), amount: value });
+    if (w && value > 0n && !platform.has(lower(from))) found.push({ log_index: lg.logIndex, wallet: w, asset_id: asset.id, from: lower(from), amount: value });
   }
 
   for (const d of found) {
@@ -367,20 +369,27 @@ export async function hotWalletStatus() {
     `SELECT a.id, a.kind, a.contract_address, acc.balance AS ledger_custody
        FROM assets a JOIN accounts acc ON acc.code = 'system:' || a.id || ':custody'
       WHERE a.network = $1 AND a.active AND a.kind IN ('native','erc20') ORDER BY a.id`, [config.ALCHEMY_NETWORK]);
+  // Wallets controladas por la plataforma: hot + direcciones de depósito derivadas
+  const { rows: deps } = await pool.query(
+    `SELECT address FROM wallets WHERE network = $1 AND purpose = 'deposit' AND derivation_index IS NOT NULL`, [config.ALCHEMY_NETWORK]);
+  const read = (a: { kind: string; contract_address: string | null }, addr: Address) => a.kind === 'native'
+    ? client.getBalance({ address: addr })
+    : client.readContract({ address: a.contract_address as Address, abi: erc20Abi, functionName: 'balanceOf', args: [addr] });
   const balances = [];
   for (const a of assets) {
     try {
-      const onchain = a.kind === 'native'
-        ? await client.getBalance({ address })
-        : await client.readContract({ address: a.contract_address, abi: erc20Abi, functionName: 'balanceOf', args: [address] });
-      balances.push({ asset_id: a.id, onchain: onchain.toString(), ledger_custody: a.ledger_custody,
-        difference: (onchain - BigInt(a.ledger_custody)).toString() });
+      const hot = await read(a, address);
+      let deposits = 0n;
+      for (const d of deps) deposits += await read(a, d.address as Address);
+      const total = hot + deposits;
+      balances.push({ asset_id: a.id, hot_wallet: hot.toString(), deposit_addresses: deposits.toString(), onchain_total: total.toString(),
+        ledger_custody: a.ledger_custody, difference: (total - BigInt(a.ledger_custody)).toString() });
     } catch {
-      balances.push({ asset_id: a.id, onchain: null, ledger_custody: a.ledger_custody, difference: null, error: 'contrato no responde en esta red' });
+      balances.push({ asset_id: a.id, onchain_total: null, ledger_custody: a.ledger_custody, difference: null, error: 'contrato no responde en esta red' });
     }
   }
-  return { configured: true, signer: signer.kind, address, network: config.ALCHEMY_NETWORK, balances,
-    note: 'ledger_custody incluye todas las wallets de la plataforma; difference ≠ 0 indica fondos sin registrar o depósitos en otras direcciones' };
+  return { configured: true, signer: signer.kind, address, network: config.ALCHEMY_NETWORK, deposit_addresses: deps.length, balances,
+    note: 'difference = on-chain (hot + depósitos) − custodia en libro. > 0: fondos sin acreditar aún; < 0: alerta' };
 }
 
 export async function ensureHotWalletRegistered() {
@@ -411,6 +420,8 @@ export async function workerTick(log: Logger) {
       await broadcastSigned(log);
       await confirmBroadcast(log);
       await creditConfirmedDeposits(log);
+      await registerPendingAddresses(log);
+      await sweepStep(log);
       return { ok: true };
     } finally {
       await c.query('SELECT pg_advisory_unlock(856003)');
