@@ -29,6 +29,17 @@ const Env = z.object({
   WORKER_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
   WORKER_INTERVAL_MS: z.coerce.number().int().min(1000).default(10_000),
   MIGRATE_ON_START: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
+  // Consola de operación (/console): sesiones de operador con cookie httpOnly
+  COOKIE_SECURE: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'), // false solo en local (http)
+  SESSION_TTL_MIN: z.coerce.number().int().min(5).default(480),   // vida máxima de la sesión
+  SESSION_IDLE_MIN: z.coerce.number().int().min(1).default(30),   // cierre por inactividad
+  LOGIN_MAX_FAILS: z.coerce.number().int().min(1).default(5),     // intentos antes de bloquear
+  LOGIN_LOCK_MIN: z.coerce.number().int().min(1).default(15),
+  // Primer operador (tesorero): se crea solo si la tabla está vacía. Borrar la contraseña después del primer arranque.
+  CONSOLE_BOOTSTRAP_EMAIL: z.string().email().optional(),
+  CONSOLE_BOOTSTRAP_PASSWORD: z.string().min(12).optional(),
+  // Tablero: alerta de gas si la hot wallet tiene menos de este saldo nativo (wei)
+  GAS_LOW_WEI: z.coerce.bigint().default(50_000_000_000_000_000n), // 0.05 ETH
 });
 
 export const config = Env.parse(process.env);

@@ -82,6 +82,33 @@ Ciclo de un retiro: `reserved → signed → broadcast → confirmed` (o `failed
 - Conciliación (`/v1/treasury/hot-wallet`): on-chain (hot + direcciones de depósito) − custodia en libro.
 - Nonces de la hot wallet compartidos entre retiros y barridos (`src/chain/nonce.ts`).
 
+### Consola de operación (fase 1: login + tablero)
+Interfaz web en **`/console`** (React + Vite + TypeScript, TanStack Query, Tailwind + shadcn/ui; código en `web/`). Fastify sirve `web/dist`.
+
+| Método | Ruta | Notas |
+|---|---|---|
+| POST | `/v1/auth/login` | `{email, password}` → cookie de sesión `httpOnly`, `Secure`, `SameSite=Strict`. 10 intentos/min por IP |
+| GET | `/v1/auth/me` | Operador de la sesión |
+| POST | `/v1/auth/logout` | Revoca la sesión en el servidor |
+| GET | `/v1/summary` | Tablero: salud, conciliación por activo, gas de la hot wallet, retiros en vuelo, pendientes |
+| GET | `/v1/clients?limit&cursor&status&kind&q` | Lista paginada por cursor (`next_cursor`) |
+| GET | `/v1/entries?limit&cursor&kind&external_ref&account&client_id&asset_id&from&to&postings` | Asientos con filtros y partidas |
+
+Seguridad:
+- `/v1` acepta **x-api-key** (integraciones) **o** sesión de operador (consola). La API key nunca llega al navegador.
+- Contraseñas con **argon2id**; la base guarda solo el SHA-256 del token de sesión. Sesión de 8 h con cierre a los 30 min de inactividad.
+- 5 intentos fallidos bloquean la cuenta 15 min; el mensaje de error no revela si el correo existe.
+- Escrituras desde la consola exigen el header `x-856-console: 1` (defensa CSRF adicional a `SameSite=Strict`).
+- Roles: **lectura** (solo consulta) · **operador** (altas de clientes, cuentas, obligaciones, depósitos) · **tesorero** (retiros, asientos, transferencias internas, corridas de compensación, activos, wallets, worker).
+- Bitácora `audit_log` inmutable: login, fallos, logout, accesos denegados y toda escritura hecha desde la consola.
+
+Alta de operadores:
+- Primer tesorero: definir `CONSOLE_BOOTSTRAP_EMAIL` y `CONSOLE_BOOTSTRAP_PASSWORD` (mín. 12), arrancar una vez y **borrar la contraseña** de las variables. Solo actúa si no hay operadores.
+- Siguientes: `npm run operator:create -- <email> <lectura|operador|tesorero> [nombre]` (pide la contraseña por stdin).
+
+Desarrollo: `npm run dev` (API en :8080) y `npm --prefix web run dev` (Vite con proxy de `/v1`; usar `COOKIE_SECURE=false` en local).
+Prueba: `node test/console.e2e.mjs` (58 verificaciones: sesión, roles, CSRF, bitácora, tablero, paginación, estáticos).
+
 Pendiente: reemplazo de tx atascadas (gas bump), TRON/BTC/LTC.
 
 Pruebas: `bash test/smoke.sh` (libro), `bash test/netting.sh` (compensación) `node test/transfers.e2e.mjs` y `node test/deposits-sweep.e2e.mjs` (on-chain, contra cadena local Hardhat/Anvil).
