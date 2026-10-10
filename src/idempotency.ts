@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { pool } from './db.js';
+import './auth/operators.js'; // tipo FastifyRequest.principal
 
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 const STALE_MS = 60_000; // una petición "en curso" más vieja que esto se considera abandonada
@@ -27,7 +28,9 @@ export async function idempotent<T>(
   if (typeof key !== 'string' || key.length < 8 || key.length > 200) {
     throw new HttpError(400, 'Header Idempotency-Key requerido (8–200 caracteres)', 'idempotency_key_required');
   }
-  const scope = sha(`${req.headers['x-api-key'] ?? ''}|${req.method}|${req.routeOptions.url}`).slice(0, 32);
+  // Alcance por identidad: API key o operador de la consola (cada operador tiene su propio espacio de llaves)
+  const who = req.principal?.kind === 'operator' ? `op:${req.principal.operator.id}` : req.headers['x-api-key'] ?? '';
+  const scope = sha(`${who}|${req.method}|${req.routeOptions.url}`).slice(0, 32);
   const requestHash = sha(canonical({ params: req.params, body: req.body ?? null }));
 
   const ins = await pool.query(
