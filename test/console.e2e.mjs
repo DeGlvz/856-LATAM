@@ -133,7 +133,7 @@ do {
   r.clients.forEach((c) => seen.add(c.id)); cursor = r.next_cursor; pages++;
 } while (cursor && pages < 10);
 check('clientes: 5 únicos en 3 páginas', `${seen.size}/${pages}`, '5/3');
-check('clientes: filtro status', (await lec.call('GET', '/v1/clients?status=closed')).body.clients.length, 0);
+check('clientes: filtro status', (await lec.call('GET', `/v1/clients?status=closed&q=Pag%20${R}`)).body.clients.length, 0);
 check('clientes: cursor inválido → 400', (await lec.call('GET', '/v1/clients?cursor=basura')).status, 400);
 check('clientes: accounts_count', (await lec.call('GET', `/v1/clients?q=${cl.id}`)).body.clients[0]?.accounts_count, 1);
 
