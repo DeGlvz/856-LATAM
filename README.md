@@ -123,6 +123,8 @@ Ciclo de vida del cliente (migración `007`):
 - Suspender o cerrar exige motivo (mín. 5 caracteres); queda en el cliente y en la bitácora.
 - Cerrar exige saldos en cero y nada abierto (retiros en vuelo, depósitos pendientes, obligaciones).
 - **Bloqueo en base de datos**: un cliente `suspended` o `closed` no puede disponer de saldo (cualquier débito a su cuenta se rechaza: retiros, transferencias, pagos netos, asientos manuales). Sí puede recibir.
+- **Retiros solo para clientes `active`** (KYB aprobado): `pending_kyb`, `suspended` y `closed` reciben `422 client_not_active`.
+- Compensación: si un pagador neto está suspendido o cerrado, la corrida completa se rechaza (todo o nada); se excluyen sus obligaciones o se reactiva antes de correr.
 - Cliente cerrado: no admite nuevas direcciones de depósito ni de lista blanca.
 - `POST /v1/wallets` valida direcciones Ethereum.
 
