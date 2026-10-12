@@ -4,6 +4,9 @@ import { useAuth } from './lib/auth';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
+import { Clients } from './pages/Clients';
+import { ClientDetail } from './pages/ClientDetail';
+import { Account } from './pages/Account';
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { operator, loading } = useAuth();
@@ -20,6 +23,9 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route element={<RequireAuth><Layout /></RequireAuth>}>
           <Route index element={<Dashboard />} />
+          <Route path="clientes" element={<Clients />} />
+          <Route path="clientes/:id" element={<ClientDetail />} />
+          <Route path="cuentas/:ref" element={<Account />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
