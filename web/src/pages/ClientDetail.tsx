@@ -81,6 +81,11 @@ export function ClientDetail() {
         )}
       </div>
 
+      {c.status === 'pending_kyb' && (
+        <div className="rounded-lg border border-warning/50 bg-warning/10 px-4 py-3 text-sm">
+          KYB pendiente: puede recibir depósitos y operar dentro del libro, pero <b>no puede retirar</b> hasta que se active.
+        </div>
+      )}
       {(c.status === 'suspended' || closed) && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {closed ? 'Cliente cerrado: no admite cambios ni movimientos.' : 'Cliente suspendido: puede recibir depósitos, pero no retirar, transferir ni pagar en compensación.'}
