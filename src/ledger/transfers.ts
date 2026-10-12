@@ -9,6 +9,7 @@ import { pool, tx, type Tx } from '../db.js';
 import { LedgerError, openClientAccount, postEntryIn } from './service.js';
 import { registerPendingAddresses } from './deposit-addresses.js';
 import { sweepStep } from './sweeps.js';
+import { decodeCursor, page } from '../pagination.js';
 
 const MAX_ATTEMPTS = 5;
 const lower = (a: string) => a.toLowerCase();
@@ -88,22 +89,27 @@ export async function requestWithdrawal(i: {
 
 export async function getWithdrawal(id: string) {
   const { rows: [w] } = await pool.query(
-    `SELECT id, client_id, account_id, asset_id, to_address, amount, status, from_address, nonce, tx_hash,
-            block_number, confirmations, gas_used, gas_cost_wei, attempts, last_error,
-            reserve_entry_id, settle_entry_id, reversal_entry_id, metadata, created_at, updated_at
-       FROM withdrawals WHERE id = $1`, [id]);
+    `SELECT w.id, w.client_id, c.name AS client_name, w.account_id, w.asset_id, w.to_address, w.amount, w.status, w.from_address,
+            w.nonce, w.tx_hash, w.block_number, w.confirmations, w.gas_used, w.gas_cost_wei, w.attempts, w.last_error,
+            w.reserve_entry_id, w.settle_entry_id, w.reversal_entry_id, w.metadata, w.created_at, w.updated_at
+       FROM withdrawals w JOIN clients c ON c.id = w.client_id WHERE w.id = $1`, [id]);
   if (!w) throw new LedgerError(404, 'Retiro no encontrado', 'not_found');
   return { ...w, required_confirmations: config.CONFIRMATIONS };
 }
 
-export async function listWithdrawals(f: { client_id?: string; status?: string; limit?: number }) {
+export async function listWithdrawals(f: { client_id?: string; status?: string; asset_id?: string; limit?: number; cursor?: string }) {
+  const limit = Math.min(Math.max(f.limit ?? 100, 1), 1000);
+  const cur = decodeCursor(f.cursor);
   const { rows } = await pool.query(
-    `SELECT id, client_id, asset_id, to_address, amount, status, tx_hash, confirmations, last_error, created_at
-       FROM withdrawals WHERE ($1::uuid IS NULL OR client_id = $1) AND ($2::text IS NULL OR status = $2)
-      ORDER BY created_at DESC LIMIT $3`,
-    [f.client_id ?? null, f.status ?? null, Math.min(f.limit ?? 100, 1000)],
+    `SELECT w.id, w.client_id, c.name AS client_name, w.asset_id, w.to_address, w.amount, w.status, w.tx_hash, w.nonce,
+            w.confirmations, w.attempts, w.last_error, w.created_at, w.updated_at, w.created_at::text AS _ts
+       FROM withdrawals w JOIN clients c ON c.id = w.client_id
+      WHERE ($1::uuid IS NULL OR w.client_id = $1) AND ($2::text IS NULL OR w.status = $2) AND ($3::text IS NULL OR w.asset_id = $3)
+        AND ($4::timestamptz IS NULL OR (w.created_at, w.id) < ($4::timestamptz, $5::uuid))
+      ORDER BY w.created_at DESC, w.id DESC LIMIT $6`,
+    [f.client_id ?? null, f.status ?? null, f.asset_id ?? null, cur?.[0] ?? null, cur?.[1] ?? null, limit + 1],
   );
-  return rows;
+  return page(rows, limit);
 }
 
 // Devuelve lo reservado al cliente (cancelación o fallo)
@@ -119,12 +125,12 @@ async function reverseReservation(c: Tx, w: { id: string; account_id: string; as
   return e.id;
 }
 
-export async function cancelWithdrawal(id: string) {
+export async function cancelWithdrawal(id: string, reason = 'cancelado por el cliente') {
   await tx(async (c) => {
     const { rows: [w] } = await c.query('SELECT * FROM withdrawals WHERE id = $1 FOR UPDATE', [id]);
     if (!w) throw new LedgerError(404, 'Retiro no encontrado', 'not_found');
     if (w.status !== 'reserved') throw new LedgerError(409, `No se puede cancelar un retiro en estado ${w.status}`, 'not_cancellable');
-    const rev = await reverseReservation(c, w, 'cancelado por el cliente');
+    const rev = await reverseReservation(c, w, reason);
     await c.query(`UPDATE withdrawals SET status = 'cancelled', reversal_entry_id = $2, updated_at = now() WHERE id = $1`, [id, rev]);
   });
   return getWithdrawal(id);
@@ -322,13 +328,18 @@ export async function detectDeposits(txHash: string, source: 'api' | 'webhook' =
   return { tx_hash: hash, deposits: rows, required_confirmations: config.CONFIRMATIONS };
 }
 
-export async function listDeposits(f: { client_id?: string; status?: string; limit?: number }) {
+export async function listDeposits(f: { client_id?: string; status?: string; asset_id?: string; limit?: number; cursor?: string }) {
+  const limit = Math.min(Math.max(f.limit ?? 100, 1), 1000);
+  const cur = decodeCursor(f.cursor);
   const { rows } = await pool.query(
-    `SELECT * FROM deposits WHERE ($1::uuid IS NULL OR client_id = $1) AND ($2::text IS NULL OR status = $2)
-      ORDER BY created_at DESC LIMIT $3`,
-    [f.client_id ?? null, f.status ?? null, Math.min(f.limit ?? 100, 1000)],
+    `SELECT d.*, c.name AS client_name, w.address AS to_address, d.created_at::text AS _ts
+       FROM deposits d JOIN clients c ON c.id = d.client_id JOIN wallets w ON w.id = d.wallet_id
+      WHERE ($1::uuid IS NULL OR d.client_id = $1) AND ($2::text IS NULL OR d.status = $2) AND ($3::text IS NULL OR d.asset_id = $3)
+        AND ($4::timestamptz IS NULL OR (d.created_at, d.id) < ($4::timestamptz, $5::uuid))
+      ORDER BY d.created_at DESC, d.id DESC LIMIT $6`,
+    [f.client_id ?? null, f.status ?? null, f.asset_id ?? null, cur?.[0] ?? null, cur?.[1] ?? null, limit + 1],
   );
-  return rows;
+  return page(rows, limit);
 }
 
 async function creditConfirmedDeposits(log: Logger) {

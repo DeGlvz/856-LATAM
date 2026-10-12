@@ -3,6 +3,7 @@ import { client } from '../chain.js';
 import { nextNonce } from '../chain/nonce.js';
 import { getDepositKeyring, getSigner, type Signer } from '../chain/signer.js';
 import { config } from '../config.js';
+import { decodeCursor, page } from '../pagination.js';
 import { pool, tx } from '../db.js';
 import { postEntryIn } from './service.js';
 
@@ -153,9 +154,16 @@ async function confirmSweeps(log: Log) {
   }
 }
 
-export async function listSweeps(limit = 100) {
+export async function listSweeps(f: { status?: string; kind?: string; limit?: number; cursor?: string } = {}) {
+  const limit = Math.min(Math.max(f.limit ?? 100, 1), 1000);
+  const cur = decodeCursor(f.cursor);
   const { rows } = await pool.query(
-    `SELECT id, wallet_id, kind, asset_id, amount, from_address, to_address, tx_hash, status, gas_cost_wei, last_error, created_at
-       FROM sweeps ORDER BY created_at DESC LIMIT $1`, [Math.min(limit, 1000)]);
-  return rows;
+    `SELECT s.id, s.wallet_id, w.client_id, c.name AS client_name, s.kind, s.asset_id, s.amount, s.from_address, s.to_address,
+            s.nonce, s.tx_hash, s.status, s.block_number, s.gas_cost_wei, s.last_error, s.created_at, s.updated_at, s.created_at::text AS _ts
+       FROM sweeps s JOIN wallets w ON w.id = s.wallet_id LEFT JOIN clients c ON c.id = w.client_id
+      WHERE ($1::text IS NULL OR s.status = $1) AND ($2::text IS NULL OR s.kind = $2)
+        AND ($3::timestamptz IS NULL OR (s.created_at, s.id) < ($3::timestamptz, $4::uuid))
+      ORDER BY s.created_at DESC, s.id DESC LIMIT $5`,
+    [f.status ?? null, f.kind ?? null, cur?.[0] ?? null, cur?.[1] ?? null, limit + 1]);
+  return page(rows, limit);
 }
