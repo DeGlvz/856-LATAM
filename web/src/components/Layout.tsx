@@ -11,11 +11,11 @@ import { cn } from '@/lib/utils';
 const NAV = [
   { to: '/', label: 'Tablero', icon: Gauge, phase: 1 },
   { to: '/clientes', label: 'Clientes y cuentas', icon: Building2, phase: 2 },
-  { to: '/movimientos', label: 'Retiros, depósitos y barridos', icon: ArrowLeftRight, phase: 3 },
+  { to: '/movimientos', label: 'Retiros y depósitos', icon: ArrowLeftRight, phase: 3 },
   { to: '/compensacion', label: 'Compensación', icon: Network, phase: 4 },
   { to: '/auditoria', label: 'Auditoría', icon: FileClock, phase: 5 },
 ] as const;
-const CURRENT_PHASE = 2;
+const CURRENT_PHASE = 3;
 
 const ROLE_LABEL = { lectura: 'Lectura', operador: 'Operador', tesorero: 'Tesorero' } as const;
 
