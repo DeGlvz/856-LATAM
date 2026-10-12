@@ -109,6 +109,25 @@ Alta de operadores:
 Desarrollo: `npm run dev` (API en :8080) y `npm --prefix web run dev` (Vite con proxy de `/v1`; usar `COOKIE_SECURE=false` en local).
 Prueba: `node test/console.e2e.mjs` (58 verificaciones: sesión, roles, CSRF, bitácora, tablero, paginación, estáticos).
 
+### Consola — fase 2: clientes y cuentas
+Pantallas: lista de clientes (búsqueda, filtros por estado y tipo, paginación), detalle del cliente (cuentas y saldos, direcciones de depósito, lista blanca, asientos recientes), cuenta con su historial de partidas y detalle de asiento.
+
+| Método | Ruta | Notas |
+|---|---|---|
+| PATCH | `/v1/clients/:id` | `{name?, external_id?, metadata?, status?, reason?}`. Cerrar: solo tesorero |
+| GET | `/v1/clients/:id` | Ahora incluye `allowed_transitions`, `status_reason`, `status_changed_at` |
+| PATCH | `/v1/wallets/:id` | `{active}`: activa/desactiva lista blanca o depósito (tesorero) |
+
+Ciclo de vida del cliente (migración `007`):
+- `pending_kyb → active | closed` · `active → suspended | closed` · `suspended → active | closed` · `closed` es definitivo.
+- Suspender o cerrar exige motivo (mín. 5 caracteres); queda en el cliente y en la bitácora.
+- Cerrar exige saldos en cero y nada abierto (retiros en vuelo, depósitos pendientes, obligaciones).
+- **Bloqueo en base de datos**: un cliente `suspended` o `closed` no puede disponer de saldo (cualquier débito a su cuenta se rechaza: retiros, transferencias, pagos netos, asientos manuales). Sí puede recibir.
+- Cliente cerrado: no admite nuevas direcciones de depósito ni de lista blanca.
+- `POST /v1/wallets` valida direcciones Ethereum.
+
+Prueba: `node test/console-fase2.e2e.mjs` (38 verificaciones).
+
 Pendiente: reemplazo de tx atascadas (gas bump), TRON/BTC/LTC.
 
 Pruebas: `bash test/smoke.sh` (libro), `bash test/netting.sh` (compensación) `node test/transfers.e2e.mjs` y `node test/deposits-sweep.e2e.mjs` (on-chain, contra cadena local Hardhat/Anvil).
