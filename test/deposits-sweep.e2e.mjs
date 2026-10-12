@@ -36,6 +36,7 @@ if (gap > 0n) await api('POST', '/v1/entries', { kind: 'adjustment', postings: [
   { account: 'system:ETH-SEPOLIA:custody', direction: 'debit', amount: gap.toString() },
   { account: 'system:ETH-SEPOLIA:equity', direction: 'credit', amount: gap.toString() }] }, 'gas');
 const cl = (await api('POST', '/v1/clients', { name: 'Fondo Y', assets: [TUSD, 'ETH-SEPOLIA'] }, 'cy')).body;
+await api('PATCH', `/v1/clients/${cl.id}`, { status: 'active' }); // solo clientes activos retiran
 const ACC = `client:${cl.id}:${TUSD}:available`;
 
 // 1. Dirección de depósito derivada y registrada en el webhook

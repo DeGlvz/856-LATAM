@@ -107,6 +107,8 @@ const ACC = `client:${cl.id}:ETH-SEPOLIA:available`;
 await key('POST', '/v1/entries', { kind: 'deposit', postings: [
   { account: 'system:ETH-SEPOLIA:custody', direction: 'debit', amount: '5000000000000000' },
   { account: ACC, direction: 'credit', amount: '5000000000000000' }] }, 'dep');
+check('KYB pendiente no retira → 422', (await key('POST', '/v1/withdrawals', { client_id: cl.id, asset_id: 'ETH-SEPOLIA', to_address: HOT, amount: '1' }, 'kyb')).body.code, 'client_not_active');
+await key('PATCH', `/v1/clients/${cl.id}`, { status: 'active' });
 const DEST = privateKeyToAccount(generatePrivateKey()).address; // única por corrida (lista blanca es única por red)
 await key('POST', '/v1/wallets', { client_id: cl.id, chain: 'ethereum', network: 'eth-sepolia', address: DEST, purpose: 'withdrawal_whitelist' });
 const wd = await tes.post('/v1/withdrawals', { client_id: cl.id, asset_id: 'ETH-SEPOLIA', to_address: DEST, amount: '1000000000000000' }, 'wd');
