@@ -56,3 +56,39 @@ export interface Summary {
   sweeps_open: number;
   clients_by_status: Record<string, number>;
 }
+
+// ───────────── Fase 2: clientes, cuentas, asientos ─────────────
+export type ClientStatus = 'pending_kyb' | 'active' | 'suspended' | 'closed';
+export type ClientKind = 'corporate' | 'fund' | 'fintech' | 'individual';
+export interface ClientRow {
+  id: string; external_id: string | null; name: string; kind: ClientKind; status: ClientStatus;
+  metadata: Record<string, unknown>; created_at: string; accounts_count: number;
+}
+export interface Account {
+  id: string; code: string; client_id: string | null; asset_id: string; type: string; normal_side: 'debit' | 'credit';
+  allow_negative: boolean; balance: string; version: string; name: string; created_at: string;
+}
+export interface ClientDetail extends Omit<ClientRow, 'accounts_count'> {
+  status_reason: string | null; status_changed_at: string | null;
+  accounts: Account[]; allowed_transitions: ClientStatus[];
+}
+export interface Wallet {
+  id: string; client_id: string | null; chain: string; network: string; address: string;
+  purpose: 'master_hot' | 'master_cold' | 'deposit' | 'withdrawal_whitelist';
+  derivation_index: number | null; webhook_registered: boolean; label: string | null; active: boolean; created_at: string;
+}
+export interface PostingLine {
+  account_id: string; account_code: string; client_id?: string | null; asset_id: string;
+  direction: 'debit' | 'credit'; amount: string; balance_after: string;
+}
+export interface EntryRow {
+  id: string; kind: string; description: string | null; external_ref: string | null;
+  metadata: Record<string, unknown>; created_at: string; postings?: PostingLine[];
+}
+export interface AccountPosting {
+  id: string; entry_id: string; direction: 'debit' | 'credit'; amount: string; balance_after: string;
+  created_at: string; kind: string; external_ref: string | null;
+}
+
+/** Llave de idempotencia por intento de formulario: un doble clic reenvía la misma. */
+export const newIdemKey = () => `console-${crypto.randomUUID()}`;

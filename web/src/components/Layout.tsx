@@ -15,7 +15,7 @@ const NAV = [
   { to: '/compensacion', label: 'Compensación', icon: Network, phase: 4 },
   { to: '/auditoria', label: 'Auditoría', icon: FileClock, phase: 5 },
 ] as const;
-const CURRENT_PHASE = 1;
+const CURRENT_PHASE = 2;
 
 const ROLE_LABEL = { lectura: 'Lectura', operador: 'Operador', tesorero: 'Tesorero' } as const;
 
@@ -33,7 +33,7 @@ export function Layout() {
         </div>
       </div>
       {NAV.map(({ to, label, icon: Icon, phase }) => phase <= CURRENT_PHASE ? (
-        <NavLink key={to} to={to} end onClick={() => setOpen(false)}
+        <NavLink key={to} to={to} end={to === '/'} onClick={() => setOpen(false)}
           className={({ isActive }) => cn('flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent',
             isActive && 'bg-sidebar-accent font-medium text-white')}>
           <Icon className="size-4" />{label}

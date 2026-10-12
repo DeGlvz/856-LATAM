@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router';
 import {
   Activity, AlertTriangle, CheckCircle2, Database, ExternalLink, Fuel, RefreshCw, Scale, Send, XCircle,
 } from 'lucide-react';
@@ -254,7 +255,7 @@ function InflightTable({ s }: { s: Summary }) {
                     {w.last_error && <div className="mt-1 max-w-56 truncate text-[11px] text-destructive" title={w.last_error}>{w.last_error}</div>}
                   </TableCell>
                   <TableCell>
-                    <div className="max-w-48 truncate font-medium">{w.client_name}</div>
+                    <Link to={`/clientes/${w.client_id}`} className="block max-w-48 truncate font-medium hover:underline">{w.client_name}</Link>
                     <div className="font-mono text-[11px] text-muted-foreground">{w.id.slice(0, 8)}</div>
                   </TableCell>
                   <TableCell className="text-right"><Amt v={w.amount} a={a} /> <span className="text-xs text-muted-foreground">{a.symbol}</span></TableCell>

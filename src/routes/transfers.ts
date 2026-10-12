@@ -5,6 +5,7 @@ import { LedgerError } from '../ledger/service.js';
 import * as T from '../ledger/transfers.js';
 import { getOrCreateDepositAddress } from '../ledger/deposit-addresses.js';
 import { listSweeps } from '../ledger/sweeps.js';
+import { clientStatus } from '../ledger/clients.js';
 
 const amount = z.string().regex(/^[1-9]\d{0,77}$/, 'entero positivo en unidades base');
 const uuid = z.string().uuid();
@@ -39,6 +40,7 @@ export async function transferRoutes(app: FastifyInstance) {
   // Dirección de depósito propia del cliente (derivada HD, registrada en el webhook)
   app.post<{ Params: { id: string } }>('/clients/:id/deposit-address', async (req, reply) => {
     const { rotate } = parse(z.object({ rotate: z.boolean().optional() }), req.body ?? {});
+    if ((await clientStatus(parse(uuid, req.params.id))) === 'closed') throw new LedgerError(409, 'Cliente cerrado', 'client_closed');
     return reply.code(201).send(await getOrCreateDepositAddress(parse(uuid, req.params.id), rotate ?? false));
   });
   app.get<{ Querystring: { limit?: string } }>('/sweeps', async (req) => ({ sweeps: await listSweeps(Number(req.query.limit ?? 100)) }));
