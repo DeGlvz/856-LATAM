@@ -92,3 +92,28 @@ export interface AccountPosting {
 
 /** Llave de idempotencia por intento de formulario: un doble clic reenvía la misma. */
 export const newIdemKey = () => `console-${crypto.randomUUID()}`;
+
+// ───────────── Fase 3: retiros, depósitos y barridos ─────────────
+export type WithdrawalStatus = 'reserved' | 'signed' | 'broadcast' | 'confirmed' | 'failed' | 'cancelled';
+export interface WithdrawalRow {
+  id: string; client_id: string; client_name: string; asset_id: string; to_address: string; amount: string;
+  status: WithdrawalStatus; tx_hash: string | null; nonce: string | null; confirmations: number; attempts: number;
+  last_error: string | null; created_at: string; updated_at: string;
+}
+export interface WithdrawalDetail extends WithdrawalRow {
+  account_id: string; from_address: string | null; block_number: string | null; gas_used: string | null; gas_cost_wei: string | null;
+  reserve_entry_id: string | null; settle_entry_id: string | null; reversal_entry_id: string | null;
+  metadata: Record<string, unknown>; required_confirmations: number;
+}
+export type DepositStatus = 'pending' | 'credited' | 'orphaned';
+export interface DepositRow {
+  id: string; tx_hash: string; log_index: number; wallet_id: string; client_id: string; client_name: string; asset_id: string;
+  from_address: string | null; to_address: string; amount: string; block_number: string; confirmations: number;
+  status: DepositStatus; entry_id: string | null; source: 'api' | 'webhook'; created_at: string; credited_at: string | null;
+}
+export type SweepStatus = 'signed' | 'broadcast' | 'confirmed' | 'failed';
+export interface SweepRow {
+  id: string; wallet_id: string; client_id: string | null; client_name: string | null; kind: 'gas_topup' | 'sweep_token' | 'sweep_native';
+  asset_id: string; amount: string; from_address: string; to_address: string; nonce: string; tx_hash: string; status: SweepStatus;
+  block_number: string | null; gas_cost_wei: string | null; last_error: string | null; created_at: string; updated_at: string;
+}

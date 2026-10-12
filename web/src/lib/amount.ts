@@ -35,3 +35,16 @@ export function ago(iso: string, now = Date.now()): string {
   if (s < 86400) return `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`;
   return `${Math.floor(s / 86400)} d`;
 }
+
+/**
+ * Texto humano → unidades base (string entero), sin pasar por float.
+ * Acepta "1234.56" (punto decimal, sin separadores de miles). Devuelve null si es inválido o excede los decimales.
+ */
+export function parseUnits(text: string, decimals: number): string | null {
+  const t = text.trim();
+  if (!/^\d+(\.\d+)?$/.test(t)) return null;
+  const [int, frac = ''] = t.split('.');
+  if (frac.length > decimals) return null;
+  const v = BigInt(int + frac.padEnd(decimals, '0'));
+  return v > 0n ? v.toString() : null;
+}
