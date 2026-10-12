@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { idempotent } from '../idempotency.js';
 import * as L from '../ledger/service.js';
+import { allowedTransitions, assertAddress, clientStatus } from '../ledger/clients.js';
 
 const amount = z.string().regex(/^[1-9]\d{0,77}$/, 'entero positivo en unidades base');
 const uuid = z.string().uuid();
@@ -47,7 +48,10 @@ export async function ledgerRoutes(app: FastifyInstance) {
   // Clientes y sus cuentas
   app.post('/clients', async (req, reply) =>
     idempotent(req, reply, async () => ({ status: 201, body: await L.createClient(parse(ClientBody, req.body)) })));
-  app.get<{ Params: { id: string } }>('/clients/:id', async (req) => L.getClient(parse(uuid, req.params.id)));
+  app.get<{ Params: { id: string } }>('/clients/:id', async (req) => {
+    const c = await L.getClient(parse(uuid, req.params.id));
+    return { ...c, allowed_transitions: allowedTransitions(c.status) };
+  });
   app.post<{ Params: { id: string } }>('/clients/:id/accounts', async (req, reply) => {
     const { asset_id } = parse(z.object({ asset_id: z.string() }), req.body);
     return reply.code(201).send(await L.openAccountForClient(parse(uuid, req.params.id), asset_id));
@@ -62,7 +66,12 @@ export async function ledgerRoutes(app: FastifyInstance) {
     });
 
   // Wallets on-chain
-  app.post('/wallets', async (req, reply) => reply.code(201).send(await L.registerWallet(parse(WalletBody, req.body))));
+  app.post('/wallets', async (req, reply) => {
+    const w = parse(WalletBody, req.body);
+    assertAddress(w.chain, w.address);
+    if (w.client_id && (await clientStatus(w.client_id)) === 'closed') throw new L.LedgerError(409, 'Cliente cerrado', 'client_closed');
+    return reply.code(201).send(await L.registerWallet(w));
+  });
   app.get<{ Querystring: { client_id?: string; network?: string } }>('/wallets', async (req) =>
     ({ wallets: await L.listWallets(req.query) }));
 

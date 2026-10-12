@@ -6,6 +6,8 @@ import { config } from '../config.js';
 import { pool } from '../db.js';
 import { HttpError } from '../idempotency.js';
 import { hotWalletStatus } from '../ledger/transfers.js';
+import { setWalletActive, updateClient } from '../ledger/clients.js';
+import { hasRole } from '../auth/operators.js';
 
 const uuid = z.string().uuid();
 const limit = (max: number, def: number) => z.coerce.number().int().min(1).max(max).default(def);
@@ -180,5 +182,29 @@ export async function consoleRoutes(app: FastifyInstance) {
       entries: page.map(({ _ts, postings, ...e }) => (f.postings === 'true' ? { ...e, postings: postings ?? [] } : e)),
       next_cursor: more && last ? encodeCursor(last._ts, last.id) : null,
     };
+  });
+
+  // ───────────── Ciclo de vida y datos del cliente ─────────────
+  const ClientPatch = z.object({
+    name: z.string().trim().min(2).max(200).optional(),
+    external_id: z.string().trim().max(100).nullable().optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+    status: z.enum(['pending_kyb', 'active', 'suspended', 'closed']).optional(),
+    reason: z.string().max(500).optional(),
+  }).refine((v) => Object.keys(v).some((k) => k !== 'reason'), 'Nada que actualizar');
+  app.patch<{ Params: { id: string } }>('/clients/:id', async (req) => {
+    const body = parse(ClientPatch, req.body);
+    const p = req.principal;
+    // Cerrar un cliente es definitivo: solo tesorero (o integración con API key)
+    if (body.status === 'closed' && p?.kind === 'operator' && !hasRole(p.operator.role, 'tesorero')) {
+      throw new HttpError(403, 'Cerrar un cliente requiere rol tesorero', 'forbidden');
+    }
+    return updateClient(parse(uuid, req.params.id), { ...body, external_id: body.external_id === '' ? null : body.external_id });
+  });
+
+  // Activar/desactivar una dirección de lista blanca o de depósito (no se borran: quedan en el historial)
+  app.patch<{ Params: { id: string } }>('/wallets/:id', async (req) => {
+    const { active } = parse(z.object({ active: z.boolean() }), req.body);
+    return setWalletActive(parse(uuid, req.params.id), active);
   });
 }
