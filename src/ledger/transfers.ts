@@ -40,6 +40,10 @@ export async function requestWithdrawal(i: {
         const prev = await c.query('SELECT id FROM withdrawals WHERE idempotency_key = $1', [i.idempotency_key]);
         if (prev.rows[0]) return prev.rows[0].id as string;
       }
+      // Solo clientes activos (KYB aprobado) pueden retirar; se bloquea la fila para evitar carrera con un cambio de estado
+      const { rows: [cl] } = await c.query('SELECT status FROM clients WHERE id = $1 FOR SHARE', [i.client_id]);
+      if (!cl) throw new LedgerError(404, 'Cliente no encontrado', 'not_found');
+      if (cl.status !== 'active') throw new LedgerError(422, `Cliente no activo (estado: ${cl.status}): solo clientes con KYB aprobado pueden retirar`, 'client_not_active');
       const asset = await getAsset(c, i.asset_id);
       if (asset.chain !== 'ethereum' || asset.network !== config.ALCHEMY_NETWORK || !['native', 'erc20'].includes(asset.kind)) {
         throw new LedgerError(422, `Retiros de ${asset.id} no habilitados en esta red (${config.ALCHEMY_NETWORK})`, 'network_not_supported');
