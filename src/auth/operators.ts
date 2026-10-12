@@ -122,7 +122,7 @@ export function clearSessionCookie(reply: FastifyReply) {
 // Lectura: solo consulta. Operador: altas y reportes. Tesorero: todo lo que mueve valor o toca tesorería.
 const TESORERO = new Set([
   'POST /v1/withdrawals', 'POST /v1/withdrawals/:id/cancel', 'POST /v1/worker/tick',
-  'POST /v1/assets', 'POST /v1/wallets', 'POST /v1/entries', 'POST /v1/internal-transfers', 'POST /v1/netting/runs',
+  'POST /v1/assets', 'POST /v1/wallets', 'PATCH /v1/wallets/:id', 'POST /v1/entries', 'POST /v1/internal-transfers', 'POST /v1/netting/runs',
 ]);
 const CUALQUIERA = new Set(['POST /v1/auth/logout']);
 
