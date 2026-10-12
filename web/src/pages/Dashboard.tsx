@@ -228,6 +228,7 @@ function InflightTable({ s }: { s: Summary }) {
       <CardHeader>
         <CardTitle>Retiros en vuelo</CardTitle>
         <CardDescription>Reservados, firmados o enviados que aún no alcanzan {s.health.confirmations} confirmaciones (más antiguos primero).</CardDescription>
+        <CardAction><Link to="/movimientos?tab=retiros" className="text-sm hover:underline">Ver todos</Link></CardAction>
       </CardHeader>
       <CardContent>
         <Table>
