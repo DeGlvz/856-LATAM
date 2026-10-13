@@ -28,7 +28,7 @@ export async function api<T>(path: string, init: RequestInit & { json?: unknown 
 }
 
 export type Role = 'lectura' | 'operador' | 'tesorero';
-export interface Operator { id: string; email: string; name: string; role: Role }
+export interface Operator { id: string; email: string; name: string; role: Role; totp_enabled: boolean }
 
 export interface Asset { id: string; symbol: string; decimals: number; kind: string; network: string }
 export interface ReconBalance {
@@ -39,6 +39,7 @@ export interface InflightWithdrawal {
   id: string; client_id: string; client_name: string; asset_id: string; amount: string;
   status: 'reserved' | 'signed' | 'broadcast'; to_address: string; tx_hash: string | null; nonce: string | null;
   confirmations: number; attempts: number; last_error: string | null; created_at: string; updated_at: string;
+  approval_status?: string;
 }
 export interface Summary {
   generated_at: string;
@@ -55,6 +56,8 @@ export interface Summary {
   deposits_pending: number;
   sweeps_open: number;
   clients_by_status: Record<string, number>;
+  approvals_pending?: { withdrawals: number; netting_runs: number };
+  dual_approval?: 'off' | 'console' | 'all';
 }
 
 // ───────────── Fase 2: clientes, cuentas, asientos ─────────────
@@ -99,11 +102,15 @@ export interface WithdrawalRow {
   id: string; client_id: string; client_name: string; asset_id: string; to_address: string; amount: string;
   status: WithdrawalStatus; tx_hash: string | null; nonce: string | null; confirmations: number; attempts: number;
   last_error: string | null; created_at: string; updated_at: string;
+  approval_status: ApprovalStatus; requested_by: string | null;
 }
+export type ApprovalStatus = 'not_required' | 'pending' | 'approved' | 'rejected';
 export interface WithdrawalDetail extends WithdrawalRow {
   account_id: string; from_address: string | null; block_number: string | null; gas_used: string | null; gas_cost_wei: string | null;
   reserve_entry_id: string | null; settle_entry_id: string | null; reversal_entry_id: string | null;
   metadata: Record<string, unknown>; required_confirmations: number;
+  requested_by_operator: string | null; approved_by: string | null; approved_at: string | null;
+  rejected_by: string | null; rejected_reason: string | null;
 }
 export type DepositStatus = 'pending' | 'credited' | 'orphaned';
 export interface DepositRow {
@@ -136,11 +143,37 @@ export interface NettingPreview {
   gross_amount: string; net_amount: string; savings_bps: number;
   positions: NettingPosition[]; blocked_clients: string[]; can_settle: boolean;
 }
+export type RunStatus = 'pending_approval' | 'settled' | 'rejected';
 export interface NettingRunRow {
-  id: string; asset_id: string; status: 'settled'; cutoff: string | null; obligations: number; participants: number;
+  id: string; asset_id: string; status: RunStatus; cutoff: string | null; obligations: number; participants: number;
   gross_amount: string; net_amount: string; savings_bps: number; entry_id: string | null; created_by: string | null; created_at: string;
+  approved_by: string | null; rejected_by: string | null; rejected_reason: string | null; decided_at: string | null; last_error: string | null;
 }
 export interface NettingRunDetail extends Omit<NettingRunRow, 'obligations'> {
-  positions: { client_id: string; client_name: string; receivable: string; payable: string; net: string }[];
-  obligations: { id: string; debtor_id: string; debtor_name: string; creditor_id: string; creditor_name: string; amount: string; external_ref: string | null; due_at: string | null }[];
+  requested_by_operator: string | null; expected_net_amount: string | null;
+  positions: { client_id: string; client_name: string; receivable: string; payable: string; net: string; shortfall?: string; blocked?: boolean }[];
+  obligations: { id: string; debtor_id: string; debtor_name: string; creditor_id: string; creditor_name: string; amount: string; external_ref: string | null; due_at: string | null; status?: ObligationStatus }[];
+  preview: (NettingPreview & { all_open: boolean; net_matches: boolean }) | null;
+}
+
+// ───────────── Fase 5: aprobaciones, bitácora, 2FA ─────────────
+export interface PendingWithdrawal {
+  id: string; client_id: string; client_name: string; client_status: ClientStatus; asset_id: string; amount: string; to_address: string;
+  requested_by: string | null; requested_by_operator: string | null; created_at: string;
+}
+export interface PendingRun {
+  id: string; asset_id: string; obligations: number; participants: number; gross_amount: string; net_amount: string;
+  expected_net_amount: string; savings_bps: number; created_by: string | null; requested_by_operator: string | null; last_error: string | null; created_at: string;
+}
+export interface Approvals {
+  policy: { dual_approval: 'off' | 'console' | 'all'; require_2fa: boolean };
+  withdrawals: PendingWithdrawal[]; netting_runs: PendingRun[];
+}
+export interface AuditEntry {
+  id: string; at: string; operator_id: string | null; actor: string; action: string; target: string | null;
+  status: number | null; ip: string | null; metadata: Record<string, unknown>;
+}
+export interface OperatorRow {
+  id: string; email: string; name: string; role: Role; active: boolean; totp_enabled: boolean; totp_enabled_at: string | null;
+  last_login_at: string | null; locked_until: string | null; created_at: string;
 }
