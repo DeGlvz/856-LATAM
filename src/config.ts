@@ -40,6 +40,13 @@ const Env = z.object({
   CONSOLE_BOOTSTRAP_PASSWORD: z.string().min(12).optional(),
   // Tablero: alerta de gas si la hot wallet tiene menos de este saldo nativo (wei)
   GAS_LOW_WEI: z.coerce.bigint().default(50_000_000_000_000_000n), // 0.05 ETH
+  // Doble aprobación (retiros y corridas de compensación): off | console (solo lo pedido desde la consola) | all (también API)
+  DUAL_APPROVAL: z.enum(['off', 'console', 'all']).default('console'),
+  // El aprobador debe tener 2FA activo y confirmar cada aprobación con un código TOTP
+  APPROVAL_REQUIRE_2FA: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
+  // Llave para cifrar (AES-256-GCM) los secretos TOTP en la base. Sin ella no se puede activar 2FA.
+  TOTP_ENCRYPTION_KEY: z.string().min(32, 'mínimo 32 caracteres aleatorios').optional(),
+  TOTP_ISSUER: z.string().default('856-LATAM'),
 });
 
 export const config = Env.parse(process.env);
