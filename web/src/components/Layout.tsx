@@ -15,7 +15,7 @@ const NAV = [
   { to: '/compensacion', label: 'Compensación', icon: Network, phase: 4 },
   { to: '/auditoria', label: 'Auditoría', icon: FileClock, phase: 5 },
 ] as const;
-const CURRENT_PHASE = 3;
+const CURRENT_PHASE = 4;
 
 const ROLE_LABEL = { lectura: 'Lectura', operador: 'Operador', tesorero: 'Tesorero' } as const;
 

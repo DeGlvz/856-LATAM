@@ -52,7 +52,9 @@ check "concurrencia: una 201 y una 422" "$(sort /tmp/nc.txt | tr '\n' ' ')" "201
 check "saldo D = 80" "$(bal $D)" 80000000
 
 ob $C $D 1000 X >/dev/null; OX=$(jq -r .id /tmp/n.json)
-check "cancelar obligación" "$(req -X POST $BASE/v1/obligations/$OX/cancel)" 200
-check "cancelar otra vez → 409" "$(req -X POST $BASE/v1/obligations/$OX/cancel)" 409
+check "cancelar sin motivo → 400" "$(req -X POST $BASE/v1/obligations/$OX/cancel -d '{}')" 400
+check "cancelar obligación" "$(req -X POST $BASE/v1/obligations/$OX/cancel -d '{"reason":"OC duplicada"}')" 200
+check "  …guarda el motivo" "$(jq -r .cancel_reason /tmp/n.json)" "OC duplicada"
+check "cancelar otra vez → 409" "$(req -X POST $BASE/v1/obligations/$OX/cancel -d '{"reason":"OC duplicada"}')" 409
 check "consultar corrida" "$(req $BASE/v1/netting/runs/$RUN; jq -r .net_amount /tmp/n.json)" "20030000000"
 echo "── $ok OK, $fail fallas"; [[ $fail == 0 ]]

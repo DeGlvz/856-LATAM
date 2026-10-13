@@ -117,3 +117,30 @@ export interface SweepRow {
   asset_id: string; amount: string; from_address: string; to_address: string; nonce: string; tx_hash: string; status: SweepStatus;
   block_number: string | null; gas_cost_wei: string | null; last_error: string | null; created_at: string; updated_at: string;
 }
+
+// ───────────── Fase 4: compensación ─────────────
+export type ObligationStatus = 'open' | 'settled' | 'cancelled';
+export interface ObligationRow {
+  id: string; debtor_id: string; debtor_name: string; debtor_status: ClientStatus;
+  creditor_id: string; creditor_name: string; creditor_status: ClientStatus;
+  asset_id: string; amount: string; due_at: string | null; external_ref: string | null; status: ObligationStatus;
+  netting_run_id: string | null; metadata: Record<string, unknown>; created_at: string; settled_at: string | null;
+  cancel_reason: string | null; cancelled_at: string | null; cancelled_by: string | null;
+}
+export interface NettingPosition {
+  client_id: string; client_name: string; client_status: ClientStatus;
+  receivable: string; payable: string; net: string; available: string; shortfall: string; blocked: boolean;
+}
+export interface NettingPreview {
+  obligations: number; obligation_ids: string[]; participants: number;
+  gross_amount: string; net_amount: string; savings_bps: number;
+  positions: NettingPosition[]; blocked_clients: string[]; can_settle: boolean;
+}
+export interface NettingRunRow {
+  id: string; asset_id: string; status: 'settled'; cutoff: string | null; obligations: number; participants: number;
+  gross_amount: string; net_amount: string; savings_bps: number; entry_id: string | null; created_by: string | null; created_at: string;
+}
+export interface NettingRunDetail extends Omit<NettingRunRow, 'obligations'> {
+  positions: { client_id: string; client_name: string; receivable: string; payable: string; net: string }[];
+  obligations: { id: string; debtor_id: string; debtor_name: string; creditor_id: string; creditor_name: string; amount: string; external_ref: string | null; due_at: string | null }[];
+}

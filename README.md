@@ -38,11 +38,12 @@ Reglas del libro:
 | Método | Ruta | Notas |
 |---|---|---|
 | POST | `/v1/obligations` | **Idempotency-Key**. `{debtor_id, creditor_id, asset_id, amount, due_at?, external_ref?}` (OC, factura, CFDI) |
-| GET | `/v1/obligations?client_id&status&asset_id` | |
-| POST | `/v1/obligations/:id/cancel` | Solo si está `open` |
-| POST | `/v1/netting/preview` | `{asset_id, cutoff?, obligation_ids?}` → posiciones netas, bruto, neto, `savings_bps`, faltantes |
-| POST | `/v1/netting/runs` | **Idempotency-Key**. Liquida el alcance en un solo asiento `netting` |
-| GET | `/v1/netting/runs/:id` | Corrida con posiciones y obligaciones liquidadas |
+| GET | `/v1/obligations?client_id&status&asset_id&external_ref&from&to&netting_run_id&limit&cursor` | Paginado (`next_cursor`); trae nombre y estado de deudor y acreedor |
+| POST | `/v1/obligations/:id/cancel` | `{reason}` (mín. 5). Solo si está `open`; guarda motivo, fecha y autor |
+| POST | `/v1/netting/preview` | `{asset_id, cutoff?, obligation_ids?}` → posiciones netas, bruto, neto, `savings_bps`, faltantes, `blocked`, `obligation_ids` simulados. Rol lectura |
+| POST | `/v1/netting/runs` | **Idempotency-Key**. `{…alcance, expected_net_amount?}`. Liquida el alcance en un solo asiento `netting` |
+| GET | `/v1/netting/runs?asset_id&limit&cursor` | Historial paginado con ahorro y autor |
+| GET | `/v1/netting/runs/:id` | Corrida con posiciones y obligaciones liquidadas (con nombres) |
 
 Reglas del motor:
 - Netting multilateral: cada cliente solo paga o recibe `por cobrar − por pagar`. Un ciclo A→B→C→A se liquida sin mover saldo.
@@ -139,9 +140,25 @@ Pantalla **Retiros y depósitos** (`/console/movimientos`) con pestañas Retiros
 
 Prueba: `node test/console-fase3.e2e.mjs` (27 verificaciones, cadena local con depósito, barrido y retiro reales).
 
+### Consola — fase 4: compensación
+Pantalla **Compensación** (`/console/compensacion`) con pestañas Obligaciones · Simular y liquidar · Corridas, filtrada por activo.
+- **Obligaciones**: filtros por estado y referencia (OC, factura, CFDI), paginación, alta (operador) con selector de deudor/acreedor y monto en unidades humanas sin float, detalle y **cancelación con motivo** (operador).
+- **Simular**: alcance "todas las abiertas al corte" (las que no tienen vencimiento entran siempre) o **selección** marcada en la lista. Muestra bruto, neto, ahorro y, por cliente, por cobrar/por pagar/neto/disponible, faltantes y pagadores bloqueados.
+- **Liquidar** (tesorero): confirmación con el neto exacto y unidades base; se envían los `obligation_ids` simulados y `expected_net_amount`. Si el alcance cambió desde la simulación → `409 scope_changed` y nada se mueve.
+- **Corridas**: historial con ahorro y quién ejecutó; detalle con posiciones, obligaciones liquidadas y acceso al asiento.
+- **Detalle del cliente**: tarjeta de obligaciones (por pagar / por cobrar).
+
+Reglas nuevas del motor (migración `008`):
+- Obligación con un cliente cerrado → `409 client_closed`; deudor o acreedor inexistente → `404`.
+- `obligation_ids` que ya no están abiertas o no corresponden al activo/corte → `422 obligations_not_open` (antes se ignoraban).
+- Pagador neto suspendido o cerrado: la simulación lo marca (`blocked`, `can_settle: false`) y la corrida responde `422 client_not_active` con el nombre del cliente.
+- Cada corrida guarda `created_by` (correo del operador o `api:xxxx`); cada cancelación, `cancel_reason`, `cancelled_at` y `cancelled_by`. Todo queda además en la bitácora.
+
+Prueba: `node test/console-fase4.e2e.mjs` (41 verificaciones; no requiere cadena).
+
 Pendiente: reemplazo de tx atascadas (gas bump), TRON/BTC/LTC.
 
-Pruebas: `bash test/smoke.sh` (libro), `bash test/netting.sh` (compensación) `node test/transfers.e2e.mjs` y `node test/deposits-sweep.e2e.mjs` (on-chain, contra cadena local Hardhat/Anvil).
+Pruebas: `bash test/smoke.sh` (libro), `bash test/netting.sh` (compensación), `node test/console-fase4.e2e.mjs` (consola de compensación), `node test/transfers.e2e.mjs` y `node test/deposits-sweep.e2e.mjs` (on-chain, contra cadena local Hardhat/Anvil).
 
 ## Local
 ```bash
