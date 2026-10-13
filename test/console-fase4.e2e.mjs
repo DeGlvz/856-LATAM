@@ -3,6 +3,7 @@
 // No requiere cadena: la compensación vive solo en el libro.
 import { execFileSync } from 'node:child_process';
 import pg from 'pg';
+import { makeApprover } from './lib/approver.mjs';
 
 const { BASE, KEY, BOOT_EMAIL, BOOT_PASS, DATABASE_URL } = process.env;
 const AS = 'USDC-ETH-SEPOLIA';
@@ -107,12 +108,15 @@ const bad = await tes.call('POST', '/v1/netting/runs', { asset_id: AS, obligatio
 check('incluye una cancelada → 422 obligations_not_open', `${bad.status} ${bad.body.code}`, '422 obligations_not_open');
 check('  …nada se liquidó', (await lec.call('GET', `/v1/obligations?client_id=${A.id}&status=open`)).body.obligations.length, 3);
 
+// Doble aprobación (fase 5): el tesorero solicita y un segundo tesorero con 2FA aprueba
+const approver = await makeApprover({ BASE, ip: `${NET}.9`, tag: R });
 const run = await tes.call('POST', '/v1/netting/runs', { ...S, expected_net_amount: pv.net_amount }, idem('run'));
-check('tesorero liquida → 201', run.status, 201);
+check('tesorero solicita la corrida → 202 pendiente', `${run.status} ${run.body.status}`, '202 pending_approval');
 check('  …autor de la corrida', run.body.created_by, BOOT_EMAIL.toLowerCase());
-check('  …asiento registrado', !!run.body.entry_id, true);
 const again = await tes.call('POST', '/v1/netting/runs', { ...S, expected_net_amount: pv.net_amount }, idem('run'));
-check('reintento con la misma llave → misma corrida', `${again.status} ${again.body.id === run.body.id}`, '201 true');
+check('reintento con la misma llave → misma corrida', `${again.status} ${again.body.id === run.body.id}`, '202 true');
+const appr = (await approver.approveRun(run.body.id)).body;
+check('segundo tesorero aprueba → liquidada con asiento', `${appr.status} ${!!appr.entry_id}`, 'settled true');
 check('saldos: A 70 · B 0 · C 0 · D 30', [await bal(A), await bal(B), await bal(C), await bal(D)].join(' '), '70000000 0 0 30000000');
 check('obligaciones liquidadas por la corrida', (await lec.call('GET', `/v1/obligations?netting_run_id=${run.body.id}`)).body.obligations.length, 4);
 
@@ -140,7 +144,7 @@ const { rows } = await db.query(
      AND action IN ('POST /v1/netting/runs', 'POST /v1/obligations/:id/cancel') AND status < 300 ORDER BY id`);
 await db.end();
 check('bitácora: cancelación por operador', rows.some((r) => r.action.endsWith('/cancel') && r.actor === OPR), true);
-check('bitácora: corrida por tesorero', rows.some((r) => r.action === 'POST /v1/netting/runs' && r.actor === BOOT_EMAIL.toLowerCase() && r.status === 201), true);
+check('bitácora: corrida por tesorero', rows.some((r) => r.action === 'POST /v1/netting/runs' && r.actor === BOOT_EMAIL.toLowerCase() && r.status === 202), true);
 
 console.log(`\n${ok} ok, ${fail} fallos`);
 process.exit(fail ? 1 : 0);
