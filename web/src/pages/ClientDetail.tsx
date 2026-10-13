@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowLeftRight, ExternalLink, KeyRound, Loader2, Pencil, Plus, RefreshCw, Scale, ShieldCheck, Wallet as WalletIcon } from 'lucide-react';
+import { ArrowLeft, ArrowLeftRight, ExternalLink, KeyRound, Loader2, Pencil, Plus, RefreshCw, Scale, ShieldCheck, UserPlus, Users, Wallet as WalletIcon } from 'lucide-react';
 import { api, type ClientDetail as TClient, type ClientStatus, type EntryRow, type ObligationRow, type Summary, type Wallet } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { CLIENT_KIND, CLIENT_STATUS, ENTRY_KIND, useAssets } from '@/lib/hooks';
@@ -177,6 +177,8 @@ export function ClientDetail() {
 
         <WhitelistCard clientId={c.id} network={network} wallets={whitelist} loading={wallets.isPending} explorer={explorer} disabled={closed} onChange={refresh} />
       </div>
+
+      <PortalCard clientId={c.id} disabled={closed} />
 
       {/* Obligaciones (compensación) */}
       <Card>
@@ -357,3 +359,75 @@ function StatusDialog({ client, open, onOpenChange, onSaved }: { client: TClient
   );
 }
 
+
+type PortalStatus = { users: number; admins: number; pending_invites: number; active_keys: number };
+
+/** Portal de clientes: 856 solo invita al primer admin; después el cliente administra a su gente y sus llaves. */
+function PortalCard({ clientId, disabled }: { clientId: string; disabled: boolean }) {
+  const { can } = useAuth();
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState('');
+  const [link, setLink] = useState<string | null>(null);
+  const status = useQuery({ queryKey: ['portal-status', clientId], queryFn: () => api<PortalStatus>(`/clients/${clientId}/portal`) });
+  const invite = useMutation({
+    mutationFn: () => api<{ link: string }>(`/clients/${clientId}/portal-invite`, { method: 'POST', json: { email: email.trim() } }),
+    onSuccess: (r) => { setLink(window.location.origin + r.link); qc.invalidateQueries({ queryKey: ['portal-status', clientId] }); },
+  });
+  const close = () => { setOpen(false); setEmail(''); setLink(null); invite.reset(); };
+  const s = status.data;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Users className="size-4" />Portal del cliente</CardTitle>
+        <CardDescription>856 invita solo al primer administrador; él invita a su equipo y crea sus llaves de API.</CardDescription>
+        {can('tesorero') && !disabled && s && s.admins === 0 && (
+          <CardAction>
+            <Button size="sm" variant="outline" onClick={() => setOpen(true)}><UserPlus />Invitar primer admin</Button>
+          </CardAction>
+        )}
+      </CardHeader>
+      <CardContent>
+        {status.isPending && <Skeleton className="h-10" />}
+        <ErrorBox error={status.error} />
+        {s && (
+          <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+            <div><div className="text-muted-foreground">Usuarios activos</div><div className="text-lg font-semibold">{s.users}</div></div>
+            <div><div className="text-muted-foreground">Administradores</div><div className="text-lg font-semibold">{s.admins}</div></div>
+            <div><div className="text-muted-foreground">Invitaciones vigentes</div><div className="text-lg font-semibold">{s.pending_invites}</div></div>
+            <div><div className="text-muted-foreground">Llaves de API vigentes</div><div className="text-lg font-semibold">{s.active_keys}</div></div>
+          </div>
+        )}
+      </CardContent>
+      <Dialog open={open} onOpenChange={(o) => !o && close()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Invitar primer administrador</DialogTitle>
+            <DialogDescription>El enlace se muestra una sola vez y vence en 72 h. Entrégalo por un canal seguro; el admin deberá activar 2FA al entrar.</DialogDescription>
+          </DialogHeader>
+          {!link ? (
+            <form className="grid gap-3" onSubmit={(e: FormEvent) => { e.preventDefault(); invite.mutate(); }}>
+              <Field label="Correo del administrador" htmlFor="pi-email">
+                <Input id="pi-email" type="email" required autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} />
+              </Field>
+              <ErrorBox error={invite.error} />
+              <DialogFooter>
+                <Button type="button" variant="ghost" onClick={close}>Cancelar</Button>
+                <Button type="submit" disabled={invite.isPending || !email.trim()}>{invite.isPending && <Loader2 className="animate-spin" />}Generar enlace</Button>
+              </DialogFooter>
+            </form>
+          ) : (
+            <div className="grid gap-3">
+              <div className="flex items-center gap-2 rounded-md border bg-muted/40 p-2">
+                <code className="min-w-0 flex-1 break-all text-xs" data-testid="portal-invite-link">{link}</code>
+                <CopyButton value={link} />
+              </div>
+              <p className="text-sm text-muted-foreground">No se volverá a mostrar. Si se pierde, genera otra: la anterior vence sola.</p>
+              <DialogFooter><Button onClick={close}>Listo</Button></DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}

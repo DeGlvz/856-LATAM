@@ -11,6 +11,7 @@ import { chainRoutes } from './routes/chain.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { ledgerRoutes } from './routes/ledger.js';
 import { nettingRoutes } from './routes/netting.js';
+import { portalRoutes } from './routes/portal.js';
 import { transferRoutes } from './routes/transfers.js';
 import { authRoutes } from './routes/auth.js';
 import { consoleRoutes } from './routes/console.js';
@@ -107,6 +108,9 @@ await app.register(async (v1) => {
   await v1.register(transferRoutes);
 }, { prefix: '/v1' });
 
+// Portal de clientes: autenticación propia y aislada (no hereda los hooks de /v1)
+await app.register(portalRoutes, { prefix: '/v1/portal' });
+
 // Consola de operación (SPA compilada en web/dist) servida en /console
 const webDist = fileURLToPath(new URL('../web/dist/', import.meta.url));
 if (existsSync(webDist)) {
@@ -118,6 +122,10 @@ if (existsSync(webDist)) {
   app.get('/console', (_, reply) => reply.redirect('/console/'));
   app.get('/console/', spa);
   app.get('/console/*', spa);
+  // Portal de clientes: segunda entrada del mismo build (portal.html)
+  const portal = (_: unknown, reply: import('fastify').FastifyReply) => reply.header('cache-control', 'no-cache').sendFile('portal.html');
+  app.get('/portal', portal);
+  app.get('/portal/*', portal);
 } else {
   app.log.warn('web/dist no existe: la consola no se sirve (compilar con npm run build:web)');
 }
