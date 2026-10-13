@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ArrowLeft, Check, ExternalLink, Loader2, Search, Send } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, ExternalLink, Loader2, Search, Send, Zap } from 'lucide-react';
 import {
   api, newIdemKey, type ClientDetail, type ClientRow, type Wallet, type WithdrawalDetail, type WithdrawalStatus,
 } from '@/lib/api';
-import { exactUnits, parseUnits, shortHex, toBig } from '@/lib/amount';
+import { ago, exactUnits, parseUnits, shortHex, toBig } from '@/lib/amount';
 import { useAuth } from '@/lib/auth';
 import { useAssets } from '@/lib/hooks';
 import { Amount, CopyButton, ErrorBox, Field, fmtDate } from '@/components/common';
@@ -35,6 +35,25 @@ export function WdBadge({ w }: { w: { status: WithdrawalStatus; approval_status?
   if (w.status === 'reserved' && w.approval_status === 'pending') return <Badge variant="warning">Por aprobar</Badge>;
   if (w.status === 'cancelled' && w.approval_status === 'rejected') return <Badge variant="outline">Rechazado</Badge>;
   return <Badge variant={WD_STATUS[w.status].variant}>{WD_STATUS[w.status].label}</Badge>;
+}
+
+// ───────────── Gas bump manual ─────────────
+function BumpPanel({ id, since, bumps }: { id: string; since: string; bumps: number }) {
+  const qc = useQueryClient();
+  const m = useMutation({
+    mutationFn: () => api<{ tx_hash: string; max_fee_per_gas: string; previous_max_fee_per_gas: string }>(`/withdrawals/${id}/bump`, { method: 'POST', json: {} }),
+    onSuccess: () => ['withdrawal', 'withdrawals', 'summary'].forEach((k) => qc.invalidateQueries({ queryKey: [k] })),
+  });
+  return (
+    <div className="grid gap-2 rounded-md border p-3 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p>Enviado hace {ago(since)} y aún sin minarse{bumps ? ` · acelerado ${bumps} ${bumps === 1 ? 'vez' : 'veces'}` : ''}. El worker lo acelera solo; puede forzarlo ahora.</p>
+        <Button size="sm" variant="outline" onClick={() => m.mutate()} disabled={m.isPending}>{m.isPending ? <Loader2 className="animate-spin" /> : <Zap />}Acelerar (subir gas)</Button>
+      </div>
+      {m.data && <p className="text-xs text-success">Reemplazo enviado: comisión máx. {(Number(m.data.previous_max_fee_per_gas) / 1e9).toFixed(2)} → {(Number(m.data.max_fee_per_gas) / 1e9).toFixed(2)} gwei.</p>}
+      <ErrorBox error={m.error} />
+    </div>
+  );
 }
 
 // ───────────── Detalle de un retiro ─────────────
@@ -117,6 +136,22 @@ export function WithdrawalDialog({ id, explorer, onClose }: { id: string | null;
                 {([['Reserva', w.reserve_entry_id], ['Liquidación', w.settle_entry_id], ['Reverso', w.reversal_entry_id]] as const)
                   .filter(([, e]) => e).map(([l, e]) => <Button key={l} size="sm" variant="outline" onClick={() => setEntryId(e)}>Asiento de {l.toLowerCase()}</Button>)}
               </div>
+
+              {w.attempts_log?.length > 1 && (
+                <div className="grid gap-1 text-xs">
+                  <div className="font-medium">Envíos de la transacción (mismo nonce; solo uno se mina)</div>
+                  {w.attempts_log.map((t) => (
+                    <div key={t.tx_hash} className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline">{t.reason === 'original' ? 'Original' : t.reason === 'manual' ? 'Acelerado (manual)' : 'Acelerado (auto)'}</Badge>
+                      <a className={cn('font-mono hover:underline', t.tx_hash === w.tx_hash && 'font-semibold')} href={`${explorer}/tx/${t.tx_hash}`} target="_blank" rel="noreferrer noopener">{shortHex(t.tx_hash, 8)}</a>
+                      <span className="text-muted-foreground">máx. {(Number(t.max_fee_per_gas) / 1e9).toFixed(2)} gwei{t.requested_by ? ` · ${t.requested_by}` : ''} · {fmtDate(t.created_at)}</span>
+                      {t.error && <span className="text-destructive">{t.error}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {w.status === 'broadcast' && can('tesorero') && <BumpPanel id={w.id} since={w.broadcast_at ?? w.updated_at} bumps={w.bumps} />}
 
               {w.status === 'reserved' && w.approval_status === 'pending' && (
                 <ApprovalPanel kind="withdrawal" id={w.id} requestedByOperator={w.requested_by_operator} requestedBy={w.requested_by} />

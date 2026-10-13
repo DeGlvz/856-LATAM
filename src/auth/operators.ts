@@ -53,10 +53,11 @@ export async function bootstrapOperator(log: { info: (m: string) => void; warn: 
 
 export async function audit(a: {
   operator_id?: string | null; actor: string; action: string; target?: string | null; status?: number; ip?: string; metadata?: Record<string, unknown>;
+  client_id?: string | null;
 }) {
   await pool.query(
-    `INSERT INTO audit_log (operator_id, actor, action, target, status, ip, metadata) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-    [a.operator_id ?? null, a.actor, a.action, a.target ?? null, a.status ?? null, a.ip ?? null, a.metadata ?? {}],
+    `INSERT INTO audit_log (operator_id, actor, action, target, status, ip, metadata, client_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [a.operator_id ?? null, a.actor, a.action, a.target ?? null, a.status ?? null, a.ip ?? null, a.metadata ?? {}, a.client_id ?? null],
   );
 }
 
@@ -183,7 +184,8 @@ const TESORERO = new Set([
   'POST /v1/withdrawals', 'POST /v1/withdrawals/:id/cancel', 'POST /v1/worker/tick',
   'POST /v1/assets', 'POST /v1/wallets', 'PATCH /v1/wallets/:id', 'POST /v1/entries', 'POST /v1/internal-transfers', 'POST /v1/netting/runs',
   'POST /v1/withdrawals/:id/approve', 'POST /v1/withdrawals/:id/reject', 'POST /v1/netting/runs/:id/approve', 'POST /v1/netting/runs/:id/reject',
-  'POST /v1/operators/:id/totp/reset',
+  'POST /v1/operators/:id/totp/reset', 'POST /v1/withdrawals/:id/bump', 'POST /v1/sweeps/:id/bump',
+  'POST /v1/clients/:id/portal-invite',
 ]);
 // Consultas restringidas: la bitácora (IPs, intentos) y la lista de operadores solo para tesorería
 const GET_TESORERO = new Set(['GET /v1/audit', 'GET /v1/audit/actions', 'GET /v1/operators']);

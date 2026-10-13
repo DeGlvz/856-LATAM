@@ -6,6 +6,7 @@ import { config } from '../config.js';
 import { decodeCursor, page } from '../pagination.js';
 import { pool, tx } from '../db.js';
 import { postEntryIn } from './service.js';
+import { findReceipt, recordOriginal } from '../chain/replace.js';
 
 type Log = { info: (o: object, m: string) => void; warn: (o: object, m: string) => void; error: (o: object, m: string) => void };
 type Kind = 'gas_topup' | 'sweep_token' | 'sweep_native';
@@ -86,11 +87,12 @@ async function createSweep(log: Log, s: {
       type: 'eip1559', chainId: s.chainId, nonce, gas: s.gas, to: s.to as Address, value: s.value, data: s.data,
       maxFeePerGas: s.fees.maxFeePerGas, maxPriorityFeePerGas: s.fees.maxPriorityFeePerGas,
     });
-    await c.query(
+    const { rows: [row] } = await c.query(
       `INSERT INTO sweeps (wallet_id, kind, asset_id, amount, from_address, to_address, nonce, raw_tx, tx_hash, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'signed')`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'signed') RETURNING id`,
       [s.wallet_id, s.kind, s.asset_id, s.amount.toString(), from, s.to.toLowerCase(), nonce, raw, keccak256(raw)],
     );
+    await recordOriginal(c, 'sweep', row.id, from, nonce, raw);
   });
   log.info({ wallet: s.wallet_id, kind: s.kind, amount: s.amount.toString() }, 'barrido firmado');
 }
@@ -100,11 +102,11 @@ async function broadcastSweeps(log: Log) {
   for (const s of rows) {
     try {
       await client.sendRawTransaction({ serializedTransaction: s.raw_tx as Hex });
-      await pool.query(`UPDATE sweeps SET status = 'broadcast', updated_at = now() WHERE id = $1`, [s.id]);
+      await pool.query(`UPDATE sweeps SET status = 'broadcast', broadcast_at = now(), updated_at = now() WHERE id = $1`, [s.id]);
     } catch (e) {
       const msg = (e as Error).message;
       if (/already known|nonce too low|known transaction/i.test(msg)) {
-        await pool.query(`UPDATE sweeps SET status = 'broadcast', updated_at = now() WHERE id = $1`, [s.id]);
+        await pool.query(`UPDATE sweeps SET status = 'broadcast', broadcast_at = now(), updated_at = now() WHERE id = $1`, [s.id]);
       } else {
         await pool.query(`UPDATE sweeps SET last_error = $2, updated_at = now() WHERE id = $1`, [s.id, msg.split('\n')[0].slice(0, 500)]);
         log.warn({ sweep: s.id, err: msg.split('\n')[0] }, 'fallo al enviar barrido');
@@ -119,8 +121,10 @@ async function confirmSweeps(log: Log) {
   const head = await client.getBlockNumber({ cacheTime: 0 });
   const { rows: [nat] } = await pool.query(`SELECT id FROM assets WHERE network = $1 AND kind = 'native' AND active`, [config.ALCHEMY_NETWORK]);
   for (const r of rows) {
-    const receipt = await client.getTransactionReceipt({ hash: r.tx_hash as Hash }).catch(() => null);
-    if (!receipt || Number(head - receipt.blockNumber + 1n) < config.CONFIRMATIONS) continue;
+    const found = await findReceipt('sweep', r.id, r.tx_hash);
+    if (!found || Number(head - found.receipt.blockNumber + 1n) < config.CONFIRMATIONS) continue;
+    const { receipt } = found;
+    if (found.hash !== r.tx_hash) await pool.query(`UPDATE sweeps SET tx_hash = $2, updated_at = now() WHERE id = $1 AND status = 'broadcast'`, [r.id, found.hash]);
     const gasCost = receipt.gasUsed * receipt.effectiveGasPrice;
     try {
       await tx(async (c) => {
@@ -159,7 +163,8 @@ export async function listSweeps(f: { status?: string; kind?: string; limit?: nu
   const cur = decodeCursor(f.cursor);
   const { rows } = await pool.query(
     `SELECT s.id, s.wallet_id, w.client_id, c.name AS client_name, s.kind, s.asset_id, s.amount, s.from_address, s.to_address,
-            s.nonce, s.tx_hash, s.status, s.block_number, s.gas_cost_wei, s.last_error, s.created_at, s.updated_at, s.created_at::text AS _ts
+            s.nonce, s.tx_hash, s.status, s.block_number, s.gas_cost_wei, s.last_error, s.created_at, s.updated_at, s.bumps, s.broadcast_at,
+            s.created_at::text AS _ts
        FROM sweeps s JOIN wallets w ON w.id = s.wallet_id LEFT JOIN clients c ON c.id = w.client_id
       WHERE ($1::text IS NULL OR s.status = $1) AND ($2::text IS NULL OR s.kind = $2)
         AND ($3::timestamptz IS NULL OR (s.created_at, s.id) < ($3::timestamptz, $4::uuid))

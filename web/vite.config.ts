@@ -9,5 +9,9 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: { alias: { '@': path.resolve(import.meta.dirname, './src') } },
   server: { proxy: { '/v1': 'http://127.0.0.1:8080' } },
-  build: { outDir: 'dist', emptyOutDir: true, sourcemap: false },
+  // Dos entradas: consola de operación (/console) y portal de clientes (/portal); comparten componentes ui/
+  build: {
+    outDir: 'dist', emptyOutDir: true, sourcemap: false,
+    rollupOptions: { input: { console: path.resolve(import.meta.dirname, 'index.html'), portal: path.resolve(import.meta.dirname, 'portal.html') } },
+  },
 });

@@ -7,6 +7,7 @@ import { getOrCreateDepositAddress } from '../ledger/deposit-addresses.js';
 import { listSweeps } from '../ledger/sweeps.js';
 import { clientStatus } from '../ledger/clients.js';
 import { assertApprover, decider, requester } from '../ledger/approvals.js';
+import { bumpNow, listAttempts } from '../chain/replace.js';
 
 const amount = z.string().regex(/^[1-9]\d{0,77}$/, 'entero positivo en unidades base');
 const uuid = z.string().uuid();
@@ -67,6 +68,17 @@ export async function transferRoutes(app: FastifyInstance) {
     const { reason } = parse(z.object({ reason: z.string().trim().min(5, 'Indique el motivo (mín. 5 caracteres)').max(300) }), req.body ?? {});
     return T.rejectWithdrawal(parse(uuid, req.params.id), op.email, reason);
   });
+
+  // Gas bump manual: reemplaza la transacción enviada (mismo nonce) con comisiones más altas
+  const who = (req: { principal?: { kind: string; operator?: { email: string } } }) =>
+    req.principal?.kind === 'operator' ? req.principal.operator!.email : 'api';
+  app.post<{ Params: { id: string } }>('/withdrawals/:id/bump', async (req) => {
+    const id = parse(uuid, req.params.id);
+    const r = await T.bumpWithdrawal(id, who(req), req.log);
+    return { ...r, withdrawal: await T.getWithdrawal(id) };
+  });
+  app.post<{ Params: { id: string } }>('/sweeps/:id/bump', async (req) => bumpNow('sweep', parse(uuid, req.params.id), who(req), req.log));
+  app.get<{ Params: { id: string } }>('/sweeps/:id/attempts', async (req) => ({ attempts: await listAttempts('sweep', parse(uuid, req.params.id)) }));
 
   // Depósitos: reportar un hash (o vía webhook de Alchemy); se acreditan al llegar a N confirmaciones
   app.post('/deposits/report', async (req, reply) => {

@@ -193,7 +193,69 @@ cd test/playwright && npm ci && npx playwright install chromium
 BASE=http://localhost:8080 KEY=… DATABASE_URL=… BOOT_EMAIL=… BOOT_PASS=… npx playwright test   # 6 recorridos
 ```
 
-Pendiente: reemplazo de tx atascadas (gas bump), TRON/BTC/LTC.
+### Reemplazo de transacciones atascadas (gas bump)
+Si un retiro o barrido enviado no se mina en `GAS_BUMP_AFTER_SEC`, el worker lo vuelve a firmar con el **mismo nonce** y comisiones más altas (`+GAS_BUMP_PERCENT` %, o la estimación actual si es mayor) y lo reenvía.
+- Todos los envíos quedan en `tx_attempts` (original, automático o manual, con autor). Solo uno puede minarse; la confirmación busca el recibo del hash vigente **y de todos los intentos anteriores**, y adopta el que se haya minado.
+- Tope: si la comisión necesaria supera `GAS_BUMP_MAX_FEE_WEI`, se detiene y deja el motivo en `last_error`. Máximo `GAS_BUMP_MAX_ATTEMPTS` aceleraciones.
+- Si el nonce ya se minó, no se reemplaza (`409 already_mined`): se confirma en el siguiente ciclo.
+- Manual (tesorero): botón **Acelerar (subir gas)** en el detalle del retiro, o `POST /v1/withdrawals/:id/bump` · `POST /v1/sweeps/:id/bump`. Toma el mismo candado del worker. Historial: `attempts_log` en el detalle del retiro, `GET /v1/sweeps/:id/attempts`.
+
+| Variable | Por defecto | Uso |
+|---|---|---|
+| `GAS_BUMP_ENABLED` | `true` | Aceleración automática en el worker |
+| `GAS_BUMP_AFTER_SEC` | `300` | Tiempo sin minarse antes de acelerar |
+| `GAS_BUMP_PERCENT` | `25` | Aumento por intento (mín. 11; la red exige ≥ 10 %) |
+| `GAS_BUMP_MAX_FEE_WEI` | `300000000000` | Tope de `maxFeePerGas` (300 gwei) |
+| `GAS_BUMP_MAX_ATTEMPTS` | `6` | Aceleraciones máximas por transacción |
+
+Prueba: `node test/gas-bump.e2e.mjs` (cadena local con minado manual; API con `GAS_BUMP_AFTER_SEC=3`).
+
+### Portal de clientes — fase 1: identidad, usuarios y llaves de API
+Portal web en `/portal` (separado de la consola: otra cookie, otra cabecera anti-CSRF, otros hooks) y API en `/v1/portal`. **El `client_id` nunca viaja en la petición**: sale de la sesión o de la llave; acceder a datos de otro cliente responde `404`.
+
+**Alta:** 856 solo invita al **primer admin** desde la consola (detalle del cliente → *Portal del cliente* → *Invitar primer admin*, rol tesorero). El enlace (`/portal/invitacion#<token>`, 72 h, un solo uso) se muestra una vez; el token va en el fragmento y nunca llega al servidor en la URL. Después, el admin del cliente invita y administra a su gente.
+
+| Rol | Puede | 2FA |
+|---|---|---|
+| `viewer` (Consulta) | Ver | Opcional |
+| `operator` (Operador) | Preparar operaciones (fases 3–4) | Opcional |
+| `approver` (Aprobador) | Aprobar (fases 3–4) | **Obligatorio** |
+| `admin` (Administrador) | Usuarios y llaves de API | **Obligatorio** |
+
+- Aprobador/admin sin 2FA solo pueden activarlo (`403 totp_enrollment_required` en lo demás). Al activar se entregan 10 códigos de recuperación de un uso (se guardan como SHA-256).
+- El admin puede restablecer el 2FA de otro usuario con motivo (queda en bitácora); no puede cambiarse a sí mismo ni dejar al cliente sin admin.
+- Cambiar rol, desactivar o restablecer 2FA cierra las sesiones del usuario.
+
+**Llaves de API** (solo admin, con código 2FA; vigencia máx. `PORTAL_KEY_MAX_DAYS`, lista de IP opcional):
+- **Firma Ed25519 (recomendada).** El par se genera en el navegador (WebCrypto); a 856 solo viaja la pública, con prueba de posesión (firma de un reto de un uso). La privada se descarga **una vez**, cifrada con la frase del usuario (PBKDF2-SHA256 600k + AES-256-GCM). Cada petición lleva `x-856-key`, `x-856-timestamp`, `x-856-nonce`, `x-856-signature` = Ed25519 sobre `MÉTODO\nRUTA?QUERY\nTS\nNONCE\nsha256(cuerpo)` (base64url). Ventana ±`PORTAL_SIG_WINDOW_SEC`, nonce irrepetible, `PORTAL_SIG_MAX_FAILS` firmas inválidas → `423` 15 min.
+- **Token de lectura** (`856r_…`, con dígito verificador) para tableros/BI: `Authorization: Bearer`, solo `GET`; 856 guarda únicamente su SHA-256.
+- **Rotación sin corte:** la llave nueva convive `PORTAL_KEY_OVERLAP_DAYS` con la anterior. Revocación inmediata.
+- En fase 1 las llaves solo autentican `GET /v1/portal/me` y `GET /v1/portal/ping`; las operaciones llegan en fases 2–4.
+
+| Método y ruta | Uso |
+|---|---|
+| `POST /v1/portal/auth/login` · `/auth/login/totp` · `/auth/logout` | Sesión (cookie `__Host-c856p` + cabecera `x-856-portal: 1`); 2FA con código o código de recuperación |
+| `GET /v1/portal/me` · `GET /v1/portal/ping` | Identidad (sesión o llave) |
+| `POST /v1/portal/auth/totp/setup` · `/enable` · `/disable` · `/auth/recovery-codes` | 2FA propio |
+| `POST /v1/portal/invites/lookup` · `/invites/accept` | Aceptar invitación (públicas, el token es la credencial) |
+| `GET /v1/portal/users` · `PATCH /users/:id` · `POST /users/:id/totp/reset` | Usuarios (admin) |
+| `GET /v1/portal/users/invites` · `POST /users/invites` · `POST /users/invites/:id/revoke` | Invitaciones (admin) |
+| `GET /v1/portal/keys` · `POST /keys/challenge` · `POST /keys` · `POST /keys/:id/rotate` · `POST /keys/:id/revoke` | Llaves (admin) |
+| `GET /v1/clients/:id/portal` · `POST /v1/clients/:id/portal-invite` | Consola: estado del portal e invitación del primer admin |
+
+Toda petición del portal queda en `audit_log` con `client_id` (actor `portal:<correo>` o `llave:<prefijo>`). Migración `011_portal_identidad`.
+
+| Variable | Por defecto | Uso |
+|---|---|---|
+| `PORTAL_SESSION_TTL_MIN` / `PORTAL_SESSION_IDLE_MIN` | `480` / `30` | Vida máxima e inactividad de la sesión |
+| `PORTAL_INVITE_TTL_HOURS` | `72` | Vigencia de invitaciones |
+| `PORTAL_KEY_MAX_DAYS` / `PORTAL_KEY_OVERLAP_DAYS` | `90` / `7` | Vigencia máxima de llaves y traslape al rotar |
+| `PORTAL_SIG_WINDOW_SEC` / `PORTAL_SIG_MAX_FAILS` | `300` / `10` | Ventana de firma y bloqueo por firmas inválidas |
+| `ORIGIN_RULE` | `off` | Regla de origen (solo el cliente origina operaciones); se activa en la fase 3 |
+
+Pruebas: `node test/portal-fase1.e2e.mjs` (API: 63 verificaciones, incluye aislamiento entre clientes, repetición, firma alterada, IP y bloqueo) y `npx playwright test portal.spec.mjs` en `test/playwright` (navegador: invitación desde consola, 2FA obligatorio, llave Ed25519 descifrada y usada para firmar, token de lectura, operador sin acceso a administración).
+
+Pendiente: TRON/BTC/LTC.
 
 Pruebas: `bash test/smoke.sh` (libro), `bash test/netting.sh` (compensación), `node test/console-fase4.e2e.mjs` (consola de compensación), `node test/transfers.e2e.mjs` y `node test/deposits-sweep.e2e.mjs` (on-chain, contra cadena local Hardhat/Anvil).
 
