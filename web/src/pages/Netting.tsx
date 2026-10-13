@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, ArrowLeft, CheckCircle2, Info, Loader2, Play, Plus, Scale, X } from 'lucide-react';
-import { api, newIdemKey, type NettingPreview, type NettingRunDetail, type NettingRunRow, type ObligationRow, type ObligationStatus } from '@/lib/api';
+import { api, newIdemKey, type NettingPreview, type NettingRunDetail, type NettingRunRow, type ObligationRow, type ObligationStatus, type RunStatus, type Summary } from '@/lib/api';
 import { ago, exactUnits } from '@/lib/amount';
 import { useAuth } from '@/lib/auth';
 import { useAssets } from '@/lib/hooks';
 import { Amount, CopyButton, ErrorBox, Field, fmtDate, StatusBadge } from '@/components/common';
 import { EntryDialog } from '@/components/EntryDialog';
+import { ApprovalPanel } from '@/components/ApprovalPanel';
 import { NewObligationDialog, OB_STATUS, ObligationDialog, ObligationsTable } from '@/components/ObligationDialogs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -21,6 +22,9 @@ import { Tabs } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 
 type Tab = 'obligaciones' | 'simular' | 'corridas';
+export const RUN_STATUS: Record<RunStatus, { label: string; variant: 'warning' | 'success' | 'outline' }> = {
+  pending_approval: { label: 'Por aprobar', variant: 'warning' }, settled: { label: 'Liquidada', variant: 'success' }, rejected: { label: 'Rechazada', variant: 'outline' },
+};
 const pct = (bps: number) => `${(bps / 100).toLocaleString('es-MX', { maximumFractionDigits: 2 })} %`;
 
 export function Netting() {
@@ -126,6 +130,7 @@ function SimulateTab({ assetId, selected, onClear, onSettled }: {
   const [cutoff, setCutoff] = useState('');
   const [confirming, setConfirming] = useState(false);
   const [key, setKey] = useState(newIdemKey);
+  const dual = (useQuery({ queryKey: ['summary'], queryFn: () => api<Summary>('/summary'), staleTime: 60_000 }).data?.dual_approval ?? 'console') !== 'off';
 
   const scope: { asset_id: string; cutoff?: string; obligation_ids?: string[] } = {
     asset_id: assetId,
@@ -232,7 +237,8 @@ function SimulateTab({ assetId, selected, onClear, onSettled }: {
           {p.can_settle && (can('tesorero') ? (
             confirming ? (
               <div className="grid gap-3 rounded-md border border-warning/60 bg-warning/10 p-4 text-sm">
-                <div className="flex items-center gap-2 font-medium"><AlertTriangle className="size-4" />Confirme la liquidación: se registra un asiento y las obligaciones quedan liquidadas.</div>
+                <div className="flex items-center gap-2 font-medium"><AlertTriangle className="size-4" />
+                  {dual ? 'Confirme la solicitud: un segundo tesorero con 2FA debe aprobarla para liquidar.' : 'Confirme la liquidación: se registra un asiento y las obligaciones quedan liquidadas.'}</div>
                 <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
                   <dt className="text-muted-foreground">Obligaciones</dt><dd>{p.obligations} · {p.participants} participantes</dd>
                   <dt className="text-muted-foreground">Bruto</dt><dd className="font-mono">{exactUnits(p.gross_amount, a.decimals)} {a.symbol}</dd>
@@ -242,11 +248,11 @@ function SimulateTab({ assetId, selected, onClear, onSettled }: {
                 <ErrorBox error={run.error} />
                 <div className="flex flex-wrap justify-end gap-2">
                   <Button variant="outline" onClick={() => setConfirming(false)}><ArrowLeft />Corregir</Button>
-                  <Button onClick={() => run.mutate()} disabled={run.isPending}>{run.isPending ? <Loader2 className="animate-spin" /> : <Play />}Confirmar liquidación</Button>
+                  <Button onClick={() => run.mutate()} disabled={run.isPending}>{run.isPending ? <Loader2 className="animate-spin" /> : <Play />}{dual ? 'Solicitar liquidación' : 'Confirmar liquidación'}</Button>
                 </div>
               </div>
             ) : (
-              <div className="flex justify-end"><Button onClick={() => setConfirming(true)}><CheckCircle2 />Liquidar…</Button></div>
+              <div className="flex justify-end"><Button onClick={() => setConfirming(true)}><CheckCircle2 />{dual ? 'Solicitar liquidación…' : 'Liquidar…'}</Button></div>
             )
           ) : (
             <p className="text-right text-sm text-muted-foreground">Liquidable. Solo un tesorero puede ejecutar la corrida.</p>
@@ -283,15 +289,16 @@ function RunsTab({ assetId, onOpen }: { assetId: string; onOpen: (id: string) =>
       <ErrorBox error={q.error} />
       <Table>
         <TableHeader><TableRow>
-          <TableHead>Corrida</TableHead><TableHead className="text-right">Obligaciones</TableHead><TableHead className="text-right">Bruto</TableHead>
-          <TableHead className="text-right">Neto</TableHead><TableHead className="text-right">Ahorro</TableHead><TableHead>Ejecutó</TableHead><TableHead className="text-right">Fecha</TableHead>
+          <TableHead>Corrida</TableHead><TableHead>Estado</TableHead><TableHead className="text-right">Obligaciones</TableHead><TableHead className="text-right">Bruto</TableHead>
+          <TableHead className="text-right">Neto</TableHead><TableHead className="text-right">Ahorro</TableHead><TableHead>Solicitó</TableHead><TableHead className="text-right">Fecha</TableHead>
         </TableRow></TableHeader>
         <TableBody>
-          {q.isPending && <TableRow><TableCell colSpan={7}><Skeleton className="h-6" /></TableCell></TableRow>}
-          {!q.isPending && rows.length === 0 && <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Sin corridas</TableCell></TableRow>}
+          {q.isPending && <TableRow><TableCell colSpan={8}><Skeleton className="h-6" /></TableCell></TableRow>}
+          {!q.isPending && rows.length === 0 && <TableRow><TableCell colSpan={8} className="py-8 text-center text-muted-foreground">Sin corridas</TableCell></TableRow>}
           {rows.map((r) => (
             <TableRow key={r.id} className="cursor-pointer" onClick={() => onOpen(r.id)}>
               <TableCell className="font-mono text-xs">{r.id.slice(0, 8)}</TableCell>
+              <TableCell><Badge variant={RUN_STATUS[r.status].variant}>{RUN_STATUS[r.status].label}</Badge></TableCell>
               <TableCell className="num text-right">{r.obligations} <span className="text-muted-foreground">· {r.participants}</span></TableCell>
               <TableCell className="text-right"><Amount v={r.gross_amount} asset={a} /></TableCell>
               <TableCell className="text-right"><Amount v={r.net_amount} asset={a} /></TableCell>
@@ -322,7 +329,7 @@ export function RunDialog({ id, onClose }: { id: string | null; onClose: () => v
       <Dialog open={!!id && !entryId} onOpenChange={(v) => !v && onClose()}>
         <DialogContent className="sm:max-w-3xl">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">Corrida de compensación <Badge variant="success">Liquidada</Badge></DialogTitle>
+            <DialogTitle className="flex items-center gap-2">Corrida de compensación {r && <Badge variant={RUN_STATUS[r.status].variant}>{RUN_STATUS[r.status].label}</Badge>}</DialogTitle>
             <DialogDescription className="flex items-center gap-1 font-mono text-xs">{id}{id && <CopyButton value={id} />}</DialogDescription>
           </DialogHeader>
           <ErrorBox error={q.error} />
@@ -332,15 +339,26 @@ export function RunDialog({ id, onClose }: { id: string | null; onClose: () => v
               <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
                 <dt className="text-muted-foreground">Activo</dt><dd>{a.symbol} · {r.asset_id}</dd>
                 <dt className="text-muted-foreground">Bruto</dt><dd><Amount v={r.gross_amount} asset={a} exact /></dd>
-                <dt className="text-muted-foreground">Neto movido</dt><dd><Amount v={r.net_amount} asset={a} exact /> <span className="text-success">· ahorro {pct(r.savings_bps)}</span></dd>
+                <dt className="text-muted-foreground">{r.status === 'settled' ? 'Neto movido' : 'Neto solicitado'}</dt><dd><Amount v={r.net_amount} asset={a} exact /> <span className="text-success">· ahorro {pct(r.savings_bps)}</span></dd>
                 <dt className="text-muted-foreground">Corte</dt><dd>{r.cutoff ? fmtDate(r.cutoff) : 'Sin corte'}</dd>
-                <dt className="text-muted-foreground">Ejecutó</dt><dd>{r.created_by ?? '—'} · {fmtDate(r.created_at)}</dd>
+                <dt className="text-muted-foreground">Solicitó</dt><dd>{r.created_by ?? '—'} · {fmtDate(r.created_at)}</dd>
+                {r.approved_by && <><dt className="text-muted-foreground">Aprobó</dt><dd>{r.approved_by}{r.decided_at && <> · {fmtDate(r.decided_at)}</>}</dd></>}
+                {r.rejected_by && <><dt className="text-muted-foreground">Rechazó</dt><dd>{r.rejected_by} · «{r.rejected_reason}»</dd></>}
               </dl>
-              {r.entry_id
+              {r.status === 'pending_approval' && r.preview && (
+                r.preview.can_settle
+                  ? <p className="rounded-md bg-success/10 px-3 py-2 text-sm">Simulación vigente: las {r.obligations.length} obligaciones siguen abiertas y el neto no cambió. Liquidable.</p>
+                  : <ErrorBox error={!r.preview.all_open ? 'Alguna obligación ya no está abierta: al aprobar se rechazará. Rechace la corrida y vuelva a simular.'
+                    : !r.preview.net_matches ? 'El neto cambió desde la solicitud: rechace y vuelva a simular.'
+                    : 'Hoy no es liquidable (faltante de saldo o pagador bloqueado).'} />
+              )}
+              {r.status === 'pending_approval' && r.last_error && <p className="text-sm text-destructive">Último intento de aprobación: {r.last_error}</p>}
+              {r.status === 'pending_approval' && <ApprovalPanel kind="run" id={r.id} requestedByOperator={r.requested_by_operator} requestedBy={r.created_by} />}
+              {r.status === 'settled' && (r.entry_id
                 ? <div><Button size="sm" variant="outline" onClick={() => setEntryId(r.entry_id)}>Ver asiento de compensación</Button></div>
-                : <p className="text-sm text-muted-foreground">Todas las posiciones netas fueron cero: no hubo asiento.</p>}
+                : <p className="text-sm text-muted-foreground">Todas las posiciones netas fueron cero: no hubo asiento.</p>)}
               <div>
-                <h3 className="mb-1 text-sm font-medium">Posiciones</h3>
+                <h3 className="mb-1 text-sm font-medium">{r.status === 'settled' ? 'Posiciones' : 'Posiciones (recalculadas ahora)'}</h3>
                 <Table>
                   <TableHeader><TableRow><TableHead>Cliente</TableHead><TableHead className="text-right">Por cobrar</TableHead><TableHead className="text-right">Por pagar</TableHead><TableHead className="text-right">Neto</TableHead></TableRow></TableHeader>
                   <TableBody>
@@ -356,14 +374,14 @@ export function RunDialog({ id, onClose }: { id: string | null; onClose: () => v
                 </Table>
               </div>
               <div>
-                <h3 className="mb-1 text-sm font-medium">Obligaciones liquidadas ({r.obligations.length})</h3>
+                <h3 className="mb-1 text-sm font-medium">{r.status === 'settled' ? 'Obligaciones liquidadas' : 'Obligaciones solicitadas'} ({r.obligations.length})</h3>
                 <Table>
                   <TableHeader><TableRow><TableHead>Deudor → acreedor</TableHead><TableHead>Referencia</TableHead><TableHead className="text-right">Monto</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {r.obligations.map((o) => (
                       <TableRow key={o.id}>
                         <TableCell className="text-sm">{o.debtor_name} <span className="text-muted-foreground">→</span> {o.creditor_name}</TableCell>
-                        <TableCell className="font-mono text-xs">{o.external_ref ?? '—'}</TableCell>
+                        <TableCell className="font-mono text-xs">{o.external_ref ?? '—'}{o.status && o.status !== 'open' && r.status === 'pending_approval' && <Badge variant="destructive" className="ml-2">{OB_STATUS[o.status].label}</Badge>}</TableCell>
                         <TableCell className="text-right"><Amount v={o.amount} asset={a} symbol={false} /></TableCell>
                       </TableRow>
                     ))}

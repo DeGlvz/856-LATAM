@@ -11,7 +11,7 @@ import { useAuth } from '@/lib/auth';
 import { useAssets } from '@/lib/hooks';
 import { Amount, ErrorBox, Field, fmtDate } from '@/components/common';
 import { EntryDialog } from '@/components/EntryDialog';
-import { NewWithdrawalDialog, WD_STATUS, WithdrawalDialog } from '@/components/WithdrawalDialogs';
+import { NewWithdrawalDialog, WD_STATUS, WdBadge, WithdrawalDialog } from '@/components/WithdrawalDialogs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -148,7 +148,7 @@ function WithdrawalsTable({ clientId, status, explorer, onOpen }: { clientId: st
           {rows.map((w) => (
             <TableRow key={w.id} className="cursor-pointer" onClick={() => onOpen(w.id)}>
               <TableCell>
-                <Badge variant={WD_STATUS[w.status].variant}>{WD_STATUS[w.status].label}</Badge>
+                <WdBadge w={w} />
                 {w.last_error && ['reserved', 'signed', 'broadcast'].includes(w.status) && <div className="mt-1 max-w-48 truncate text-[11px] text-destructive" title={w.last_error}>{w.last_error}</div>}
               </TableCell>
               <TableCell><Link to={`/clientes/${w.client_id}`} onClick={(e) => e.stopPropagation()} className="block max-w-48 truncate font-medium hover:underline">{w.client_name}</Link></TableCell>

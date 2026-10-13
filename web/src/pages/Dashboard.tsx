@@ -4,6 +4,7 @@ import {
   Activity, AlertTriangle, CheckCircle2, Database, ExternalLink, Fuel, RefreshCw, Scale, Send, XCircle,
 } from 'lucide-react';
 import { api, type Asset, type InflightWithdrawal, type ReconBalance, type Summary } from '@/lib/api';
+import { WdBadge } from '@/components/WithdrawalDialogs';
 import { ago, exactUnits, formatUnits, shortHex, toBig } from '@/lib/amount';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -252,7 +253,7 @@ function InflightTable({ s }: { s: Summary }) {
               return (
                 <TableRow key={w.id} className={cn(w.last_error && 'bg-warning/10')}>
                   <TableCell>
-                    <Badge variant={WD_STATUS[w.status].variant}>{WD_STATUS[w.status].label}</Badge>
+                    <WdBadge w={w} />
                     {w.last_error && <div className="mt-1 max-w-56 truncate text-[11px] text-destructive" title={w.last_error}>{w.last_error}</div>}
                   </TableCell>
                   <TableCell>
