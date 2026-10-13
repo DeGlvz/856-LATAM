@@ -47,6 +47,12 @@ const Env = z.object({
   // Llave para cifrar (AES-256-GCM) los secretos TOTP en la base. Sin ella no se puede activar 2FA.
   TOTP_ENCRYPTION_KEY: z.string().min(32, 'mínimo 32 caracteres aleatorios').optional(),
   TOTP_ISSUER: z.string().default('856-LATAM'),
+  // Reemplazo de transacciones atascadas (mismo nonce, comisiones más altas)
+  GAS_BUMP_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
+  GAS_BUMP_AFTER_SEC: z.coerce.number().int().min(1).default(300),       // sin minarse tras este tiempo → se acelera
+  GAS_BUMP_PERCENT: z.coerce.number().int().min(11).max(200).default(25), // aumento por intento (la red exige ≥ 10 %)
+  GAS_BUMP_MAX_FEE_WEI: z.coerce.bigint().default(300_000_000_000n),     // tope de maxFeePerGas (300 gwei)
+  GAS_BUMP_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(6),
 });
 
 export const config = Env.parse(process.env);
