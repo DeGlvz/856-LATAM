@@ -32,6 +32,7 @@ async function nativeAssetOf(c: Tx | typeof pool, network: string): Promise<stri
 export async function requestWithdrawal(i: {
   client_id: string; asset_id: string; to_address: string; amount: string;
   idempotency_key?: string; metadata?: Record<string, unknown>;
+  requested_by?: string; requested_by_operator?: string | null; needs_approval?: boolean;
 }) {
   if (!isAddress(i.to_address)) throw new LedgerError(400, 'Dirección destino inválida', 'invalid_address');
   const to = lower(i.to_address);
@@ -59,9 +60,11 @@ export async function requestWithdrawal(i: {
 
       const acc = await openClientAccount(c, i.client_id, asset.id);
       const { rows: [w] } = await c.query(
-        `INSERT INTO withdrawals (client_id, account_id, asset_id, to_address, amount, status, idempotency_key, metadata)
-         VALUES ($1,$2,$3,$4,$5,'reserved',$6,$7) RETURNING id`,
-        [i.client_id, acc.id, asset.id, to, i.amount, i.idempotency_key ?? null, i.metadata ?? {}],
+        `INSERT INTO withdrawals (client_id, account_id, asset_id, to_address, amount, status, idempotency_key, metadata,
+                                  approval_status, requested_by, requested_by_operator)
+         VALUES ($1,$2,$3,$4,$5,'reserved',$6,$7,$8,$9,$10) RETURNING id`,
+        [i.client_id, acc.id, asset.id, to, i.amount, i.idempotency_key ?? null, i.metadata ?? {},
+          i.needs_approval ? 'pending' : 'not_required', i.requested_by ?? null, i.requested_by_operator ?? null],
       );
       // Reserva: el saldo sale de "disponible" y queda "en tránsito" hasta confirmarse
       const e = await postEntryIn(c, {
@@ -91,23 +94,26 @@ export async function getWithdrawal(id: string) {
   const { rows: [w] } = await pool.query(
     `SELECT w.id, w.client_id, c.name AS client_name, w.account_id, w.asset_id, w.to_address, w.amount, w.status, w.from_address,
             w.nonce, w.tx_hash, w.block_number, w.confirmations, w.gas_used, w.gas_cost_wei, w.attempts, w.last_error,
-            w.reserve_entry_id, w.settle_entry_id, w.reversal_entry_id, w.metadata, w.created_at, w.updated_at
+            w.reserve_entry_id, w.settle_entry_id, w.reversal_entry_id, w.metadata, w.created_at, w.updated_at,
+            w.approval_status, w.requested_by, w.requested_by_operator, w.approved_by, w.approved_at, w.rejected_by, w.rejected_reason
        FROM withdrawals w JOIN clients c ON c.id = w.client_id WHERE w.id = $1`, [id]);
   if (!w) throw new LedgerError(404, 'Retiro no encontrado', 'not_found');
   return { ...w, required_confirmations: config.CONFIRMATIONS };
 }
 
-export async function listWithdrawals(f: { client_id?: string; status?: string; asset_id?: string; limit?: number; cursor?: string }) {
+export async function listWithdrawals(f: { client_id?: string; status?: string; asset_id?: string; approval_status?: string; limit?: number; cursor?: string }) {
   const limit = Math.min(Math.max(f.limit ?? 100, 1), 1000);
   const cur = decodeCursor(f.cursor);
   const { rows } = await pool.query(
     `SELECT w.id, w.client_id, c.name AS client_name, w.asset_id, w.to_address, w.amount, w.status, w.tx_hash, w.nonce,
-            w.confirmations, w.attempts, w.last_error, w.created_at, w.updated_at, w.created_at::text AS _ts
+            w.confirmations, w.attempts, w.last_error, w.created_at, w.updated_at, w.approval_status, w.requested_by,
+            w.created_at::text AS _ts
        FROM withdrawals w JOIN clients c ON c.id = w.client_id
       WHERE ($1::uuid IS NULL OR w.client_id = $1) AND ($2::text IS NULL OR w.status = $2) AND ($3::text IS NULL OR w.asset_id = $3)
         AND ($4::timestamptz IS NULL OR (w.created_at, w.id) < ($4::timestamptz, $5::uuid))
+        AND ($7::text IS NULL OR w.approval_status = $7)
       ORDER BY w.created_at DESC, w.id DESC LIMIT $6`,
-    [f.client_id ?? null, f.status ?? null, f.asset_id ?? null, cur?.[0] ?? null, cur?.[1] ?? null, limit + 1],
+    [f.client_id ?? null, f.status ?? null, f.asset_id ?? null, cur?.[0] ?? null, cur?.[1] ?? null, limit + 1, f.approval_status ?? null],
   );
   return page(rows, limit);
 }
@@ -136,6 +142,39 @@ export async function cancelWithdrawal(id: string, reason = 'cancelado por el cl
   return getWithdrawal(id);
 }
 
+// ── Doble aprobación ──
+export async function approveWithdrawal(id: string, by: { email: string; id: string }) {
+  await tx(async (c) => {
+    const { rows: [w] } = await c.query('SELECT * FROM withdrawals WHERE id = $1 FOR UPDATE', [id]);
+    if (!w) throw new LedgerError(404, 'Retiro no encontrado', 'not_found');
+    if (w.status !== 'reserved' || w.approval_status !== 'pending') {
+      throw new LedgerError(409, `El retiro no está pendiente de aprobación (estado: ${w.status}/${w.approval_status})`, 'not_pending');
+    }
+    if (w.requested_by_operator === by.id) throw new LedgerError(403, 'Doble aprobación: quien solicitó no puede aprobar', 'same_operator');
+    const { rows: [cl] } = await c.query('SELECT status FROM clients WHERE id = $1 FOR SHARE', [w.client_id]);
+    if (cl.status !== 'active') throw new LedgerError(422, `Cliente no activo (estado: ${cl.status}); rechace el retiro`, 'client_not_active');
+    await c.query(
+      `UPDATE withdrawals SET approval_status = 'approved', approved_by = $2, approved_by_operator = $3, approved_at = now(), updated_at = now()
+        WHERE id = $1`, [id, by.email, by.id]);
+  });
+  return getWithdrawal(id);
+}
+
+export async function rejectWithdrawal(id: string, by: string, reason: string) {
+  await tx(async (c) => {
+    const { rows: [w] } = await c.query('SELECT * FROM withdrawals WHERE id = $1 FOR UPDATE', [id]);
+    if (!w) throw new LedgerError(404, 'Retiro no encontrado', 'not_found');
+    if (w.status !== 'reserved' || w.approval_status !== 'pending') {
+      throw new LedgerError(409, `El retiro no está pendiente de aprobación (estado: ${w.status}/${w.approval_status})`, 'not_pending');
+    }
+    const rev = await reverseReservation(c, w, `rechazado por ${by}: ${reason}`);
+    await c.query(
+      `UPDATE withdrawals SET status = 'cancelled', approval_status = 'rejected', rejected_by = $2, rejected_reason = $3,
+              reversal_entry_id = $4, updated_at = now() WHERE id = $1`, [id, by, reason, rev]);
+  });
+  return getWithdrawal(id);
+}
+
 // ── Worker: firmar ──
 async function signReserved(log: Logger) {
   const signer = getSigner();
@@ -146,7 +185,9 @@ async function signReserved(log: Logger) {
   for (;;) {
     const done = await tx(async (c) => {
       const { rows: [w] } = await c.query(
-        `SELECT * FROM withdrawals WHERE status = 'reserved' ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1`,
+        // Solo lo que no requiere aprobación o ya fue aprobado por un segundo tesorero
+        `SELECT * FROM withdrawals WHERE status = 'reserved' AND approval_status IN ('not_required','approved')
+          ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1`,
       );
       if (!w) return true;
       const asset = await getAsset(c, w.asset_id);

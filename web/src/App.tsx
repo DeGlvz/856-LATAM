@@ -9,6 +9,9 @@ import { ClientDetail } from './pages/ClientDetail';
 import { Account } from './pages/Account';
 import { Movements } from './pages/Movements';
 import { Netting } from './pages/Netting';
+import { Approvals } from './pages/Approvals';
+import { Audit } from './pages/Audit';
+import { Security } from './pages/Security';
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { operator, loading } = useAuth();
@@ -30,6 +33,9 @@ export default function App() {
           <Route path="cuentas/:ref" element={<Account />} />
           <Route path="movimientos" element={<Movements />} />
           <Route path="compensacion" element={<Netting />} />
+          <Route path="aprobaciones" element={<Approvals />} />
+          <Route path="auditoria" element={<Audit />} />
+          <Route path="seguridad" element={<Security />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

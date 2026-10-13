@@ -5,7 +5,10 @@ import { api, ApiError, type Operator, type Role } from './api';
 interface AuthCtx {
   operator: Operator | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  /** Devuelve el mfa_token si la cuenta tiene 2FA (falta el segundo paso). */
+  login: (email: string, password: string) => Promise<string | null>;
+  verifyTotp: (mfaToken: string, code: string) => Promise<void>;
+  refresh: () => Promise<unknown>;
   logout: () => Promise<void>;
   can: (role: Role) => boolean;
 }
@@ -32,7 +35,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [qc]);
 
   const loginM = useMutation({
-    mutationFn: (v: { email: string; password: string }) => api<{ operator: Operator }>('/auth/login', { method: 'POST', json: v }),
+    mutationFn: (v: { email: string; password: string }) =>
+      api<{ operator?: Operator; mfa_required?: boolean; mfa_token?: string }>('/auth/login', { method: 'POST', json: v }),
+    onSuccess: (r) => { if (r.operator) qc.setQueryData(['me'], r.operator); },
+  });
+  const totpM = useMutation({
+    mutationFn: (v: { mfa_token: string; code: string }) => api<{ operator: Operator }>('/auth/login/totp', { method: 'POST', json: v }),
     onSuccess: (r) => qc.setQueryData(['me'], r.operator),
   });
   const logoutM = useMutation({
@@ -44,7 +52,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <Ctx.Provider value={{
       operator, loading: me.isPending,
-      login: async (email, password) => { await loginM.mutateAsync({ email, password }); },
+      login: async (email, password) => { const r = await loginM.mutateAsync({ email, password }); return r.mfa_required ? r.mfa_token ?? null : null; },
+      verifyTotp: async (mfa_token, code) => { await totpM.mutateAsync({ mfa_token, code }); },
+      refresh: () => qc.invalidateQueries({ queryKey: ['me'] }),
       logout: async () => { await logoutM.mutateAsync(); },
       can: (r) => !!operator && RANK[operator.role] >= RANK[r],
     }}>

@@ -10,6 +10,7 @@ import { useAuth } from '@/lib/auth';
 import { useAssets } from '@/lib/hooks';
 import { Amount, CopyButton, ErrorBox, Field, fmtDate } from '@/components/common';
 import { EntryDialog } from '@/components/EntryDialog';
+import { ApprovalPanel } from '@/components/ApprovalPanel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -28,6 +29,13 @@ export const WD_STATUS: Record<WithdrawalStatus, { label: string; variant: 'seco
 };
 
 const STEPS: WithdrawalStatus[] = ['reserved', 'signed', 'broadcast', 'confirmed'];
+
+/** Estado visible: un retiro reservado que espera la segunda firma se muestra como «Por aprobar». */
+export function WdBadge({ w }: { w: { status: WithdrawalStatus; approval_status?: string } }) {
+  if (w.status === 'reserved' && w.approval_status === 'pending') return <Badge variant="warning">Por aprobar</Badge>;
+  if (w.status === 'cancelled' && w.approval_status === 'rejected') return <Badge variant="outline">Rechazado</Badge>;
+  return <Badge variant={WD_STATUS[w.status].variant}>{WD_STATUS[w.status].label}</Badge>;
+}
 
 // ───────────── Detalle de un retiro ─────────────
 export function WithdrawalDialog({ id, explorer, onClose }: { id: string | null; explorer: string; onClose: () => void }) {
@@ -55,7 +63,7 @@ export function WithdrawalDialog({ id, explorer, onClose }: { id: string | null;
       <Dialog open={!!id && !entryId} onOpenChange={(v) => !v && onClose()}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">Retiro {w && <Badge variant={WD_STATUS[w.status].variant}>{WD_STATUS[w.status].label}</Badge>}</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">Retiro {w && <WdBadge w={w} />}</DialogTitle>
             <DialogDescription className="flex items-center gap-1 font-mono text-xs">{id}{id && <CopyButton value={id} />}</DialogDescription>
           </DialogHeader>
           <ErrorBox error={q.error} />
@@ -65,7 +73,9 @@ export function WithdrawalDialog({ id, explorer, onClose }: { id: string | null;
               {/* Línea de tiempo */}
               {w.status === 'failed' || w.status === 'cancelled' ? (
                 <div className={cn('rounded-md px-3 py-2 text-sm', w.status === 'failed' ? 'bg-destructive/10 text-destructive' : 'bg-muted')}>
-                  {w.status === 'failed' ? 'Falló: el saldo reservado se devolvió al cliente.' : 'Cancelado: el saldo reservado se devolvió al cliente.'}
+                  {w.status === 'failed' ? 'Falló: el saldo reservado se devolvió al cliente.'
+                    : w.approval_status === 'rejected' ? `Rechazado por ${w.rejected_by}: «${w.rejected_reason}». El saldo reservado se devolvió al cliente.`
+                    : 'Cancelado: el saldo reservado se devolvió al cliente.'}
                 </div>
               ) : (
                 <ol className="grid grid-cols-4 gap-2">
@@ -98,6 +108,8 @@ export function WithdrawalDialog({ id, explorer, onClose }: { id: string | null;
                 {w.nonce != null && <><dt className="text-muted-foreground">Nonce</dt><dd className="num">{w.nonce} <span className="text-muted-foreground">· intentos {w.attempts}</span></dd></>}
                 {w.gas_cost_wei && native && <><dt className="text-muted-foreground">Gas pagado</dt><dd><Amount v={w.gas_cost_wei} asset={native} exact /></dd></>}
                 <dt className="text-muted-foreground">Creado</dt><dd>{fmtDate(w.created_at)} <span className="text-muted-foreground">· actualizado {fmtDate(w.updated_at)}</span></dd>
+                {w.requested_by && <><dt className="text-muted-foreground">Solicitó</dt><dd>{w.requested_by}</dd></>}
+                {w.approved_by && <><dt className="text-muted-foreground">Aprobó</dt><dd>{w.approved_by}{w.approved_at && <span className="text-muted-foreground"> · {fmtDate(w.approved_at)}</span>}</dd></>}
                 {w.last_error && <><dt className="text-muted-foreground">Último error</dt><dd className="text-destructive">{w.last_error}</dd></>}
               </dl>
 
@@ -106,7 +118,11 @@ export function WithdrawalDialog({ id, explorer, onClose }: { id: string | null;
                   .filter(([, e]) => e).map(([l, e]) => <Button key={l} size="sm" variant="outline" onClick={() => setEntryId(e)}>Asiento de {l.toLowerCase()}</Button>)}
               </div>
 
-              {w.status === 'reserved' && can('tesorero') && (
+              {w.status === 'reserved' && w.approval_status === 'pending' && (
+                <ApprovalPanel kind="withdrawal" id={w.id} requestedByOperator={w.requested_by_operator} requestedBy={w.requested_by} />
+              )}
+
+              {w.status === 'reserved' && w.approval_status !== 'pending' && can('tesorero') && (
                 <div className="grid gap-2 rounded-md border border-destructive/30 p-3">
                   <p className="text-sm">Aún no se firma: puede cancelarse y el saldo vuelve al cliente.</p>
                   <div className="flex gap-2">
@@ -138,6 +154,7 @@ export function NewWithdrawalDialog({ open, onOpenChange, presetClientId, onCrea
   const [amountText, setAmountText] = useState('');
   const [confirming, setConfirming] = useState(false);
   const [key, setKey] = useState(newIdemKey);
+  const dual = (useQuery({ queryKey: ['summary'], queryFn: () => api<{ dual_approval?: string }>('/summary'), staleTime: 60_000 }).data?.dual_approval ?? 'console') !== 'off';
 
   useEffect(() => {
     if (open) { setClientId(presetClientId ?? null); setSearch(''); setAssetId(''); setDest(''); setAmountText(''); setConfirming(false); setKey(newIdemKey()); }
@@ -209,6 +226,7 @@ export function NewWithdrawalDialog({ open, onOpenChange, presetClientId, onCrea
             {confirming ? (
               <div className="grid gap-3 rounded-md border border-warning/60 bg-warning/10 p-4 text-sm">
                 <div className="flex items-center gap-2 font-medium"><AlertTriangle className="size-4" />Confirme el retiro: una vez firmado no se puede revertir.</div>
+                {dual && <p>El saldo se reserva ahora; el retiro queda <b>pendiente de aprobación</b> por un segundo tesorero con 2FA.</p>}
                 <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
                   <dt className="text-muted-foreground">Monto</dt><dd className="font-mono">{exactUnits(base, asset.decimals)} {asset.symbol}</dd>
                   <dt className="text-muted-foreground">Unidades base</dt><dd className="font-mono text-xs">{base}</dd>
@@ -252,7 +270,7 @@ export function NewWithdrawalDialog({ open, onOpenChange, presetClientId, onCrea
                 ? <Button type="button" variant="outline" onClick={() => setConfirming(false)}><ArrowLeft />Corregir</Button>
                 : <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>}
               <Button type="submit" disabled={!ready || m.isPending}>
-                {m.isPending ? <Loader2 className="animate-spin" /> : <Send />}{confirming ? 'Confirmar retiro' : 'Revisar'}
+                {m.isPending ? <Loader2 className="animate-spin" /> : <Send />}{confirming ? (dual ? 'Solicitar retiro' : 'Confirmar retiro') : 'Revisar'}
               </Button>
             </DialogFooter>
           </form>

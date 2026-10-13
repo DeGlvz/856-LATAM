@@ -7,6 +7,7 @@ import m005 from './005_depositos_barrido.js';
 import m006 from './006_consola.js';
 import m007 from './007_clientes_estado.js';
 import m008 from './008_compensacion_consola.js';
+import m009 from './009_aprobaciones_2fa.js';
 
 // Migraciones embebidas en el build (no hay archivos .sql que copiar al contenedor).
 // Nunca editar una ya aplicada: agregar una nueva.
@@ -19,6 +20,7 @@ const migrations: [string, string][] = [
   ['006_consola', m006],
   ['007_clientes_estado', m007],
   ['008_compensacion_consola', m008],
+  ['009_aprobaciones_2fa', m009],
 ];
 
 export async function migrate(pool: Pool, log: (msg: string) => void = console.log) {

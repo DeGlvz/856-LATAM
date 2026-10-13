@@ -62,7 +62,7 @@ app.get('/health', async () => {
 });
 
 // /v1: API key (integraciones) o sesión de operador (consola). Webhooks validan firma; login es público.
-const PUBLIC = new Set(['/v1/auth/login']);
+const PUBLIC = new Set(['/v1/auth/login', '/v1/auth/login/totp']);
 await app.register(async (v1) => {
   v1.addHook('onRequest', async (req, reply) => {
     const path = req.url.split('?')[0];
@@ -91,8 +91,11 @@ await app.register(async (v1) => {
     if (p?.kind !== 'operator' || req.method === 'GET' || req.method === 'HEAD') return;
     const route = req.routeOptions.url ?? req.url.split('?')[0];
     if (route.startsWith('/v1/auth/')) return; // login/logout ya se registran con más detalle
+    // Motivo (cancelaciones, rechazos) a la bitácora; nunca códigos, contraseñas ni el resto del cuerpo
+    const reason = (req.body as { reason?: unknown } | undefined)?.reason;
     await audit({ operator_id: p.operator.id, actor: p.operator.email, action: `${req.method} ${route}`,
-      target: Object.values((req.params ?? {}) as Record<string, string>).join(',') || null, status: reply.statusCode, ip: req.ip })
+      target: Object.values((req.params ?? {}) as Record<string, string>).join(',') || null, status: reply.statusCode, ip: req.ip,
+      metadata: typeof reason === 'string' ? { reason: reason.slice(0, 300) } : {} })
       .catch((e) => req.log.error(e, 'audit_log'));
   });
   await v1.register(authRoutes);

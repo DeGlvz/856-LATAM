@@ -138,7 +138,7 @@ Pantalla **Retiros y depósitos** (`/console/movimientos`) con pestañas Retiros
 - **Reportar depósito** por hash (operador) y **ciclo del worker** a demanda (tesorero).
 - `GET /v1/withdrawals`, `/v1/deposits`, `/v1/sweeps`: ahora con `cursor`/`next_cursor`, filtro `asset_id` y nombre del cliente; estados validados. `POST /v1/withdrawals/:id/cancel` acepta `{reason}` y registra quién canceló.
 
-Prueba: `node test/console-fase3.e2e.mjs` (27 verificaciones, cadena local con depósito, barrido y retiro reales).
+Prueba: `node test/console-fase3.e2e.mjs` (28 verificaciones, cadena local con depósito, barrido y retiro reales).
 
 ### Consola — fase 4: compensación
 Pantalla **Compensación** (`/console/compensacion`) con pestañas Obligaciones · Simular y liquidar · Corridas, filtrada por activo.
@@ -155,6 +155,43 @@ Reglas nuevas del motor (migración `008`):
 - Cada corrida guarda `created_by` (correo del operador o `api:xxxx`); cada cancelación, `cancel_reason`, `cancelled_at` y `cancelled_by`. Todo queda además en la bitácora.
 
 Prueba: `node test/console-fase4.e2e.mjs` (41 verificaciones; no requiere cadena).
+
+### Consola — fase 5: auditoría, doble aprobación y 2FA
+- **2FA (TOTP)** en *Seguridad*: alta con QR o clave manual (Google/Microsoft Authenticator, 1Password…), baja con código vigente. Con 2FA activo el login pide el código en un segundo paso (`POST /v1/auth/login` → `{mfa_required, mfa_token}` → `POST /v1/auth/login/totp {mfa_token, code}`). Un código no se acepta dos veces (anti-reuso por paso de tiempo). El secreto se guarda cifrado con AES-256-GCM.
+- **Doble aprobación** de retiros y corridas de compensación (pantalla *Aprobaciones*, con contador en el menú):
+  - Retiro: el saldo se reserva al pedirlo (`approval_status: pending`); el worker no firma hasta que **otro** tesorero lo apruebe. Rechazar devuelve el saldo (motivo obligatorio).
+  - Corrida: se solicita (`202`, `pending_approval`) con las obligaciones exactas y el neto simulado; al aprobar se liquida en un asiento solo si nada cambió (si cambió → `409 scope_changed` / `422 obligations_not_open`, la corrida sigue pendiente con `last_error` y se puede rechazar).
+  - Reglas: quien solicita no aprueba (`403 same_operator`); solo operadores de consola aprueban (`403 operator_only`); con `APPROVAL_REQUIRE_2FA=true` el aprobador necesita 2FA activo (`403 totp_required`) y un código por aprobación.
+- **Auditoría** (solo tesorero): bitácora con filtros por actor, acción, resultado (correcto / error / denegado), objetivo y fechas; paginación y exportación CSV. Ahora guarda el motivo de cancelaciones y rechazos.
+- **Operadores** (tesorero): estado de 2FA y *Restablecer 2FA* de otro operador (teléfono perdido; cierra sus sesiones, exige motivo, no aplica a uno mismo).
+
+| Método | Ruta | Notas |
+|---|---|---|
+| POST | `/v1/auth/login/totp` | Segundo paso del login (público, limitado a 10/min) |
+| POST | `/v1/auth/totp/setup` · `/enable` · `/disable` | El propio operador; `enable`/`disable` exigen `{code}` |
+| GET | `/v1/approvals` | Retiros y corridas pendientes + política vigente |
+| POST | `/v1/withdrawals/:id/approve` · `/reject` | Tesorero. `{code}` para aprobar; `{reason}` para rechazar |
+| POST | `/v1/netting/runs/:id/approve` · `/reject` | Ídem |
+| GET | `/v1/netting/runs?status=` | `pending_approval` · `settled` · `rejected` |
+| GET | `/v1/audit` · `/v1/audit/actions` | Tesorero. `actor, action, result, target, from, to, limit, cursor` |
+| GET | `/v1/operators` · POST `/v1/operators/:id/totp/reset` | Tesorero |
+
+Variables nuevas (migración `009`):
+
+| Variable | Por defecto | Uso |
+|---|---|---|
+| `DUAL_APPROVAL` | `console` | `off` · `console` (solo lo pedido desde la consola) · `all` (también por API key) |
+| `APPROVAL_REQUIRE_2FA` | `true` | El aprobador debe tener 2FA y confirmar con código |
+| `TOTP_ENCRYPTION_KEY` | — | **Requerida para activar 2FA.** Mínimo 32 caracteres aleatorios (p. ej. `openssl rand -hex 32`). No cambiarla después: los secretos existentes dejarían de descifrarse |
+| `TOTP_ISSUER` | `856-LATAM` | Nombre que muestra la app de autenticación |
+
+> Operación: con `DUAL_APPROVAL` activo se necesitan **al menos dos tesoreros con 2FA**. Alta: `npm run operator:create -- <correo> tesorero`.
+
+Pruebas: `node test/console-fase5.e2e.mjs` (56 verificaciones, cadena local) y navegador con Playwright:
+```bash
+cd test/playwright && npm ci && npx playwright install chromium
+BASE=http://localhost:8080 KEY=… DATABASE_URL=… BOOT_EMAIL=… BOOT_PASS=… npx playwright test   # 6 recorridos
+```
 
 Pendiente: reemplazo de tx atascadas (gas bump), TRON/BTC/LTC.
 
