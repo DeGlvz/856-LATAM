@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { idempotent } from '../idempotency.js';
 import { LedgerError } from '../ledger/service.js';
 import * as N from '../ledger/netting.js';
+import { assertApprover, decider, requester } from '../ledger/approvals.js';
 
 const amount = z.string().regex(/^[1-9]\d{0,77}$/, 'entero positivo en unidades base');
 const uuid = z.string().uuid();
@@ -34,7 +35,7 @@ const Scope = z.object({
 });
 const RunBody = Scope.extend({ expected_net_amount: z.string().regex(/^(0|[1-9]\d{0,77})$/).optional() });
 const RunsQuery = z.object({
-  asset_id: z.string().optional(), limit: z.coerce.number().int().min(1).max(200).default(50), cursor: z.string().max(300).optional(),
+  asset_id: z.string().optional(), status: z.enum(['pending_approval', 'settled', 'rejected']).optional(), limit: z.coerce.number().int().min(1).max(200).default(50), cursor: z.string().max(300).optional(),
 });
 
 export async function nettingRoutes(app: FastifyInstance) {
@@ -47,10 +48,30 @@ export async function nettingRoutes(app: FastifyInstance) {
   // Simulación: posiciones netas, ahorro, faltantes y pagadores bloqueados, sin mover nada
   app.post('/netting/preview', async (req) => N.previewNetting(parse(Scope, req.body)));
   // Ejecución atómica (requiere Idempotency-Key). expected_net_amount: neto que se vio en la simulación
+  // Con doble aprobación queda pendiente (202) hasta que otro tesorero la apruebe; sin ella se liquida al instante (201)
   app.post('/netting/runs', async (req, reply) =>
-    idempotent(req, reply, async (key) => ({
-      status: 201, body: await N.runNetting({ ...parse(RunBody, req.body), idempotency_key: key, created_by: actor(req) }),
-    })));
+    idempotent(req, reply, async (key) => {
+      const r = requester(req);
+      const run = await N.runNetting({
+        ...parse(RunBody, req.body), idempotency_key: key, created_by: actor(req),
+        requested_by_operator: r.operatorId, needs_approval: r.needsApproval,
+      });
+      return { status: run.status === 'pending_approval' ? 202 : 201, body: run };
+    }));
+  app.post<{ Params: { id: string } }>('/netting/runs/:id/approve', async (req) => {
+    const op = decider(req);
+    const id = parse(uuid, req.params.id);
+    const { code } = parse(z.object({ code: z.string().optional() }), req.body ?? {});
+    const run = await N.getNettingRun(id);
+    if (run.status !== 'pending_approval') throw new LedgerError(409, `La corrida no está pendiente (estado: ${run.status})`, 'not_pending');
+    await assertApprover(op, run.requested_by_operator, code);
+    return N.approveNettingRun(id, op);
+  });
+  app.post<{ Params: { id: string } }>('/netting/runs/:id/reject', async (req) => {
+    const op = decider(req);
+    const { reason } = parse(z.object({ reason: z.string().trim().min(5, 'Indique el motivo (mín. 5 caracteres)').max(300) }), req.body ?? {});
+    return N.rejectNettingRun(parse(uuid, req.params.id), op.email, reason);
+  });
   app.get('/netting/runs', async (req) => N.listNettingRuns(parse(RunsQuery, req.query)));
   app.get<{ Params: { id: string } }>('/netting/runs/:id', async (req) => N.getNettingRun(parse(uuid, req.params.id)));
 }

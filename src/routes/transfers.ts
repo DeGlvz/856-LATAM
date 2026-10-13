@@ -6,6 +6,7 @@ import * as T from '../ledger/transfers.js';
 import { getOrCreateDepositAddress } from '../ledger/deposit-addresses.js';
 import { listSweeps } from '../ledger/sweeps.js';
 import { clientStatus } from '../ledger/clients.js';
+import { assertApprover, decider, requester } from '../ledger/approvals.js';
 
 const amount = z.string().regex(/^[1-9]\d{0,77}$/, 'entero positivo en unidades base');
 const uuid = z.string().uuid();
@@ -28,9 +29,18 @@ const WithdrawalBody = z.object({
 export async function transferRoutes(app: FastifyInstance) {
   // Retiros on-chain: reserva inmediata; firma, envío y confirmaciones los hace el worker
   app.post('/withdrawals', async (req, reply) =>
-    idempotent(req, reply, async (key) => ({ status: 202, body: await T.requestWithdrawal({ ...parse(WithdrawalBody, req.body), idempotency_key: key }) })));
+    idempotent(req, reply, async (key) => {
+      const r = requester(req);
+      return { status: 202, body: await T.requestWithdrawal({
+        ...parse(WithdrawalBody, req.body), idempotency_key: key,
+        requested_by: r.by, requested_by_operator: r.operatorId, needs_approval: r.needsApproval,
+      }) };
+    }));
   app.get('/withdrawals', async (req) => {
-    const q = parse(ListQuery.extend({ status: z.enum(['reserved', 'signed', 'broadcast', 'confirmed', 'failed', 'cancelled']).optional() }), req.query);
+    const q = parse(ListQuery.extend({
+      status: z.enum(['reserved', 'signed', 'broadcast', 'confirmed', 'failed', 'cancelled']).optional(),
+      approval_status: z.enum(['not_required', 'pending', 'approved', 'rejected']).optional(),
+    }), req.query);
     const r = await T.listWithdrawals(q);
     return { withdrawals: r.items, next_cursor: r.next_cursor };
   });
@@ -40,6 +50,22 @@ export async function transferRoutes(app: FastifyInstance) {
     const p = req.principal;
     const who = p?.kind === 'operator' ? `cancelado por ${p.operator.email}` : 'cancelado por el cliente';
     return T.cancelWithdrawal(parse(uuid, req.params.id), reason ? `${who}: ${reason}` : who);
+  });
+
+  // Doble aprobación: otro tesorero (con 2FA) aprueba; el rechazo devuelve el saldo reservado
+  app.post<{ Params: { id: string } }>('/withdrawals/:id/approve', async (req) => {
+    const op = decider(req);
+    const id = parse(uuid, req.params.id);
+    const { code } = parse(z.object({ code: z.string().optional() }), req.body ?? {});
+    const w = await T.getWithdrawal(id);
+    if (w.approval_status !== 'pending' || w.status !== 'reserved') throw new LedgerError(409, 'El retiro no está pendiente de aprobación', 'not_pending');
+    await assertApprover(op, w.requested_by_operator, code);
+    return T.approveWithdrawal(id, op);
+  });
+  app.post<{ Params: { id: string } }>('/withdrawals/:id/reject', async (req) => {
+    const op = decider(req);
+    const { reason } = parse(z.object({ reason: z.string().trim().min(5, 'Indique el motivo (mín. 5 caracteres)').max(300) }), req.body ?? {});
+    return T.rejectWithdrawal(parse(uuid, req.params.id), op.email, reason);
   });
 
   // Depósitos: reportar un hash (o vía webhook de Alchemy); se acreditan al llegar a N confirmaciones

@@ -46,11 +46,11 @@ export async function consoleRoutes(app: FastifyInstance) {
     ]);
 
     const q = async <T>(sql: string, params: unknown[] = []) => (await pool.query(sql, params)).rows as T[];
-    const [assets, inflight, byStatus, depPending, sweepsOpen, clients] = db.ok ? await Promise.all([
+    const [assets, inflight, byStatus, depPending, sweepsOpen, clients, approvals] = db.ok ? await Promise.all([
       q<{ id: string; symbol: string; decimals: number; kind: string; network: string }>(
         'SELECT id, symbol, decimals, kind, network FROM assets WHERE active ORDER BY id'),
       q(`SELECT w.id, w.client_id, c.name AS client_name, w.asset_id, w.amount, w.status, w.to_address, w.tx_hash, w.nonce,
-                w.confirmations, w.attempts, w.last_error, w.created_at, w.updated_at
+                w.confirmations, w.attempts, w.last_error, w.created_at, w.updated_at, w.approval_status
            FROM withdrawals w JOIN clients c ON c.id = w.client_id
           WHERE w.status IN ('reserved','signed','broadcast') ORDER BY w.created_at LIMIT 50`),
       q<{ status: string; n: string }>(
@@ -58,7 +58,9 @@ export async function consoleRoutes(app: FastifyInstance) {
       q<{ n: string }>(`SELECT count(*) AS n FROM deposits WHERE status = 'pending'`),
       q<{ n: string }>(`SELECT count(*) AS n FROM sweeps WHERE status IN ('signed','broadcast')`),
       q<{ status: string; n: string }>('SELECT status, count(*) AS n FROM clients GROUP BY status'),
-    ]) : [[], [], [], [{ n: '0' }], [{ n: '0' }], []];
+      q<{ w: string; r: string }>(`SELECT (SELECT count(*) FROM withdrawals WHERE status = 'reserved' AND approval_status = 'pending') AS w,
+                                          (SELECT count(*) FROM netting_runs WHERE status = 'pending_approval') AS r`),
+    ]) : [[], [], [], [{ n: '0' }], [{ n: '0' }], [], [{ w: '0', r: '0' }]];
 
     const h = hot.ok ? hot.value : null;
     const native = assets.find((a) => a.kind === 'native' && a.network === config.ALCHEMY_NETWORK);
@@ -98,6 +100,8 @@ export async function consoleRoutes(app: FastifyInstance) {
       deposits_pending: Number(depPending[0]?.n ?? 0),
       sweeps_open: Number(sweepsOpen[0]?.n ?? 0),
       clients_by_status: Object.fromEntries(clients.map((r) => [r.status, Number(r.n)])),
+      approvals_pending: { withdrawals: Number(approvals[0]?.w ?? 0), netting_runs: Number(approvals[0]?.r ?? 0) },
+      dual_approval: config.DUAL_APPROVAL,
     };
   });
 
@@ -196,5 +200,56 @@ export async function consoleRoutes(app: FastifyInstance) {
   app.patch<{ Params: { id: string } }>('/wallets/:id', async (req) => {
     const { active } = parse(z.object({ active: z.boolean() }), req.body);
     return setWalletActive(parse(uuid, req.params.id), active);
+  });
+
+  // ───────────── Fase 5: cola de aprobaciones ─────────────
+  app.get('/approvals', async () => {
+    const [w, r] = await Promise.all([
+      pool.query(
+        `SELECT w.id, w.client_id, c.name AS client_name, c.status AS client_status, w.asset_id, w.amount, w.to_address,
+                w.requested_by, w.requested_by_operator, w.created_at
+           FROM withdrawals w JOIN clients c ON c.id = w.client_id
+          WHERE w.status = 'reserved' AND w.approval_status = 'pending' ORDER BY w.created_at LIMIT 200`),
+      pool.query(
+        `SELECT id, asset_id, obligations, participants, gross_amount, net_amount, expected_net_amount, created_by,
+                requested_by_operator, last_error, created_at,
+                CASE WHEN gross_amount > 0 THEN floor((gross_amount - net_amount) * 10000 / gross_amount)::int ELSE 0 END AS savings_bps
+           FROM netting_runs WHERE status = 'pending_approval' ORDER BY created_at LIMIT 200`),
+    ]);
+    return {
+      policy: { dual_approval: config.DUAL_APPROVAL, require_2fa: config.APPROVAL_REQUIRE_2FA },
+      withdrawals: w.rows, netting_runs: r.rows,
+    };
+  });
+
+  // ───────────── Fase 5: bitácora (tesorero) ─────────────
+  const AuditQuery = z.object({
+    limit: limit(500, 100), cursor: z.coerce.number().int().positive().optional(), // id del último registro visto
+    actor: z.string().trim().min(1).max(200).optional(), action: z.string().trim().min(1).max(200).optional(),
+    result: z.enum(['ok', 'error', 'denied']).optional(), target: z.string().trim().min(1).max(200).optional(),
+    from: z.string().datetime({ offset: true }).optional(), to: z.string().datetime({ offset: true }).optional(),
+  });
+  app.get('/audit', async (req) => {
+    const f = parse(AuditQuery, req.query);
+    const { rows } = await pool.query(
+      `SELECT id, at, operator_id, actor, action, target, status, ip, metadata FROM audit_log
+        WHERE ($1::bigint IS NULL OR id < $1)
+          AND ($2::text IS NULL OR actor ILIKE '%' || $2 || '%')
+          AND ($3::text IS NULL OR action = $3)
+          AND ($4::text IS NULL OR ($4 = 'ok' AND status < 400) OR ($4 = 'error' AND status >= 400 AND NOT (metadata ? 'denied'))
+               OR ($4 = 'denied' AND (status = 403 OR action LIKE '%failed')))
+          AND ($5::text IS NULL OR target ILIKE '%' || $5 || '%')
+          AND ($6::timestamptz IS NULL OR at >= $6) AND ($7::timestamptz IS NULL OR at < $7)
+        ORDER BY id DESC LIMIT $8`,
+      [f.cursor ?? null, f.actor ?? null, f.action ?? null, f.result ?? null, f.target ?? null, f.from ?? null, f.to ?? null, f.limit + 1],
+    );
+    const more = rows.length > f.limit;
+    const items = rows.slice(0, f.limit);
+    return { entries: items, next_cursor: more ? String(items[items.length - 1].id) : null };
+  });
+  app.get('/audit/actions', async () => {
+    const { rows } = await pool.query(
+      `SELECT action, count(*)::int AS n FROM audit_log GROUP BY action ORDER BY n DESC LIMIT 300`);
+    return { actions: rows };
   });
 }
