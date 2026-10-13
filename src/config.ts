@@ -53,6 +53,16 @@ const Env = z.object({
   GAS_BUMP_PERCENT: z.coerce.number().int().min(11).max(200).default(25), // aumento por intento (la red exige ≥ 10 %)
   GAS_BUMP_MAX_FEE_WEI: z.coerce.bigint().default(300_000_000_000n),     // tope de maxFeePerGas (300 gwei)
   GAS_BUMP_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(6),
+  // Portal de clientes (/portal)
+  PORTAL_SESSION_TTL_MIN: z.coerce.number().int().min(5).default(480),
+  PORTAL_SESSION_IDLE_MIN: z.coerce.number().int().min(1).default(30),
+  PORTAL_INVITE_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(72),
+  PORTAL_KEY_MAX_DAYS: z.coerce.number().int().min(1).max(365).default(90),   // vigencia máxima de una llave de API
+  PORTAL_KEY_OVERLAP_DAYS: z.coerce.number().int().min(0).max(30).default(7), // traslape al rotar
+  PORTAL_SIG_WINDOW_SEC: z.coerce.number().int().min(30).max(900).default(300),
+  PORTAL_SIG_MAX_FAILS: z.coerce.number().int().min(3).default(10),           // firmas inválidas antes de bloquear la llave
+  // Regla de origen: solo credenciales del cliente originan operaciones. Se activa en la fase 3 del portal.
+  ORIGIN_RULE: z.enum(['off', 'enforce']).default('off'),
 });
 
 export const config = Env.parse(process.env);
