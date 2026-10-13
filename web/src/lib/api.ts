@@ -111,6 +111,12 @@ export interface WithdrawalDetail extends WithdrawalRow {
   metadata: Record<string, unknown>; required_confirmations: number;
   requested_by_operator: string | null; approved_by: string | null; approved_at: string | null;
   rejected_by: string | null; rejected_reason: string | null;
+  broadcast_at: string | null; bumps: number; attempts_log: TxAttempt[];
+}
+/** Cada envío de la misma transacción (original y reemplazos por gas bump). */
+export interface TxAttempt {
+  tx_hash: string; max_fee_per_gas: string; max_priority_fee_per_gas: string; reason: 'original' | 'bump' | 'manual';
+  requested_by: string | null; sent_at: string | null; error: string | null; created_at: string;
 }
 export type DepositStatus = 'pending' | 'credited' | 'orphaned';
 export interface DepositRow {
