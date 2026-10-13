@@ -124,7 +124,8 @@ const TESORERO = new Set([
   'POST /v1/withdrawals', 'POST /v1/withdrawals/:id/cancel', 'POST /v1/worker/tick',
   'POST /v1/assets', 'POST /v1/wallets', 'PATCH /v1/wallets/:id', 'POST /v1/entries', 'POST /v1/internal-transfers', 'POST /v1/netting/runs',
 ]);
-const CUALQUIERA = new Set(['POST /v1/auth/logout']);
+// POST que solo consultan (no escriben): basta con rol lectura
+const CUALQUIERA = new Set(['POST /v1/auth/logout', 'POST /v1/netting/preview']);
 
 export function requiredRole(method: string, route: string): Role {
   if (method === 'GET' || method === 'HEAD') return 'lectura';
