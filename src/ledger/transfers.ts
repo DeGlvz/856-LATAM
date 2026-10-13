@@ -9,6 +9,7 @@ import { pool, tx, type Tx } from '../db.js';
 import { LedgerError, openClientAccount, postEntryIn } from './service.js';
 import { registerPendingAddresses } from './deposit-addresses.js';
 import { sweepStep } from './sweeps.js';
+import { bumpNow, bumpStuck, findReceipt, listAttempts, recordOriginal } from '../chain/replace.js';
 import { decodeCursor, page } from '../pagination.js';
 
 const MAX_ATTEMPTS = 5;
@@ -95,10 +96,11 @@ export async function getWithdrawal(id: string) {
     `SELECT w.id, w.client_id, c.name AS client_name, w.account_id, w.asset_id, w.to_address, w.amount, w.status, w.from_address,
             w.nonce, w.tx_hash, w.block_number, w.confirmations, w.gas_used, w.gas_cost_wei, w.attempts, w.last_error,
             w.reserve_entry_id, w.settle_entry_id, w.reversal_entry_id, w.metadata, w.created_at, w.updated_at,
-            w.approval_status, w.requested_by, w.requested_by_operator, w.approved_by, w.approved_at, w.rejected_by, w.rejected_reason
+            w.approval_status, w.requested_by, w.requested_by_operator, w.approved_by, w.approved_at, w.rejected_by, w.rejected_reason,
+            w.broadcast_at, w.bumps
        FROM withdrawals w JOIN clients c ON c.id = w.client_id WHERE w.id = $1`, [id]);
   if (!w) throw new LedgerError(404, 'Retiro no encontrado', 'not_found');
-  return { ...w, required_confirmations: config.CONFIRMATIONS };
+  return { ...w, required_confirmations: config.CONFIRMATIONS, attempts_log: await listAttempts('withdrawal', id) };
 }
 
 export async function listWithdrawals(f: { client_id?: string; status?: string; asset_id?: string; approval_status?: string; limit?: number; cursor?: string }) {
@@ -141,6 +143,9 @@ export async function cancelWithdrawal(id: string, reason = 'cancelado por el cl
   });
   return getWithdrawal(id);
 }
+
+export const bumpWithdrawal = (id: string, by: string, log?: { info: (o: object, m: string) => void; warn: (o: object, m: string) => void }) =>
+  bumpNow('withdrawal', id, by, log);
 
 // ── Doble aprobación ──
 export async function approveWithdrawal(id: string, by: { email: string; id: string }) {
@@ -208,6 +213,7 @@ async function signReserved(log: Logger) {
                   last_error = NULL, updated_at = now() WHERE id = $1`,
           [w.id, from, nonce, raw, keccak256(raw)],
         );
+        await recordOriginal(c, 'withdrawal', w.id, from, nonce, raw);
         log.info({ withdrawal: w.id, nonce }, 'retiro firmado');
       } catch (e) {
         const msg = (e as Error).message.split('\n')[0].slice(0, 500);
@@ -235,13 +241,13 @@ async function broadcastSigned(log: Logger) {
   for (const w of rows) {
     try {
       await client.sendRawTransaction({ serializedTransaction: w.raw_tx as Hex });
-      await pool.query(`UPDATE withdrawals SET status = 'broadcast', updated_at = now() WHERE id = $1 AND status = 'signed'`, [w.id]);
+      await pool.query(`UPDATE withdrawals SET status = 'broadcast', broadcast_at = now(), updated_at = now() WHERE id = $1 AND status = 'signed'`, [w.id]);
       log.info({ withdrawal: w.id, tx: w.tx_hash }, 'retiro enviado');
     } catch (e) {
       const msg = (e as Error).message;
       if (/already known|nonce too low|known transaction/i.test(msg)) {
         // Ya está en la red (reintento tras caída): se sigue por recibo
-        await pool.query(`UPDATE withdrawals SET status = 'broadcast', updated_at = now() WHERE id = $1 AND status = 'signed'`, [w.id]);
+        await pool.query(`UPDATE withdrawals SET status = 'broadcast', broadcast_at = now(), updated_at = now() WHERE id = $1 AND status = 'signed'`, [w.id]);
       } else {
         await pool.query(`UPDATE withdrawals SET attempts = attempts + 1, last_error = $2, updated_at = now() WHERE id = $1`,
           [w.id, msg.split('\n')[0].slice(0, 500)]);
@@ -257,8 +263,14 @@ async function confirmBroadcast(log: Logger) {
   if (!rows.length) return;
   const head = await client.getBlockNumber({ cacheTime: 0 });
   for (const r of rows) {
-    const receipt = await client.getTransactionReceipt({ hash: r.tx_hash as Hash }).catch(() => null);
-    if (!receipt) continue;
+    // El hash vigente o cualquier intento anterior (gas bump): se mina solo uno por nonce
+    const found = await findReceipt('withdrawal', r.id, r.tx_hash);
+    if (!found) continue;
+    const { receipt } = found;
+    if (found.hash !== r.tx_hash) {
+      await pool.query(`UPDATE withdrawals SET tx_hash = $2, updated_at = now() WHERE id = $1 AND status = 'broadcast'`, [r.id, found.hash]);
+      log.info({ withdrawal: r.id, tx: found.hash }, 'se minó un intento anterior; se adopta su hash');
+    }
     const confs = Number(head - receipt.blockNumber + 1n);
     const reverted = receipt.status !== 'success';
     if (!reverted && confs < config.CONFIRMATIONS) {
@@ -475,6 +487,7 @@ export async function workerTick(log: Logger) {
       await signReserved(log);
       await broadcastSigned(log);
       await confirmBroadcast(log);
+      await bumpStuck(log);
       await creditConfirmedDeposits(log);
       await registerPendingAddresses(log);
       await sweepStep(log);
