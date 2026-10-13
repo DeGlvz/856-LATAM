@@ -3,3 +3,5 @@ dist/
 .env
 web/node_modules/
 web/dist/
+test/playwright/test-results/
+test/playwright/playwright-report/
