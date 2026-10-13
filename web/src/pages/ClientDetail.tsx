@@ -1,13 +1,15 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowLeftRight, ExternalLink, KeyRound, Loader2, Pencil, Plus, RefreshCw, ShieldCheck, Wallet as WalletIcon } from 'lucide-react';
-import { api, type ClientDetail as TClient, type ClientStatus, type EntryRow, type Summary, type Wallet } from '@/lib/api';
+import { ArrowLeft, ArrowLeftRight, ExternalLink, KeyRound, Loader2, Pencil, Plus, RefreshCw, Scale, ShieldCheck, Wallet as WalletIcon } from 'lucide-react';
+import { api, type ClientDetail as TClient, type ClientStatus, type EntryRow, type ObligationRow, type Summary, type Wallet } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { CLIENT_KIND, CLIENT_STATUS, ENTRY_KIND, useAssets } from '@/lib/hooks';
 import { shortHex } from '@/lib/amount';
 import { Amount, CopyButton, ErrorBox, Field, StatusBadge, fmtDate } from '@/components/common';
 import { EntryDialog } from '@/components/EntryDialog';
+import { ObligationDialog, ObligationsTable } from '@/components/ObligationDialogs';
+import { RunDialog } from '@/pages/Netting';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -26,6 +28,9 @@ export function ClientDetail() {
   const [editing, setEditing] = useState(false);
   const [changingStatus, setChangingStatus] = useState(false);
   const [entryId, setEntryId] = useState<string | null>(null);
+  const [obligation, setObligation] = useState<ObligationRow | null>(null);
+  const [obStatus, setObStatus] = useState<'open' | 'all'>('open');
+  const [runId, setRunId] = useState<string | null>(null);
 
   const client = useQuery({ queryKey: ['client', id], queryFn: () => api<TClient>(`/clients/${id}`) });
   const wallets = useQuery({ queryKey: ['wallets', id], queryFn: () => api<{ wallets: Wallet[] }>(`/wallets?client_id=${id}`).then((r) => r.wallets) });
@@ -173,6 +178,23 @@ export function ClientDetail() {
         <WhitelistCard clientId={c.id} network={network} wallets={whitelist} loading={wallets.isPending} explorer={explorer} disabled={closed} onChange={refresh} />
       </div>
 
+      {/* Obligaciones (compensación) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Scale className="size-4" />Obligaciones</CardTitle>
+          <CardDescription>Lo que el cliente debe o le deben otros clientes; se liquida por el neto en las corridas de compensación.</CardDescription>
+          <CardAction className="flex gap-2">
+            <Select aria-label="Estado de obligaciones" className="h-8 w-32" value={obStatus} onChange={(e) => setObStatus(e.target.value as 'open' | 'all')}>
+              <option value="open">Abiertas</option><option value="all">Todas</option>
+            </Select>
+            <Button asChild size="sm" variant="outline"><Link to="/compensacion">Compensación</Link></Button>
+          </CardAction>
+        </CardHeader>
+        <CardContent>
+          <ObligationsTable params={{ client_id: c.id, status: obStatus === 'open' ? 'open' : undefined }} perspective={c.id} onOpen={setObligation} />
+        </CardContent>
+      </Card>
+
       {/* Asientos recientes */}
       <Card>
         <CardHeader>
@@ -208,6 +230,8 @@ export function ClientDetail() {
       <EditClientDialog client={c} open={editing} onOpenChange={setEditing} onSaved={refresh} />
       <StatusDialog client={c} open={changingStatus} onOpenChange={setChangingStatus} onSaved={refresh} />
       <EntryDialog id={entryId} onClose={() => setEntryId(null)} />
+      <ObligationDialog obligation={obligation} onClose={() => setObligation(null)} onOpenRun={(rid) => { setObligation(null); setRunId(rid); }} />
+      <RunDialog id={runId} onClose={() => setRunId(null)} />
     </div>
   );
 }
