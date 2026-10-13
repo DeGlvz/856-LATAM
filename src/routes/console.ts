@@ -9,6 +9,7 @@ import { hotWalletStatus } from '../ledger/transfers.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { setWalletActive, updateClient } from '../ledger/clients.js';
 import { hasRole } from '../auth/operators.js';
+import { inviteFirstAdmin, portalStatus } from '../portal/identity.js';
 
 const uuid = z.string().uuid();
 const limit = (max: number, def: number) => z.coerce.number().int().min(1).max(max).default(def);
@@ -251,5 +252,14 @@ export async function consoleRoutes(app: FastifyInstance) {
     const { rows } = await pool.query(
       `SELECT action, count(*)::int AS n FROM audit_log GROUP BY action ORDER BY n DESC LIMIT 300`);
     return { actions: rows };
+  });
+
+  // ───────────── Portal de clientes: alta del primer admin (después, el cliente invita a los suyos) ─────────────
+  app.get<{ Params: { id: string } }>('/clients/:id/portal', async (req) => portalStatus(parse(uuid, req.params.id)));
+  app.post<{ Params: { id: string } }>('/clients/:id/portal-invite', async (req, reply) => {
+    const p = req.principal;
+    const email = parse(z.object({ email: z.string().email().max(200) }), req.body).email;
+    const by = p?.kind === 'operator' ? p.operator.email : 'api';
+    return reply.code(201).send(await inviteFirstAdmin(parse(uuid, req.params.id), email, by));
   });
 }
