@@ -1,0 +1,18 @@
+@import '../index.css';
+
+/* Identidad del portal de clientes: misma base visual que la consola, acento verde azulado */
+:root {
+  --primary: oklch(0.42 0.085 190);
+  --primary-foreground: oklch(0.985 0.005 190);
+  --ring: oklch(0.55 0.09 190);
+  --sidebar: oklch(0.25 0.045 195);
+  --sidebar-foreground: oklch(0.93 0.015 190);
+  --sidebar-muted: oklch(0.7 0.03 190);
+  --sidebar-accent: oklch(0.33 0.055 195);
+}
+.dark {
+  --primary: oklch(0.78 0.09 190);
+  --primary-foreground: oklch(0.2 0.03 195);
+  --sidebar: oklch(0.17 0.03 195);
+  --sidebar-accent: oklch(0.25 0.04 195);
+}
