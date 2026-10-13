@@ -193,7 +193,24 @@ cd test/playwright && npm ci && npx playwright install chromium
 BASE=http://localhost:8080 KEY=… DATABASE_URL=… BOOT_EMAIL=… BOOT_PASS=… npx playwright test   # 6 recorridos
 ```
 
-Pendiente: reemplazo de tx atascadas (gas bump), TRON/BTC/LTC.
+### Reemplazo de transacciones atascadas (gas bump)
+Si un retiro o barrido enviado no se mina en `GAS_BUMP_AFTER_SEC`, el worker lo vuelve a firmar con el **mismo nonce** y comisiones más altas (`+GAS_BUMP_PERCENT` %, o la estimación actual si es mayor) y lo reenvía.
+- Todos los envíos quedan en `tx_attempts` (original, automático o manual, con autor). Solo uno puede minarse; la confirmación busca el recibo del hash vigente **y de todos los intentos anteriores**, y adopta el que se haya minado.
+- Tope: si la comisión necesaria supera `GAS_BUMP_MAX_FEE_WEI`, se detiene y deja el motivo en `last_error`. Máximo `GAS_BUMP_MAX_ATTEMPTS` aceleraciones.
+- Si el nonce ya se minó, no se reemplaza (`409 already_mined`): se confirma en el siguiente ciclo.
+- Manual (tesorero): botón **Acelerar (subir gas)** en el detalle del retiro, o `POST /v1/withdrawals/:id/bump` · `POST /v1/sweeps/:id/bump`. Toma el mismo candado del worker. Historial: `attempts_log` en el detalle del retiro, `GET /v1/sweeps/:id/attempts`.
+
+| Variable | Por defecto | Uso |
+|---|---|---|
+| `GAS_BUMP_ENABLED` | `true` | Aceleración automática en el worker |
+| `GAS_BUMP_AFTER_SEC` | `300` | Tiempo sin minarse antes de acelerar |
+| `GAS_BUMP_PERCENT` | `25` | Aumento por intento (mín. 11; la red exige ≥ 10 %) |
+| `GAS_BUMP_MAX_FEE_WEI` | `300000000000` | Tope de `maxFeePerGas` (300 gwei) |
+| `GAS_BUMP_MAX_ATTEMPTS` | `6` | Aceleraciones máximas por transacción |
+
+Prueba: `node test/gas-bump.e2e.mjs` (cadena local con minado manual; API con `GAS_BUMP_AFTER_SEC=3`).
+
+Pendiente: TRON/BTC/LTC.
 
 Pruebas: `bash test/smoke.sh` (libro), `bash test/netting.sh` (compensación), `node test/console-fase4.e2e.mjs` (consola de compensación), `node test/transfers.e2e.mjs` y `node test/deposits-sweep.e2e.mjs` (on-chain, contra cadena local Hardhat/Anvil).
 
