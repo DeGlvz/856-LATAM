@@ -37,6 +37,7 @@ if (gap > 0n) await api('POST', '/v1/entries', { kind: 'adjustment', description
 
 // 1. Cliente, wallet de depósito y lista blanca
 const cl = (await api('POST', '/v1/clients', { name: 'Tesorería X', assets: [TUSD, 'ETH-SEPOLIA'] }, 'cx')).body;
+await api('PATCH', `/v1/clients/${cl.id}`, { status: 'active' }); // solo clientes activos retiran
 const ACC = cl.accounts.find((a) => a.asset_id === TUSD).id;
 const DEP = privateKeyToAccount(generatePrivateKey()).address;
 const DEST = privateKeyToAccount(generatePrivateKey()).address;

@@ -123,10 +123,21 @@ Ciclo de vida del cliente (migración `007`):
 - Suspender o cerrar exige motivo (mín. 5 caracteres); queda en el cliente y en la bitácora.
 - Cerrar exige saldos en cero y nada abierto (retiros en vuelo, depósitos pendientes, obligaciones).
 - **Bloqueo en base de datos**: un cliente `suspended` o `closed` no puede disponer de saldo (cualquier débito a su cuenta se rechaza: retiros, transferencias, pagos netos, asientos manuales). Sí puede recibir.
+- **Retiros solo para clientes `active`** (KYB aprobado): `pending_kyb`, `suspended` y `closed` reciben `422 client_not_active`.
+- Compensación: si un pagador neto está suspendido o cerrado, la corrida completa se rechaza (todo o nada); se excluyen sus obligaciones o se reactiva antes de correr.
 - Cliente cerrado: no admite nuevas direcciones de depósito ni de lista blanca.
 - `POST /v1/wallets` valida direcciones Ethereum.
 
 Prueba: `node test/console-fase2.e2e.mjs` (38 verificaciones).
+
+### Consola — fase 3: retiros, depósitos y barridos
+Pantalla **Retiros y depósitos** (`/console/movimientos`) con pestañas Retiros · Depósitos · Barridos, filtros por estado y cliente, paginación y refresco cada 15 s.
+- **Nuevo retiro** (tesorero): cliente activo → activo con saldo → destino de su lista blanca → monto en unidades humanas (convertido a unidades base sin float) → pantalla de confirmación con el monto exacto y las unidades base.
+- **Detalle del retiro**: línea de tiempo (reservado → firmado → enviado → confirmado), hash, confirmaciones, nonce, gas pagado, último error, asientos de reserva/liquidación/reverso; **cancelar** con motivo mientras esté reservado.
+- **Reportar depósito** por hash (operador) y **ciclo del worker** a demanda (tesorero).
+- `GET /v1/withdrawals`, `/v1/deposits`, `/v1/sweeps`: ahora con `cursor`/`next_cursor`, filtro `asset_id` y nombre del cliente; estados validados. `POST /v1/withdrawals/:id/cancel` acepta `{reason}` y registra quién canceló.
+
+Prueba: `node test/console-fase3.e2e.mjs` (27 verificaciones, cadena local con depósito, barrido y retiro reales).
 
 Pendiente: reemplazo de tx atascadas (gas bump), TRON/BTC/LTC.
 

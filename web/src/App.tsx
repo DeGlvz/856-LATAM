@@ -7,6 +7,7 @@ import { Dashboard } from './pages/Dashboard';
 import { Clients } from './pages/Clients';
 import { ClientDetail } from './pages/ClientDetail';
 import { Account } from './pages/Account';
+import { Movements } from './pages/Movements';
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { operator, loading } = useAuth();
@@ -26,6 +27,7 @@ export default function App() {
           <Route path="clientes" element={<Clients />} />
           <Route path="clientes/:id" element={<ClientDetail />} />
           <Route path="cuentas/:ref" element={<Account />} />
+          <Route path="movimientos" element={<Movements />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

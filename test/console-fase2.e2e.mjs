@@ -94,5 +94,18 @@ check('rotar da otra dirección', (await opr.call('POST', `/v1/clients/${C.id}/d
 check('wallets del cliente (2 depósito)', (await lec.call('GET', `/v1/wallets?client_id=${C.id}`)).body.wallets.filter((w) => w.purpose === 'deposit').length, 2);
 check('postings de cuenta por id', (await lec.call('GET', `/v1/accounts/${ACC_A}/postings?limit=2`)).body.postings.length, 2);
 
+// ── Compensación con pagador suspendido: la corrida completa se rechaza (todo o nada)
+const D = (await key('POST', '/v1/clients', { name: `Deudor ${R}`, assets: ['USDC-ETH-SEPOLIA'] }, 'd')).body;
+const E = (await key('POST', '/v1/clients', { name: `Acreedor ${R}`, assets: ['USDC-ETH-SEPOLIA'] }, 'e')).body;
+await key('POST', '/v1/entries', { kind: 'deposit', postings: [{ account: 'system:USDC-ETH-SEPOLIA:custody', direction: 'debit', amount: '100' }, { account: `client:${D.id}:USDC-ETH-SEPOLIA:available`, direction: 'credit', amount: '100' }] }, 'fd');
+const ob = (await key('POST', '/v1/obligations', { debtor_id: D.id, creditor_id: E.id, asset_id: 'USDC-ETH-SEPOLIA', amount: '100' }, 'ob')).body;
+await key('PATCH', `/v1/clients/${D.id}`, { status: 'active' });
+check('suspender deudor', (await key('PATCH', `/v1/clients/${D.id}`, { status: 'suspended', reason: 'Prueba de compensación' })).body.status, 'suspended');
+check('corrida con pagador suspendido → 422', (await key('POST', '/v1/netting/runs', { asset_id: 'USDC-ETH-SEPOLIA', obligation_ids: [ob.id] }, 'nr1')).status, 422);
+check('obligación sigue abierta', (await key('GET', `/v1/obligations?client_id=${D.id}`)).body.obligations[0].status, 'open');
+await key('PATCH', `/v1/clients/${D.id}`, { status: 'active' });
+check('reactivado: corrida liquida → 201', (await key('POST', '/v1/netting/runs', { asset_id: 'USDC-ETH-SEPOLIA', obligation_ids: [ob.id] }, 'nr2')).status, 201);
+check('KYB pendiente no retira (client_not_active)', (await key('POST', '/v1/withdrawals', { client_id: E.id, asset_id: 'USDC-ETH-SEPOLIA', to_address: addr(), amount: '1' }, 'kyb2')).body.code, 'client_not_active');
+
 console.log(`\n${ok} ok, ${fail} fallos`);
 process.exit(fail ? 1 : 0);

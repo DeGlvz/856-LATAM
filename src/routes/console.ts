@@ -6,6 +6,7 @@ import { config } from '../config.js';
 import { pool } from '../db.js';
 import { HttpError } from '../idempotency.js';
 import { hotWalletStatus } from '../ledger/transfers.js';
+import { decodeCursor, encodeCursor } from '../pagination.js';
 import { setWalletActive, updateClient } from '../ledger/clients.js';
 import { hasRole } from '../auth/operators.js';
 
@@ -16,17 +17,6 @@ const parse = <S extends z.ZodTypeAny>(s: S, v: unknown): z.infer<S> => {
   if (!r.success) throw new HttpError(400, r.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '), 'validation_error');
   return r.data;
 };
-
-// Cursor opaco para paginación por (created_at, id) descendente; created_at viaja como texto de PostgreSQL (microsegundos exactos)
-const encodeCursor = (ts: string, id: string) => Buffer.from(JSON.stringify([ts, id])).toString('base64url');
-function decodeCursor(c?: string): [string, string] | null {
-  if (!c) return null;
-  try {
-    const v = JSON.parse(Buffer.from(c, 'base64url').toString());
-    if (Array.isArray(v) && typeof v[0] === 'string' && uuid.safeParse(v[1]).success) return [v[0], v[1]];
-  } catch { /* cae al error */ }
-  throw new HttpError(400, 'Cursor inválido', 'invalid_cursor');
-}
 
 const EXPLORERS: Record<string, string> = {
   'eth-mainnet': 'https://etherscan.io', 'eth-sepolia': 'https://sepolia.etherscan.io',

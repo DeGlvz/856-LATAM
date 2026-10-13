@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ExternalLink, KeyRound, Loader2, Pencil, Plus, RefreshCw, ShieldCheck, Wallet as WalletIcon } from 'lucide-react';
+import { ArrowLeft, ArrowLeftRight, ExternalLink, KeyRound, Loader2, Pencil, Plus, RefreshCw, ShieldCheck, Wallet as WalletIcon } from 'lucide-react';
 import { api, type ClientDetail as TClient, type ClientStatus, type EntryRow, type Summary, type Wallet } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { CLIENT_KIND, CLIENT_STATUS, ENTRY_KIND, useAssets } from '@/lib/hooks';
@@ -73,14 +73,22 @@ export function ClientDetail() {
             <p className="mt-2 text-sm"><span className="text-muted-foreground">Motivo del estado{c.status_changed_at && ` (${fmtDate(c.status_changed_at)})`}:</span> {c.status_reason}</p>
           )}
         </div>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild variant="outline" size="sm"><Link to={`/movimientos?client_id=${c.id}`}><ArrowLeftRight />Retiros y depósitos</Link></Button>
         {can('operador') && !closed && (
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => setEditing(true)}><Pencil />Editar</Button>
             <Button variant="outline" size="sm" onClick={() => setChangingStatus(true)} disabled={!c.allowed_transitions.length}><ShieldCheck />Cambiar estado</Button>
           </div>
         )}
+        </div>
       </div>
 
+      {c.status === 'pending_kyb' && (
+        <div className="rounded-lg border border-warning/50 bg-warning/10 px-4 py-3 text-sm">
+          KYB pendiente: puede recibir depósitos y operar dentro del libro, pero <b>no puede retirar</b> hasta que se active.
+        </div>
+      )}
       {(c.status === 'suspended' || closed) && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {closed ? 'Cliente cerrado: no admite cambios ni movimientos.' : 'Cliente suspendido: puede recibir depósitos, pero no retirar, transferir ni pagar en compensación.'}
