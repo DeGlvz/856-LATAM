@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { NavLink, Outlet } from 'react-router';
 import {
-  ArrowLeftRight, Building2, FileClock, Gauge, LogOut, Menu, Network, ShieldCheck, X,
+  ArrowLeftRight, Building2, CheckCheck, FileClock, Gauge, KeyRound, LogOut, Menu, Network, ShieldCheck, X,
 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { api, type Summary } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -13,15 +15,20 @@ const NAV = [
   { to: '/clientes', label: 'Clientes y cuentas', icon: Building2, phase: 2 },
   { to: '/movimientos', label: 'Retiros y depósitos', icon: ArrowLeftRight, phase: 3 },
   { to: '/compensacion', label: 'Compensación', icon: Network, phase: 4 },
-  { to: '/auditoria', label: 'Auditoría', icon: FileClock, phase: 5 },
+  { to: '/aprobaciones', label: 'Aprobaciones', icon: CheckCheck, phase: 5 },
+  { to: '/auditoria', label: 'Auditoría', icon: FileClock, phase: 5, tesorero: true },
+  { to: '/seguridad', label: 'Seguridad', icon: KeyRound, phase: 5 },
 ] as const;
-const CURRENT_PHASE = 4;
+const CURRENT_PHASE = 5;
 
 const ROLE_LABEL = { lectura: 'Lectura', operador: 'Operador', tesorero: 'Tesorero' } as const;
 
 export function Layout() {
-  const { operator, logout } = useAuth();
+  const { operator, logout, can } = useAuth();
   const [open, setOpen] = useState(false);
+  const summary = useQuery({ queryKey: ['summary'], queryFn: () => api<Summary>('/summary'), refetchInterval: 15_000, enabled: !!operator });
+  const pending = (summary.data?.approvals_pending?.withdrawals ?? 0) + (summary.data?.approvals_pending?.netting_runs ?? 0);
+  const nav: readonly (typeof NAV)[number][] = NAV.filter((n: (typeof NAV)[number]) => !('tesorero' in n) || can('tesorero'));
 
   const sidebar = (
     <nav className="flex h-full flex-col gap-1 p-3">
@@ -32,11 +39,12 @@ export function Layout() {
           <div className="text-[11px] text-sidebar-muted">Consola de operación</div>
         </div>
       </div>
-      {NAV.map(({ to, label, icon: Icon, phase }) => phase <= CURRENT_PHASE ? (
+      {nav.map(({ to, label, icon: Icon, phase }) => phase <= CURRENT_PHASE ? (
         <NavLink key={to} to={to} end={to === '/'} onClick={() => setOpen(false)}
           className={({ isActive }) => cn('flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent',
             isActive && 'bg-sidebar-accent font-medium text-white')}>
-          <Icon className="size-4" />{label}
+          <Icon className="size-4" /><span className="flex-1">{label}</span>
+          {to === '/aprobaciones' && pending > 0 && <span className="num rounded bg-warning px-1.5 text-[11px] font-semibold text-black" aria-label={`${pending} pendientes`}>{pending}</span>}
         </NavLink>
       ) : (
         <div key={to} aria-disabled className="flex cursor-not-allowed items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-sidebar-muted/70">
@@ -47,6 +55,7 @@ export function Layout() {
       <div className="mt-auto rounded-md border border-white/10 p-3 text-xs text-sidebar-muted">
         <div className="flex items-center gap-1.5 text-sidebar-foreground"><ShieldCheck className="size-3.5" /> Sesión segura</div>
         <p className="mt-1">Cookie httpOnly · cierre por inactividad</p>
+        {operator && <p className="mt-1">{operator.totp_enabled ? '2FA activo' : <NavLink to="/seguridad" className="underline" onClick={() => setOpen(false)}>Activar 2FA</NavLink>}</p>}
       </div>
     </nav>
   );
