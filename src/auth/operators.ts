@@ -183,7 +183,7 @@ const TESORERO = new Set([
   'POST /v1/withdrawals', 'POST /v1/withdrawals/:id/cancel', 'POST /v1/worker/tick',
   'POST /v1/assets', 'POST /v1/wallets', 'PATCH /v1/wallets/:id', 'POST /v1/entries', 'POST /v1/internal-transfers', 'POST /v1/netting/runs',
   'POST /v1/withdrawals/:id/approve', 'POST /v1/withdrawals/:id/reject', 'POST /v1/netting/runs/:id/approve', 'POST /v1/netting/runs/:id/reject',
-  'POST /v1/operators/:id/totp/reset',
+  'POST /v1/operators/:id/totp/reset', 'POST /v1/withdrawals/:id/bump', 'POST /v1/sweeps/:id/bump',
 ]);
 // Consultas restringidas: la bitácora (IPs, intentos) y la lista de operadores solo para tesorería
 const GET_TESORERO = new Set(['GET /v1/audit', 'GET /v1/audit/actions', 'GET /v1/operators']);
