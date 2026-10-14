@@ -30,7 +30,7 @@ const idem = (k) => ({ 'idempotency-key': `${k}-${R}` });
 
 const tes = browser(`${NET}.1`); check('login tesorero', (await tes.login(BOOT_EMAIL, BOOT_PASS)).status, 200);
 const OPR = `op4-${R}@ejemplo.mx`;
-createOperator(OPR, 'operador', 'clave-operador-123');
+createOperator(OPR, 'ejecutivo', 'clave-operador-123');
 createOperator(`lec4-${R}@ejemplo.mx`, 'lectura', 'clave-lectura-123');
 const opr = browser(`${NET}.2`); await opr.login(OPR, 'clave-operador-123');
 const lec = browser(`${NET}.3`); await lec.login(`lec4-${R}@ejemplo.mx`, 'clave-lectura-123');

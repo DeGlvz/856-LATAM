@@ -43,18 +43,18 @@ const lg0 = await t1.login(BOOT_EMAIL, BOOT_PASS);
 check('login tesorero inicial (sin 2FA)', `${lg0.status} ${!!lg0.body?.mfa_required}`, '200 false');
 if (lg0.body?.mfa_required) { console.log('El tesorero inicial ya tiene 2FA: reinicie la base de pruebas'); process.exit(1); }
 const NEW1 = `nuevo-${R}@ejemplo.mx`, PW1 = 'clave-invitado-1234';
-check('actor sin 2FA → 403 totp_required', (await t1.call('POST', '/v1/operators/invites', { email: NEW1, role: 'operador', code: '123456' })).body?.code, 'totp_required');
+check('actor sin 2FA → 403 totp_required', (await t1.call('POST', '/v1/operators/invites', { email: NEW1, role: 'ejecutivo', code: '123456' })).body?.code, 'totp_required');
 const s1 = (await t1.call('POST', '/v1/auth/totp/setup', {})).body;
 const otp1 = totp(s1.secret);
 check('tesorero inicial activa su 2FA', (await t1.call('POST', '/v1/auth/totp/enable', { code: await otp1.next() })).body.totp_enabled, true);
-check('API key no administra operadores → 403', (await key('POST', '/v1/operators/invites', { email: NEW1, role: 'operador', code: '123456' })).body?.code, 'operator_only');
+check('API key no administra operadores → 403', (await key('POST', '/v1/operators/invites', { email: NEW1, role: 'ejecutivo', code: '123456' })).body?.code, 'operator_only');
 
 // ═════ Invitar ═════
-check('invitar sin code → 400', (await t1.call('POST', '/v1/operators/invites', { email: NEW1, role: 'operador' })).status, 400);
+check('invitar sin code → 400', (await t1.call('POST', '/v1/operators/invites', { email: NEW1, role: 'ejecutivo' })).status, 400);
 check('invitar con rol inválido → 400', (await t1.call('POST', '/v1/operators/invites', { email: NEW1, role: 'admin', code: '123456' })).status, 400);
-check('invitar con code incorrecto → 422', (await t1.call('POST', '/v1/operators/invites', { email: NEW1, role: 'operador', code: otp1.wrong() })).body?.code, 'bad_code');
-const inv1 = await t1.call('POST', '/v1/operators/invites', { email: NEW1.toUpperCase(), role: 'operador', code: await otp1.next() });
-check('invitar con code → 201 y enlace con token en #', `${inv1.status} ${inv1.body.link?.startsWith('/console/invitacion#')} ${inv1.body.email} ${inv1.body.role}`, `201 true ${NEW1} operador`);
+check('invitar con code incorrecto → 422', (await t1.call('POST', '/v1/operators/invites', { email: NEW1, role: 'ejecutivo', code: otp1.wrong() })).body?.code, 'bad_code');
+const inv1 = await t1.call('POST', '/v1/operators/invites', { email: NEW1.toUpperCase(), role: 'ejecutivo', code: await otp1.next() });
+check('invitar con code → 201 y enlace con token en #', `${inv1.status} ${inv1.body.link?.startsWith('/console/invitacion#')} ${inv1.body.email} ${inv1.body.role}`, `201 true ${NEW1} ejecutivo`);
 const ttlH = Math.round((new Date(inv1.body.expires_at) - Date.now()) / 3600_000);
 check('  …vigencia por defecto 72 h', ttlH, 72);
 const tok1 = tokenOf(inv1.body.link);
@@ -66,17 +66,17 @@ check('lista de invitaciones pendientes', pend.some((i) => i.id === inv1.body.id
 // ═════ Consultar y aceptar (público) ═════
 const p1 = pub();
 const lk = await p1.call('POST', '/v1/auth/invites/lookup', { token: tok1 });
-check('lookup: correo, rol y vencimiento', `${lk.status} ${lk.body.email} ${lk.body.role} ${!!lk.body.expires_at}`, `200 ${NEW1} operador true`);
+check('lookup: correo, rol y vencimiento', `${lk.status} ${lk.body.email} ${lk.body.role} ${!!lk.body.expires_at}`, `200 ${NEW1} ejecutivo true`);
 check('lookup con token falso → 404', (await p1.call('POST', '/v1/auth/invites/lookup', { token: 'x'.repeat(43) })).body?.code, 'invalid_invite');
 check('aceptar con contraseña corta → 400', (await p1.call('POST', '/v1/auth/invites/accept', { token: tok1, name: 'Nuevo Operador', password: 'corta' })).body?.code, 'weak_password');
 const acc = await p1.call('POST', '/v1/auth/invites/accept', { token: tok1, name: 'Nuevo Operador', password: PW1 });
-check('aceptar → 201 operador creado', `${acc.status} ${acc.body.email} ${acc.body.role}`, `201 ${NEW1} operador`);
+check('aceptar → 201 operador creado', `${acc.status} ${acc.body.email} ${acc.body.role}`, `201 ${NEW1} ejecutivo`);
 check('  …el enlace no se reutiliza → 404', (await p1.call('POST', '/v1/auth/invites/accept', { token: tok1, name: 'Otro', password: PW1 })).status, 404);
 check('  …lookup de enlace usado → 404', (await p1.call('POST', '/v1/auth/invites/lookup', { token: tok1 })).status, 404);
 check('  …ya no aparece como pendiente', (await t1.call('GET', '/v1/operators/invites')).body.invites.some((i) => i.id === inv1.body.id), false);
 
 const n1 = browser();
-check('login del invitado', (await n1.login(NEW1, PW1)).body.operator?.role, 'operador');
+check('login del invitado', (await n1.login(NEW1, PW1)).body.operator?.role, 'ejecutivo');
 check('operador no ve la lista de operadores → 403', (await n1.call('GET', '/v1/operators')).status, 403);
 check('operador no invita → 403', (await n1.call('POST', '/v1/operators/invites', { email: `x-${R}@ejemplo.mx`, role: 'lectura', code: '123456' })).status, 403);
 let row = (await opsList(t1)).find((o) => o.email === NEW1);
@@ -121,8 +121,8 @@ const others = (await db.query(
   [[me1.id, id1]])).rows.map((r) => r.id);
 const [c1, c2] = [await otp1.next(), await otp2.next()];
 const race = await Promise.all([
-  t1.call('PATCH', `/v1/operators/${id1}`, { role: 'operador', code: c1 }),
-  n1.call('PATCH', `/v1/operators/${me1.id}`, { role: 'operador', code: c2 }),
+  t1.call('PATCH', `/v1/operators/${id1}`, { role: 'ejecutivo', code: c1 }),
+  n1.call('PATCH', `/v1/operators/${me1.id}`, { role: 'ejecutivo', code: c2 }),
 ]);
 check('degradación cruzada simultánea: una pasa y la otra → 409 last_treasurer',
   race.map((r) => r.status).sort().join(' ') + ' ' + race.find((r) => r.status === 409)?.body?.code, '200 409 last_treasurer');
@@ -154,7 +154,7 @@ check('  …ni sale en pendientes', (await t1.call('GET', '/v1/operators/invites
 
 // ═════ Lectura y operador no administran ═════
 const LEC = `lec-${R}@ejemplo.mx`, OPR = `opr-${R}@ejemplo.mx`;
-createOperator(LEC, 'lectura', 'clave-lectura-123'); createOperator(OPR, 'operador', 'clave-operador-123');
+createOperator(LEC, 'lectura', 'clave-lectura-123'); createOperator(OPR, 'ejecutivo', 'clave-operador-123');
 const lec = browser(); await lec.login(LEC, 'clave-lectura-123');
 const opr = browser(); await opr.login(OPR, 'clave-operador-123');
 check('lectura: GET /operators/invites → 403', (await lec.call('GET', '/v1/operators/invites')).status, 403);
@@ -179,7 +179,7 @@ const acts = async (action, target) => (await t1.call('GET', `/v1/audit?action=$
 const created = await acts('operator_invite_created', NEW1);
 check('bitácora: invitación creada (sin token ni enlace)', `${created.length >= 1} ${JSON.stringify(created).includes(tok1)} ${JSON.stringify(created).includes('invitacion#')}`, 'true false false');
 check('bitácora: invitación aceptada', (await acts('operator_invite_accepted', NEW1)).length, 1);
-check('bitácora: cambio de rol', (await acts('operator_role_changed', NEW1)).some((e) => e.metadata.from === 'operador' && e.metadata.to === 'tesorero'), true);
+check('bitácora: cambio de rol', (await acts('operator_role_changed', NEW1)).some((e) => e.metadata.from === 'ejecutivo' && e.metadata.to === 'tesorero'), true);
 check('bitácora: desactivación y reactivación', `${(await acts('operator_deactivated', NEW1)).length} ${(await acts('operator_reactivated', NEW1)).length}`, '1 1');
 check('bitácora: revocación', (await acts('operator_invite_revoked', NEW2)).length, 1);
 const all = JSON.stringify(await acts('operator_role_changed'));
@@ -195,7 +195,7 @@ check('último tesorero activo con 2FA no apaga su 2FA → 409 last_treasurer', 
 check('  …el 2FA sigue activo', (await t1.call('GET', '/v1/auth/me')).body.operator.totp_enabled, true);
 if (solo.length) await db.query('UPDATE operators SET active = true WHERE id = ANY($1::uuid[])', [solo]);
 check('operador (no tesorero) sí puede apagar su 2FA', await (async () => {
-  const OPT = `opt-${R}@ejemplo.mx`; createOperator(OPT, 'operador', 'clave-operador-123');
+  const OPT = `opt-${R}@ejemplo.mx`; createOperator(OPT, 'ejecutivo', 'clave-operador-123');
   const b = browser(); await b.login(OPT, 'clave-operador-123');
   const o = totp((await b.call('POST', '/v1/auth/totp/setup', {})).body.secret);
   await b.call('POST', '/v1/auth/totp/enable', { code: await o.next() });

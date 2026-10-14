@@ -89,7 +89,7 @@ check('gas ya no es bajo', s.gas.low, false);
 
 // ── 6. Roles
 createOperator(`lectura-${R}@ejemplo.mx`, 'lectura', 'clave-lectura-123');
-createOperator(`operador-${R}@ejemplo.mx`, 'operador', 'clave-operador-123');
+createOperator(`operador-${R}@ejemplo.mx`, 'ejecutivo', 'clave-operador-123');
 const lec = browser(`${NET}.3`); await lec.login(`lectura-${R}@ejemplo.mx`, 'clave-lectura-123');
 const opr = browser(`${NET}.4`); await opr.login(`operador-${R}@ejemplo.mx`, 'clave-operador-123');
 check('lectura puede leer summary', (await lec.call('GET', '/v1/summary')).status, 200);

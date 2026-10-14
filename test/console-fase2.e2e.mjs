@@ -26,7 +26,7 @@ const createOperator = (email, role, pw) => execFileSync('node', ['dist/scripts/
 const addr = () => privateKeyToAccount(generatePrivateKey()).address;
 
 const tes = browser(`${NET}.1`); check('login tesorero', (await tes.login(BOOT_EMAIL, BOOT_PASS)).status, 200);
-createOperator(`op2-${R}@ejemplo.mx`, 'operador', 'clave-operador-123');
+createOperator(`op2-${R}@ejemplo.mx`, 'ejecutivo', 'clave-operador-123');
 createOperator(`lec2-${R}@ejemplo.mx`, 'lectura', 'clave-lectura-123');
 const opr = browser(`${NET}.2`); await opr.login(`op2-${R}@ejemplo.mx`, 'clave-operador-123');
 const lec = browser(`${NET}.3`); await lec.login(`lec2-${R}@ejemplo.mx`, 'clave-lectura-123');
