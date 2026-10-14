@@ -10,6 +10,7 @@ import { pool } from '../db.js';
 import { HttpError } from '../idempotency.js';
 import { audit } from '../auth/operators.js';
 import * as P from '../portal/identity.js';
+import { ACCOUNT_KEY_ROUTES, portalAccountRoutes } from './portal-accounts.js';
 
 const parse = <S extends z.ZodTypeAny>(s: S, v: unknown): z.infer<S> => {
   const r = s.safeParse(v);
@@ -22,8 +23,8 @@ const role = z.enum(['viewer', 'operator', 'approver', 'admin']);
 
 // Rutas sin sesión
 const PUBLIC = new Set(['/v1/portal/auth/login', '/v1/portal/auth/login/totp', '/v1/portal/invites/lookup', '/v1/portal/invites/accept']);
-// Rutas que aceptan llave de API (fase 1: solo lectura de identidad); el resto exige sesión de usuario
-const KEY_ROUTES = new Set(['GET /v1/portal/me', 'GET /v1/portal/ping']);
+// Rutas que aceptan llave de API (fase 1: identidad; fase 2: lectura de saldos y cuentas); el resto exige sesión de usuario
+const KEY_ROUTES = new Set(['GET /v1/portal/me', 'GET /v1/portal/ping', ...ACCOUNT_KEY_ROUTES]);
 // Rutas permitidas a approver/admin mientras activan su 2FA obligatorio
 const ENROLL_ROUTES = new Set(['GET /v1/portal/me', 'POST /v1/portal/auth/logout', 'POST /v1/portal/auth/totp/setup', 'POST /v1/portal/auth/totp/enable']);
 
@@ -205,4 +206,7 @@ export async function portalRoutes(app: FastifyInstance) {
     return P.rotateKey(u, parse(uuid, req.params.id), b);
   });
   app.post<{ Params: { id: string } }>('/keys/:id/revoke', async (req) => P.revokeKey(requireRole(req, 'admin').client_id, parse(uuid, req.params.id)));
+
+  // ───────────── Fase 2: inicio y cuentas ─────────────
+  await app.register(portalAccountRoutes);
 }
