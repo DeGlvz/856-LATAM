@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router';
 import type { ReactNode } from 'react';
 import { useAuth } from './lib/auth';
+import type { Role } from './lib/api';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
@@ -12,6 +13,8 @@ import { Netting } from './pages/Netting';
 import { Approvals } from './pages/Approvals';
 import { Audit } from './pages/Audit';
 import { Security } from './pages/Security';
+import { Operators } from './pages/Operators';
+import { OperatorInvitation } from './pages/OperatorInvitation';
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { operator, loading } = useAuth();
@@ -21,11 +24,18 @@ function RequireAuth({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+/** Rutas solo para un rol mínimo: los demás vuelven al tablero. */
+function RequireRole({ role, children }: { role: Role; children: ReactNode }) {
+  const { can } = useAuth();
+  return can(role) ? <>{children}</> : <Navigate to="/" replace />;
+}
+
 export default function App() {
   return (
     <BrowserRouter basename="/console">
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/invitacion" element={<OperatorInvitation />} />
         <Route element={<RequireAuth><Layout /></RequireAuth>}>
           <Route index element={<Dashboard />} />
           <Route path="clientes" element={<Clients />} />
@@ -36,6 +46,7 @@ export default function App() {
           <Route path="aprobaciones" element={<Approvals />} />
           <Route path="auditoria" element={<Audit />} />
           <Route path="seguridad" element={<Security />} />
+          <Route path="operadores" element={<RequireRole role="tesorero"><Operators /></RequireRole>} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
