@@ -186,9 +186,10 @@ const TESORERO = new Set([
   'POST /v1/withdrawals/:id/approve', 'POST /v1/withdrawals/:id/reject', 'POST /v1/netting/runs/:id/approve', 'POST /v1/netting/runs/:id/reject',
   'POST /v1/operators/:id/totp/reset', 'POST /v1/withdrawals/:id/bump', 'POST /v1/sweeps/:id/bump',
   'POST /v1/clients/:id/portal-invite',
+  'POST /v1/operators/invites', 'POST /v1/operators/invites/:id/revoke', 'PATCH /v1/operators/:id',
 ]);
 // Consultas restringidas: la bitácora (IPs, intentos) y la lista de operadores solo para tesorería
-const GET_TESORERO = new Set(['GET /v1/audit', 'GET /v1/audit/actions', 'GET /v1/operators']);
+const GET_TESORERO = new Set(['GET /v1/audit', 'GET /v1/audit/actions', 'GET /v1/operators', 'GET /v1/operators/invites']);
 // POST que solo consultan (no escriben): basta con rol lectura
 const CUALQUIERA = new Set([
   'POST /v1/auth/logout', 'POST /v1/netting/preview',
