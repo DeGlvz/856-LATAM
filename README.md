@@ -255,6 +255,29 @@ Toda petición del portal queda en `audit_log` con `client_id` (actor `portal:<c
 
 Pruebas: `node test/portal-fase1.e2e.mjs` (API: 63 verificaciones, incluye aislamiento entre clientes, repetición, firma alterada, IP y bloqueo) y `npx playwright test portal.spec.mjs` en `test/playwright` (navegador: invitación desde consola, 2FA obligatorio, llave Ed25519 descifrada y usada para firmar, token de lectura, operador sin acceso a administración).
 
+### Consola — administración de operadores
+Página **Operadores** (`/console/operadores`, solo tesorero). El alta deja de depender del script: el tesorero invita y la persona define su nombre y contraseña.
+
+- **Invitación** de un solo uso (`/console/invitacion#<token>`, `CONSOLE_INVITE_TTL_HOURS`, 72 h por defecto); el enlace se muestra una vez y el token nunca viaja en la URL al servidor. Se puede revocar mientras esté pendiente.
+- **Cambio de rol, desactivar y reactivar.** Cambiar rol o desactivar cierra las sesiones del operador. Nadie puede modificarse a sí mismo (`403 self_change`).
+- **Step-up 2FA:** toda escritura de este módulo exige el código TOTP del tesorero que actúa (`403 totp_required` si no tiene 2FA; `422 bad_code`).
+- **Siempre un tesorero activo con 2FA** (`409 last_treasurer`), también al apagar el propio 2FA.
+- **Alertas de portal:** el Tablero y el detalle del cliente avisan cuando un cliente tiene usuarios en el portal y menos de 2 admins (la recuperación nivel 2 lo exige).
+- `create-operator` y `CONSOLE_BOOTSTRAP_*` siguen funcionando para el primer tesorero.
+
+| Método y ruta | Rol | Uso |
+|---|---|---|
+| `GET /v1/operators` | tesorero | Lista con 2FA, último acceso, sesiones activas y estado |
+| `POST /v1/operators/invites` `{email, role, code}` | tesorero + 2FA | Crea invitación; devuelve el enlace una vez |
+| `GET /v1/operators/invites` · `POST /v1/operators/invites/:id/revoke` `{code}` | tesorero (+ 2FA al revocar) | Invitaciones pendientes |
+| `PATCH /v1/operators/:id` `{role?, active?, code}` | tesorero + 2FA | Rol y activación |
+| `POST /v1/auth/invites/lookup` · `/accept` | pública (límite por IP) | Aceptar invitación |
+| `GET /v1/clients/portal-alerts` | lectura | Clientes con menos de 2 admins en el portal |
+
+Migración `012_consola_operadores` (`operator_invites`; `operators.deactivated_at/by`). Bitácora: `operator_invite_created|revoked|accepted`, `operator_role_changed`, `operator_deactivated|reactivated`.
+
+Pruebas: `node test/console-operadores.e2e.mjs` (69 verificaciones) y `npx playwright test operadores.spec.mjs` en `test/playwright` (7 recorridos).
+
 Pendiente: TRON/BTC/LTC.
 
 Pruebas: `bash test/smoke.sh` (libro), `bash test/netting.sh` (compensación), `node test/console-fase4.e2e.mjs` (consola de compensación), `node test/transfers.e2e.mjs` y `node test/deposits-sweep.e2e.mjs` (on-chain, contra cadena local Hardhat/Anvil).
