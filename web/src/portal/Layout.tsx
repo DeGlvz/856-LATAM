@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink, Outlet } from 'react-router';
-import { Home as HomeIcon, KeyRound, LogOut, Menu, ShieldCheck, Users as UsersIcon, X, Wallet } from 'lucide-react';
+import { ArrowDownToLine, Home as HomeIcon, KeyRound, Landmark, LogOut, Menu, ShieldCheck, Users as UsersIcon, X, Wallet } from 'lucide-react';
 import { usePortal } from './auth';
 import { ROLE_LABEL } from './api';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,8 @@ import { cn } from '@/lib/utils';
 
 const NAV = [
   { to: '/', label: 'Inicio', icon: HomeIcon },
+  { to: '/cuentas', label: 'Cuentas', icon: Landmark },
+  { to: '/depositos', label: 'Depósitos', icon: ArrowDownToLine },
   { to: '/usuarios', label: 'Usuarios', icon: UsersIcon, admin: true },
   { to: '/llaves', label: 'Llaves de API', icon: KeyRound, admin: true },
   { to: '/seguridad', label: 'Seguridad', icon: ShieldCheck },

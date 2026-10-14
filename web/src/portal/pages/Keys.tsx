@@ -197,7 +197,7 @@ const signature = sign(null, Buffer.from(msg), privateKey).toString('base64url')
   return (
     <Card>
       <CardHeader><CardTitle className="text-base">Cómo firmar las peticiones</CardTitle>
-        <CardDescription>Ventana de 5 minutos y nonce irrepetible. Diez firmas inválidas bloquean la llave 15 minutos.</CardDescription></CardHeader>
+        <CardDescription>Ventana de 5 minutos y nonce irrepetible. Diez firmas inválidas bloquean la llave 15 minutos. Con permiso de lectura, las llaves consultan por GET: /balances, /activity, /accounts/:activo/entries(.csv), /statements/:AAAA-MM, /deposit-addresses, /deposits y /notices.</CardDescription></CardHeader>
       <CardContent><pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs leading-relaxed">{snippet}</pre></CardContent>
     </Card>
   );

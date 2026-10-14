@@ -8,6 +8,8 @@ import { Home } from './pages/Home';
 import { PortalSecurity } from './pages/Security';
 import { Users } from './pages/Users';
 import { Keys } from './pages/Keys';
+import { AccountDetail, Accounts } from './pages/Accounts';
+import { Deposits } from './pages/Deposits';
 
 function RequireSession({ children }: { children: ReactNode }) {
   const { me, loading } = usePortal();
@@ -31,6 +33,9 @@ export default function PortalApp() {
         <Route path="/invitacion" element={<Invitation />} />
         <Route element={<RequireSession><PortalLayout /></RequireSession>}>
           <Route index element={<Home />} />
+          <Route path="cuentas" element={<Accounts />} />
+          <Route path="cuentas/:asset" element={<AccountDetail />} />
+          <Route path="depositos" element={<Deposits />} />
           <Route path="seguridad" element={<PortalSecurity />} />
           <Route path="usuarios" element={<AdminOnly><Users /></AdminOnly>} />
           <Route path="llaves" element={<AdminOnly><Keys /></AdminOnly>} />

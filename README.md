@@ -255,6 +255,31 @@ Toda petición del portal queda en `audit_log` con `client_id` (actor `portal:<c
 
 Pruebas: `node test/portal-fase1.e2e.mjs` (API: 63 verificaciones, incluye aislamiento entre clientes, repetición, firma alterada, IP y bloqueo) y `npx playwright test portal.spec.mjs` en `test/playwright` (navegador: invitación desde consola, 2FA obligatorio, llave Ed25519 descifrada y usada para firmar, token de lectura, operador sin acceso a administración).
 
+### Portal de clientes — fase 2: inicio, cuentas y depósitos
+Pantallas **Inicio** (avisos, saldos por activo y movimientos recientes), **Cuentas** (historial paginado, filtro por fechas, CSV y estado de cuenta mensual) y **Depósitos** (direcciones con QR y depósitos recibidos). Todo se filtra por el cliente de la sesión o la llave; un activo o recurso ajeno responde `404`.
+
+- **Saldos:** disponible, reservado en retiros (reservados, firmados o enviados), total = disponible + reservado, y por pagar / por cobrar (obligaciones abiertas). Una sola lectura consistente.
+- **Movimientos:** un renglón por asiento con el neto en su cuenta; el concepto se arma con el tipo y la dirección. Nunca se exponen descripciones, metadatos ni referencias internas: solo hash de su depósito, folio de su retiro o corrida donde participó.
+- **CSV:** BOM UTF-8 (abre bien en Excel), montos en unidades del activo con todos sus decimales (sin redondeo), máximo 50 000 renglones (`422 too_many_rows`: acote fechas).
+- **Estado de cuenta:** mes calendario en UTC; saldo inicial + abonos − cargos = saldo final, consistente con el saldo actual.
+- **Direcciones de depósito:** generar una nueva (operador o superior; consulta no puede); las anteriores siguen acreditando.
+- **Avisos:** KYB pendiente o cliente suspendido, llaves que vencen en ≤ 14 días, menos de 2 admins activos, 2FA sin activar.
+- Las **llaves de API** con permiso de lectura (Ed25519 o token) consultan todos los `GET` de esta fase.
+
+| Método y ruta | Uso |
+|---|---|
+| `GET /v1/portal/balances` | Saldos por activo |
+| `GET /v1/portal/activity?limit` | Últimos movimientos (10, máx. 50) |
+| `GET /v1/portal/accounts/:activo/entries?limit&cursor&from&to` · `…/entries.csv` | Historial paginado y CSV |
+| `GET /v1/portal/statements/:AAAA-MM?asset=` · `/statements/:AAAA-MM.csv?asset=` | Estado de cuenta mensual |
+| `GET /v1/portal/deposit-addresses` · `POST /v1/portal/deposit-addresses` | Direcciones (generar: operador+, solo sesión) |
+| `GET /v1/portal/deposits?status&limit&cursor` | Depósitos (pending → credited) |
+| `GET /v1/portal/notices` | Avisos |
+
+Sin migraciones ni variables nuevas.
+
+Pruebas: `node test/portal-fase2.e2e.mjs` (79 verificaciones: saldos exactos, precisión > 2^53, paginación, CSV y estado de cuenta que cuadran, depósito real pending → credited, llaves, aislamiento y ausencia de datos internos) y `npx playwright test portal-cuentas.spec.mjs` (5 recorridos).
+
 Pendiente: TRON/BTC/LTC.
 
 Pruebas: `bash test/smoke.sh` (libro), `bash test/netting.sh` (compensación), `node test/console-fase4.e2e.mjs` (consola de compensación), `node test/transfers.e2e.mjs` y `node test/deposits-sweep.e2e.mjs` (on-chain, contra cadena local Hardhat/Anvil).

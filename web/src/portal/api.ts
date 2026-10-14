@@ -47,3 +47,41 @@ export const ROLE_HELP: Record<ClientRole, string> = {
   approver: 'Aprueba operaciones del cliente. 2FA obligatorio.',
   admin: 'Administra usuarios y llaves de API. 2FA obligatorio.',
 };
+
+// ───────────── Fase 2: saldos, movimientos, estados de cuenta y depósitos ─────────────
+export interface AssetView { asset_id: string; symbol: string; decimals: number; network: string }
+export interface BalanceRow extends AssetView { available: string; reserved: string; payable: string; receivable: string; total: string }
+export interface Line {
+  id: string; created_at: string; asset_id: string; kind: string; direction: 'credit' | 'debit'; amount: string; balance_after: string;
+  reference: string | null; reference_type: 'withdrawal' | 'netting_run' | 'tx_hash' | null; label: string;
+}
+export interface ActivityLine extends Line { symbol: string; decimals: number }
+export interface EntriesPage { asset: AssetView; balance: string; entries: Line[]; next_cursor: string | null }
+export interface Statement {
+  asset: AssetView; period: string; timezone: 'UTC'; period_start: string; period_end: string;
+  opening_balance: string; credits: string; debits: string; closing_balance: string; current_balance: string; entries: Line[];
+}
+export interface DepositAddress { id: string; address: string; network: string; derivation_index: number | null; created_at: string; active: boolean; uri: string }
+export interface DepositRow {
+  id: string; tx_hash: string; log_index: number; asset_id: string; symbol: string; decimals: number; amount: string;
+  from_address: string; to_address: string; status: 'pending' | 'credited' | 'orphaned'; confirmations: number | null;
+  required_confirmations: number; block_number: string | null; created_at: string; credited_at: string | null;
+}
+export interface Notice { code: string; severity: 'info' | 'warning' | 'critical'; message: string; data?: Record<string, unknown> }
+
+/** Explorador de bloques por red (el portal no consulta la configuración interna de 856). */
+export const explorerFor = (network: string) => (network === 'eth-mainnet' ? 'https://etherscan.io' : 'https://sepolia.etherscan.io');
+
+/** Descarga autenticada (cookie de sesión) de un CSV del portal; nunca pone la sesión en la URL. */
+export async function downloadPortal(path: string, fallbackName: string) {
+  const res = await fetch(`/v1/portal${path}`, { credentials: 'same-origin', headers: { accept: 'text/csv' } });
+  if (!res.ok) {
+    const body = res.headers.get('content-type')?.includes('application/json') ? await res.json() : null;
+    throw new ApiError(res.status, body?.error ?? `Error ${res.status}`, body?.code);
+  }
+  const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? fallbackName;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(await res.blob());
+  a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
