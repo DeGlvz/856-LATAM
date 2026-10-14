@@ -131,8 +131,8 @@ export async function registerWallet(w: {
 }) {
   const address = w.chain === 'ethereum' ? w.address.toLowerCase() : w.address;
   const { rows } = await pool.query(
-    `INSERT INTO wallets (client_id, chain, network, address, purpose, custody_ref, derivation_path, label)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+    `INSERT INTO wallets (client_id, chain, network, address, purpose, custody_ref, derivation_path, label, wl_status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8, CASE WHEN $5 = 'withdrawal_whitelist' THEN 'active' END) RETURNING *`,
     [w.client_id ?? null, w.chain, w.network, address, w.purpose, w.custody_ref ?? null, w.derivation_path ?? null, w.label ?? null],
   );
   return rows[0];
