@@ -65,6 +65,10 @@ const Env = z.object({
   PORTAL_SIG_MAX_FAILS: z.coerce.number().int().min(3).default(10),           // firmas inválidas antes de bloquear la llave
   // Regla de origen: solo credenciales del cliente originan operaciones. Se activa en la fase 3 del portal.
   ORIGIN_RULE: z.enum(['off', 'enforce']).default('off'),
+  // Fase 3 del portal: salidas
+  WHITELIST_COOLDOWN_HOURS: z.coerce.number().min(0).max(720).default(24),   // espera antes de usar una dirección nueva
+  EXIT_SIMULATION_TTL_MIN: z.coerce.number().int().min(1).max(1440).default(30), // vigencia de una simulación de salida
+  EXIT_VALIDATION_SLA_MIN: z.coerce.number().int().min(5).default(240),      // tiempo objetivo de tesorería para validar
 });
 
 export const config = Env.parse(process.env);
