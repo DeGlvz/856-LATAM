@@ -33,7 +33,7 @@ const key = async (method, path, body, idem) => {
 };
 
 const tes = browser(`${NET}.1`); check('login tesorero', (await tes.login(BOOT_EMAIL, BOOT_PASS)).status, 200);
-execFileSync('node', ['dist/scripts/create-operator.js', `opg-${R}@ejemplo.mx`, 'operador'], { input: 'clave-operador-123\n', env: process.env, stdio: ['pipe', 'pipe', 'ignore'] });
+execFileSync('node', ['dist/scripts/create-operator.js', `opg-${R}@ejemplo.mx`, 'ejecutivo'], { input: 'clave-operador-123\n', env: process.env, stdio: ['pipe', 'pipe', 'ignore'] });
 const opr = browser(`${NET}.2`); await opr.login(`opg-${R}@ejemplo.mx`, 'clave-operador-123');
 const tick = () => tes.call('POST', '/v1/worker/tick', {});
 const db = new pg.Client({ connectionString: DATABASE_URL }); await db.connect();

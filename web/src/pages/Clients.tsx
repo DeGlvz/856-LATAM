@@ -51,7 +51,7 @@ export function Clients() {
           <h1 className="text-xl font-semibold tracking-tight">Clientes</h1>
           <p className="text-sm text-muted-foreground">Fondos, tesorerías y fintechs con cuentas en el libro.</p>
         </div>
-        {can('operador') && <Button onClick={() => setCreating(true)}><Plus />Nuevo cliente</Button>}
+        {can('ejecutivo') && <Button onClick={() => setCreating(true)}><Plus />Nuevo cliente</Button>}
       </div>
 
       <Card className="py-4">

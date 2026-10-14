@@ -15,14 +15,14 @@ import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
-const ROLES: Role[] = ['lectura', 'operador', 'tesorero'];
-export const ROLE_LABEL = { lectura: 'Lectura', operador: 'Operador', tesorero: 'Tesorero' } as const;
+const ROLES: Role[] = ['lectura', 'ejecutivo', 'tesorero'];
+export const ROLE_LABEL = { lectura: 'Lectura', ejecutivo: 'Ejecutivo de cuenta', tesorero: 'Tesorero' } as const;
 const ROLE_HELP: Record<Role, string> = {
   lectura: 'Solo consulta: tablero, clientes, movimientos.',
-  operador: 'Altas de clientes, cuentas y obligaciones; no mueve valor.',
-  tesorero: 'Retiros, aprobaciones, compensación y administración de operadores.',
+  ejecutivo: 'Atención a clientes: altas, cuentas, obligaciones y validación previa; no autoriza salidas.',
+  tesorero: 'Superusuario: autoriza salidas, aprobaciones, compensación y administración de operadores.',
 };
-const ROLE_VARIANT: Record<Role, 'outline' | 'secondary' | 'default'> = { lectura: 'outline', operador: 'secondary', tesorero: 'default' };
+const ROLE_VARIANT: Record<Role, 'outline' | 'secondary' | 'default'> = { lectura: 'outline', ejecutivo: 'secondary', tesorero: 'default' };
 const SELF_TIP = 'No puede modificarse a sí mismo: pídalo a otro tesorero';
 
 type Pending =
@@ -178,8 +178,8 @@ type Created = { id: string; email: string; role: Role; expires_at: string; link
 
 function InviteDialog({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState<Role>('operador');
-  useEffect(() => { if (open) { setEmail(''); setRole('operador'); } }, [open]);
+  const [role, setRole] = useState<Role>('ejecutivo');
+  useEffect(() => { if (open) { setEmail(''); setRole('ejecutivo'); } }, [open]);
   return (
     <StepUpDialog<Created> open={open} keepOpen title="Invitar operador" confirmLabel="Generar enlace"
       description="Se genera un enlace de un solo uso. Entréguelo por un canal confiable; la persona define su nombre y contraseña."

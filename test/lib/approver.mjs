@@ -17,7 +17,7 @@ export async function makeApprover({ BASE, ip, tag }) {
   const otp = totp(secret);
   await call('POST', '/v1/auth/totp/enable', { code: await otp.next() });
   return {
-    email, call,
+    email, call, code: () => otp.next(),
     approveWithdrawal: async (id) => call('POST', `/v1/withdrawals/${id}/approve`, { code: await otp.next() }),
     approveRun: async (id) => call('POST', `/v1/netting/runs/${id}/approve`, { code: await otp.next() }),
   };

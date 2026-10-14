@@ -28,7 +28,7 @@ function browser(ip) {
 const createOperator = (email, role, pw) => execFileSync('node', ['dist/scripts/create-operator.js', email, role], { input: pw + '\n', env: process.env, stdio: ['pipe', 'pipe', 'ignore'] });
 
 const tes = browser(`${NET}.1`); check('login tesorero', (await tes.login(BOOT_EMAIL, BOOT_PASS)).status, 200);
-createOperator(`op3-${R}@ejemplo.mx`, 'operador', 'clave-operador-123');
+createOperator(`op3-${R}@ejemplo.mx`, 'ejecutivo', 'clave-operador-123');
 createOperator(`lec3-${R}@ejemplo.mx`, 'lectura', 'clave-lectura-123');
 const opr = browser(`${NET}.2`); await opr.login(`op3-${R}@ejemplo.mx`, 'clave-operador-123');
 const lec = browser(`${NET}.3`); await lec.login(`lec3-${R}@ejemplo.mx`, 'clave-lectura-123');

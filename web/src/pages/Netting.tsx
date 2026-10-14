@@ -53,7 +53,7 @@ export function Netting() {
           <p className="text-sm text-muted-foreground">Obligaciones entre clientes y liquidación multilateral por el neto, en un solo asiento.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {can('operador') && <Button variant="outline" onClick={() => setNewOb(true)}><Plus />Nueva obligación</Button>}
+          {can('ejecutivo') && <Button variant="outline" onClick={() => setNewOb(true)}><Plus />Nueva obligación</Button>}
           <Button onClick={() => set('tab', 'simular')}><Scale />Simular corrida</Button>
         </div>
       </div>

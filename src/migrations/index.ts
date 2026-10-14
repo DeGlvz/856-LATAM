@@ -11,6 +11,7 @@ import m009 from './009_aprobaciones_2fa.js';
 import m010 from './010_gas_bump.js';
 import m011 from './011_portal_identidad.js';
 import m012 from './012_consola_operadores.js';
+import m013 from './013_portal_salidas.js';
 
 // Migraciones embebidas en el build (no hay archivos .sql que copiar al contenedor).
 // Nunca editar una ya aplicada: agregar una nueva.
@@ -27,6 +28,7 @@ const migrations: [string, string][] = [
   ['010_gas_bump', m010],
   ['011_portal_identidad', m011],
   ['012_consola_operadores', m012],
+  ['013_portal_salidas', m013],
 ];
 
 export async function migrate(pool: Pool, log: (msg: string) => void = console.log) {

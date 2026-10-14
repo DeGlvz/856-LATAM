@@ -5,9 +5,12 @@ import { config } from '../config.js';
 import { pool } from '../db.js';
 import { decryptSecret, verifyCode } from './totp.js';
 
-export type Role = 'lectura' | 'operador' | 'tesorero';
-export const ROLES: Role[] = ['lectura', 'operador', 'tesorero'];
-const RANK: Record<Role, number> = { lectura: 0, operador: 1, tesorero: 2 };
+// ejecutivo = Ejecutivo de cuenta (antes "operador"): atención a clientes; tesorero = superusuario
+export type Role = 'lectura' | 'ejecutivo' | 'tesorero';
+export const ROLES: Role[] = ['lectura', 'ejecutivo', 'tesorero'];
+const RANK: Record<Role, number> = { lectura: 0, ejecutivo: 1, tesorero: 2 };
+/** Acepta el nombre anterior del rol ("operador") por compatibilidad con scripts e integraciones. */
+export const normalizeRole = (r: unknown) => (r === 'operador' ? 'ejecutivo' : r);
 export const hasRole = (have: Role, need: Role) => RANK[have] >= RANK[need];
 
 export interface Operator { id: string; email: string; name: string; role: Role; totp_enabled: boolean }
@@ -185,7 +188,7 @@ const TESORERO = new Set([
   'POST /v1/assets', 'POST /v1/wallets', 'PATCH /v1/wallets/:id', 'POST /v1/entries', 'POST /v1/internal-transfers', 'POST /v1/netting/runs',
   'POST /v1/withdrawals/:id/approve', 'POST /v1/withdrawals/:id/reject', 'POST /v1/netting/runs/:id/approve', 'POST /v1/netting/runs/:id/reject',
   'POST /v1/operators/:id/totp/reset', 'POST /v1/withdrawals/:id/bump', 'POST /v1/sweeps/:id/bump',
-  'POST /v1/clients/:id/portal-invite',
+  'POST /v1/clients/:id/portal-invite', 'PATCH /v1/assets/:id',
   'POST /v1/operators/invites', 'POST /v1/operators/invites/:id/revoke', 'PATCH /v1/operators/:id',
 ]);
 // Consultas restringidas: la bitácora (IPs, intentos) y la lista de operadores solo para tesorería
@@ -201,5 +204,5 @@ export function requiredRole(method: string, route: string): Role {
   if (method === 'GET' || method === 'HEAD') return GET_TESORERO.has(k) ? 'tesorero' : 'lectura';
   if (CUALQUIERA.has(k)) return 'lectura';
   if (TESORERO.has(k)) return 'tesorero';
-  return 'operador';
+  return 'ejecutivo';
 }

@@ -1,6 +1,7 @@
 import {
   encodeFunctionData, decodeEventLog, erc20Abi, isAddress, keccak256, type Address, type Hash, type Hex,
 } from 'viem';
+import { createHash } from 'node:crypto';
 import { client } from '../chain.js';
 import { getSigner } from '../chain/signer.js';
 import { nextNonce } from '../chain/nonce.js';
@@ -34,11 +35,16 @@ export async function requestWithdrawal(i: {
   client_id: string; asset_id: string; to_address: string; amount: string;
   idempotency_key?: string; metadata?: Record<string, unknown>;
   requested_by?: string; requested_by_operator?: string | null; needs_approval?: boolean;
-}) {
+  // Fase 3 del portal: salida originada por el cliente desde una simulación
+  exit?: {
+    approval_status: 'client_pending' | 'pending'; origin_kind: 'client_user' | 'client_key' | 'delegate'; origin_ref: string;
+    origin_ip?: string; simulation_id: string; scope_hash: string; dual_required: boolean;
+  };
+}, inTx?: Tx) {
   if (!isAddress(i.to_address)) throw new LedgerError(400, 'Dirección destino inválida', 'invalid_address');
   const to = lower(i.to_address);
   try {
-    const id = await tx(async (c) => {
+    const run = async (c: Tx) => {
       if (i.idempotency_key) {
         const prev = await c.query('SELECT id FROM withdrawals WHERE idempotency_key = $1', [i.idempotency_key]);
         if (prev.rows[0]) return prev.rows[0].id as string;
@@ -54,18 +60,24 @@ export async function requestWithdrawal(i: {
       // Lista blanca: solo a direcciones previamente registradas por el cliente
       const wl = await c.query(
         `SELECT 1 FROM wallets WHERE client_id = $1 AND network = $2 AND address = $3
-           AND purpose = 'withdrawal_whitelist' AND active`,
+           AND purpose = 'withdrawal_whitelist' AND active AND wl_status = 'active'
+           AND (active_from IS NULL OR active_from <= now())`,
         [i.client_id, asset.network, to],
       );
       if (!wl.rowCount) throw new LedgerError(422, 'Dirección destino fuera de la lista blanca del cliente', 'address_not_whitelisted');
 
       const acc = await openClientAccount(c, i.client_id, asset.id);
+      const x = i.exit;
       const { rows: [w] } = await c.query(
         `INSERT INTO withdrawals (client_id, account_id, asset_id, to_address, amount, status, idempotency_key, metadata,
-                                  approval_status, requested_by, requested_by_operator)
-         VALUES ($1,$2,$3,$4,$5,'reserved',$6,$7,$8,$9,$10) RETURNING id`,
+                                  approval_status, requested_by, requested_by_operator,
+                                  origin_kind, origin_ref, origin_ip, simulation_id, scope_hash, dual_required, validation_due_at)
+         VALUES ($1,$2,$3,$4,$5,'reserved',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
+                 CASE WHEN $8 = 'pending' AND $14::uuid IS NOT NULL THEN now() + make_interval(mins => $17) END) RETURNING id`,
         [i.client_id, acc.id, asset.id, to, i.amount, i.idempotency_key ?? null, i.metadata ?? {},
-          i.needs_approval ? 'pending' : 'not_required', i.requested_by ?? null, i.requested_by_operator ?? null],
+          x ? x.approval_status : i.needs_approval ? 'pending' : 'not_required', i.requested_by ?? null, i.requested_by_operator ?? null,
+          x?.origin_kind ?? (i.requested_by_operator ? 'console' : 'api'), x?.origin_ref ?? null, x?.origin_ip ?? null,
+          x?.simulation_id ?? null, x?.scope_hash ?? null, x?.dual_required ?? false, config.EXIT_VALIDATION_SLA_MIN],
       );
       // Reserva: el saldo sale de "disponible" y queda "en tránsito" hasta confirmarse
       const e = await postEntryIn(c, {
@@ -78,8 +90,9 @@ export async function requestWithdrawal(i: {
       });
       await c.query('UPDATE withdrawals SET reserve_entry_id = $2 WHERE id = $1', [w.id, e.id]);
       return w.id as string;
-    });
-    return getWithdrawal(id);
+    };
+    const id = inTx ? await run(inTx) : await tx(run);
+    return inTx ? { id } as Awaited<ReturnType<typeof getWithdrawal>> : getWithdrawal(id);
   } catch (e) {
     const err = e as { code?: string };
     if (err.code === '23514') throw new LedgerError(422, 'Saldo insuficiente', 'insufficient_funds');
@@ -97,7 +110,8 @@ export async function getWithdrawal(id: string) {
             w.nonce, w.tx_hash, w.block_number, w.confirmations, w.gas_used, w.gas_cost_wei, w.attempts, w.last_error,
             w.reserve_entry_id, w.settle_entry_id, w.reversal_entry_id, w.metadata, w.created_at, w.updated_at,
             w.approval_status, w.requested_by, w.requested_by_operator, w.approved_by, w.approved_at, w.rejected_by, w.rejected_reason,
-            w.broadcast_at, w.bumps
+            w.broadcast_at, w.bumps, w.origin_kind, w.origin_ref, w.origin_ip, w.simulation_id, w.scope_hash, w.authorized_hash,
+            w.client_approved_by, w.client_approved_at, w.validation_due_at, w.dual_required, w.approved2_by, w.approved2_at
        FROM withdrawals w JOIN clients c ON c.id = w.client_id WHERE w.id = $1`, [id]);
   if (!w) throw new LedgerError(404, 'Retiro no encontrado', 'not_found');
   return { ...w, required_confirmations: config.CONFIRMATIONS, attempts_log: await listAttempts('withdrawal', id) };
@@ -109,7 +123,7 @@ export async function listWithdrawals(f: { client_id?: string; status?: string; 
   const { rows } = await pool.query(
     `SELECT w.id, w.client_id, c.name AS client_name, w.asset_id, w.to_address, w.amount, w.status, w.tx_hash, w.nonce,
             w.confirmations, w.attempts, w.last_error, w.created_at, w.updated_at, w.approval_status, w.requested_by,
-            w.created_at::text AS _ts
+            w.origin_kind, w.validation_due_at, w.dual_required, w.approved_by, w.created_at::text AS _ts
        FROM withdrawals w JOIN clients c ON c.id = w.client_id
       WHERE ($1::uuid IS NULL OR w.client_id = $1) AND ($2::text IS NULL OR w.status = $2) AND ($3::text IS NULL OR w.asset_id = $3)
         AND ($4::timestamptz IS NULL OR (w.created_at, w.id) < ($4::timestamptz, $5::uuid))
@@ -147,6 +161,36 @@ export async function cancelWithdrawal(id: string, reason = 'cancelado por el cl
 export const bumpWithdrawal = (id: string, by: string, log?: { info: (o: object, m: string) => void; warn: (o: object, m: string) => void }) =>
   bumpNow('withdrawal', id, by, log);
 
+// ── Alcance de una salida del portal (hash de lo simulado) ──
+export function exitScopeHash(f: { client_id: string; asset_id: string; wallet_id: string; to_address: string; amount: string | bigint;
+  fee: string | bigint; payable_open: string | bigint }) {
+  return createHash('sha256').update(['856-exit/v1', f.client_id, f.asset_id, f.wallet_id, lower(f.to_address),
+    String(f.amount), String(f.fee), String(f.payable_open)].join('|')).digest('hex');
+}
+
+/** 409 scope_changed si el destino ya no está vigente o la fila del retiro no coincide con la simulación. */
+export async function assertScopeUnchanged(c: Tx, w: { id: string; client_id: string; asset_id: string; to_address: string; amount: string; simulation_id: string; scope_hash: string }) {
+  const { rows: [sim] } = await c.query('SELECT * FROM exit_simulations WHERE id = $1', [w.simulation_id]);
+  const { rows: [wl] } = await c.query(
+    `SELECT 1 FROM wallets WHERE id = $1 AND client_id = $2 AND purpose = 'withdrawal_whitelist' AND active AND wl_status = 'active'
+       AND (active_from IS NULL OR active_from <= now())`, [sim?.wallet_id, w.client_id]);
+  const h = sim && exitScopeHash({ client_id: w.client_id, asset_id: w.asset_id, wallet_id: sim.wallet_id, to_address: w.to_address,
+    amount: w.amount, fee: sim.fee, payable_open: sim.payable_open });
+  const { rows: [ob] } = await c.query(
+    `SELECT COALESCE(sum(amount), 0) AS v FROM obligations WHERE debtor_id = $1 AND asset_id = $2 AND status = 'open'`, [w.client_id, w.asset_id]);
+  if (!sim || !wl || h !== w.scope_hash || h !== sim.scope_hash || String(ob.v) !== String(sim.payable_open)) {
+    throw new LedgerError(409, 'El alcance cambió desde la simulación (destino, monto u obligaciones); rechace y pida una nueva simulación', 'scope_changed');
+  }
+}
+
+async function authorizationMatches(c: Tx, w: { id: string; client_id: string; asset_id: string; to_address: string; amount: string; simulation_id: string; scope_hash: string; authorized_hash: string | null }) {
+  if (!w.authorized_hash || w.authorized_hash !== w.scope_hash) return false;
+  const { rows: [sim] } = await c.query('SELECT wallet_id, fee, payable_open, scope_hash FROM exit_simulations WHERE id = $1', [w.simulation_id]);
+  if (!sim || sim.scope_hash !== w.scope_hash) return false;
+  return exitScopeHash({ client_id: w.client_id, asset_id: w.asset_id, wallet_id: sim.wallet_id, to_address: w.to_address,
+    amount: w.amount, fee: sim.fee, payable_open: sim.payable_open }) === w.authorized_hash;
+}
+
 // ── Doble aprobación ──
 export async function approveWithdrawal(id: string, by: { email: string; id: string }) {
   await tx(async (c) => {
@@ -158,9 +202,24 @@ export async function approveWithdrawal(id: string, by: { email: string; id: str
     if (w.requested_by_operator === by.id) throw new LedgerError(403, 'Doble aprobación: quien solicitó no puede aprobar', 'same_operator');
     const { rows: [cl] } = await c.query('SELECT status FROM clients WHERE id = $1 FOR SHARE', [w.client_id]);
     if (cl.status !== 'active') throw new LedgerError(422, `Cliente no activo (estado: ${cl.status}); rechace el retiro`, 'client_not_active');
+    // Salida del portal: lo que se autoriza debe ser exactamente lo simulado (destino aún vigente, mismos montos)
+    if (w.simulation_id) await assertScopeUnchanged(c, w);
+    if (w.dual_required && !w.approved_by_operator) {
+      // Primera de dos autorizaciones: queda pendiente del segundo tesorero
+      await c.query(`UPDATE withdrawals SET approved_by = $2, approved_by_operator = $3, approved_at = now(), updated_at = now() WHERE id = $1`,
+        [id, by.email, by.id]);
+      return;
+    }
+    if (w.dual_required) {
+      if (w.approved_by_operator === by.id) throw new LedgerError(403, 'Este monto requiere dos tesoreros distintos', 'same_operator');
+      await c.query(
+        `UPDATE withdrawals SET approval_status = 'approved', approved2_by = $2, approved2_by_operator = $3, approved2_at = now(),
+                authorized_hash = scope_hash, updated_at = now() WHERE id = $1`, [id, by.email, by.id]);
+      return;
+    }
     await c.query(
-      `UPDATE withdrawals SET approval_status = 'approved', approved_by = $2, approved_by_operator = $3, approved_at = now(), updated_at = now()
-        WHERE id = $1`, [id, by.email, by.id]);
+      `UPDATE withdrawals SET approval_status = 'approved', approved_by = $2, approved_by_operator = $3, approved_at = now(),
+              authorized_hash = scope_hash, updated_at = now() WHERE id = $1`, [id, by.email, by.id]);
   });
   return getWithdrawal(id);
 }
@@ -196,6 +255,14 @@ async function signReserved(log: Logger) {
       );
       if (!w) return true;
       const asset = await getAsset(c, w.asset_id);
+      if (w.simulation_id && !(await authorizationMatches(c, w))) {
+        // Control en profundidad: la fila no coincide con lo autorizado → no se firma; se devuelve el saldo
+        const rev = await reverseReservation(c, w, 'la autorización no coincide con el alcance simulado');
+        await c.query(`UPDATE withdrawals SET status = 'failed', last_error = $2, reversal_entry_id = $3, updated_at = now() WHERE id = $1`,
+          [w.id, 'autorización no coincide con el hash del alcance', rev]);
+        log.error({ withdrawal: w.id }, 'retiro bloqueado: la autorización no coincide con el hash');
+        return false;
+      }
       try {
         const nonce = await nextNonce(c, from);
         const call = asset.kind === 'native'
