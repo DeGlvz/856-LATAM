@@ -100,12 +100,12 @@ Seguridad:
 - Contraseñas con **argon2id**; la base guarda solo el SHA-256 del token de sesión. Sesión de 8 h con cierre a los 30 min de inactividad.
 - 5 intentos fallidos bloquean la cuenta 15 min; el mensaje de error no revela si el correo existe.
 - Escrituras desde la consola exigen el header `x-856-console: 1` (defensa CSRF adicional a `SameSite=Strict`).
-- Roles: **lectura** (solo consulta) · **operador** (altas de clientes, cuentas, obligaciones, depósitos) · **tesorero** (retiros, asientos, transferencias internas, corridas de compensación, activos, wallets, worker).
+- Roles: **lectura** (solo consulta) · **ejecutivo** — *Ejecutivo de cuenta*, antes «operador» (altas de clientes, cuentas, obligaciones, depósitos) · **tesorero**, el superusuario (retiros, asientos, transferencias internas, corridas de compensación, activos, wallets, worker, operadores).
 - Bitácora `audit_log` inmutable: login, fallos, logout, accesos denegados y toda escritura hecha desde la consola.
 
 Alta de operadores:
 - Primer tesorero: definir `CONSOLE_BOOTSTRAP_EMAIL` y `CONSOLE_BOOTSTRAP_PASSWORD` (mín. 12), arrancar una vez y **borrar la contraseña** de las variables. Solo actúa si no hay operadores.
-- Siguientes: `npm run operator:create -- <email> <lectura|operador|tesorero> [nombre]` (pide la contraseña por stdin).
+- Siguientes: `npm run operator:create -- <email> <lectura|ejecutivo|tesorero> [nombre]` (`operador` se acepta como alias de `ejecutivo`) (pide la contraseña por stdin).
 
 Desarrollo: `npm run dev` (API en :8080) y `npm --prefix web run dev` (Vite con proxy de `/v1`; usar `COOKIE_SECURE=false` en local).
 Prueba: `node test/console.e2e.mjs` (58 verificaciones: sesión, roles, CSRF, bitácora, tablero, paginación, estáticos).
@@ -302,6 +302,36 @@ Pantallas **Inicio** (avisos, saldos por activo y movimientos recientes), **Cuen
 Sin migraciones ni variables nuevas.
 
 Pruebas: `node test/portal-fase2.e2e.mjs` (79 verificaciones: saldos exactos, precisión > 2^53, paginación, CSV y estado de cuenta que cuadran, depósito real pending → credited, llaves, aislamiento y ausencia de datos internos) y `npx playwright test portal-cuentas.spec.mjs` (5 recorridos).
+
+### Portal de clientes — fase 3: lista blanca y salidas
+**El cliente origina; 856 valida y autoriza.** Con `ORIGIN_RULE=enforce` la consola y las `API_KEYS` globales ya no originan retiros, transferencias internas ni altas de lista blanca de clientes (`403 origin_not_client`): solo consultan, validan, autorizan o rechazan. La única excepción prevista es el gestor delegado con delegación o mandato vigente (fase 6). Las obligaciones quedan fuera de la regla hasta la fase 4.
+
+- **Lista blanca** (`/portal/lista-blanca`): la pide un usuario Operador o superior; la aprueba **otro** usuario Aprobador o Administrador con 2FA (`403 same_user`); queda **en espera** `WHITELIST_COOLDOWN_HOURS` (24 h) antes de poder usarse, con cuenta regresiva. Retirar (Aprobador+) es inmediato. Una dirección no se repite entre clientes (`409 address_unavailable`).
+- **Nueva salida** (`/portal/salidas`) en cuatro pasos: activo → destino vigente → monto en unidades del activo (sin float) → confirmación con **simulación** exacta: monto, destino, comisión de 856 (hoy 0), gas (lo paga 856), disponible, saldo resultante, obligaciones por pagar y la **huella** (`sha256` del alcance). La simulación vence en `EXIT_SIMULATION_TTL_MIN` (30 min).
+- **Aprobación interna del cliente:** el Administrador fija con 2FA un umbral por activo; arriba de él otro usuario Aprobador+ aprueba con 2FA antes de que la salida llegue a 856.
+- **Validación y autorización en la consola** (Aprobaciones › *Salidas por validar*): muestra origen, aprobación del cliente, simulación y huella, con tiempo objetivo `EXIT_VALIDATION_SLA_MIN` (4 h; alerta en el Tablero si se rebasa). Autoriza un tesorero con 2FA; arriba del **umbral de dos tesoreros** del activo (`PATCH /v1/assets/:id`, con 2FA) se necesitan dos tesoreros distintos. Rechazar exige motivo y devuelve el saldo.
+- **Atado a la huella:** si al autorizar cambió el destino (ya no vigente) o las obligaciones por pagar, responde `409 scope_changed` (simular de nuevo). El worker vuelve a calcular la huella antes de firmar y, si no coincide, revierte la reserva y marca la salida fallida.
+- **Seguimiento:** el cliente ve el estado (aprobación interna, validación, autorizada 1/2 o 2/2, enviada, ejecutada, rechazada con motivo, cancelada), el hash y el enlace al explorador; nunca ve quién autorizó en 856. Puede cancelar mientras no esté autorizada.
+- **Llaves de API:** una llave Ed25519 con permiso `withdraw` (casilla al crearla) puede simular, solicitar y cancelar salidas; los tokens de lectura nunca originan.
+- **Rol de consola renombrado:** `operador` → `ejecutivo` (*Ejecutivo de cuenta*), mismos permisos; el tesorero es el superusuario.
+
+| Método y ruta | Quién | Uso |
+|---|---|---|
+| `GET /v1/portal/whitelist` · `POST /v1/portal/whitelist` `{address, label?}` | lectura · operador+ | Lista y solicitud de alta |
+| `POST /v1/portal/whitelist/:id/approve` `{code}` · `/remove` | aprobador+ (+2FA) | Aprobar (otro usuario) y retirar |
+| `GET` · `PUT /v1/portal/settings/approval-thresholds` `{asset_id, threshold\|null, code}` | lectura · admin + 2FA | Umbral de aprobación interna |
+| `POST /v1/portal/exits/simulate` `{asset_id, whitelist_id, amount}` | operador+ o llave `withdraw` | Simulación con huella |
+| `POST /v1/portal/exits` `{simulation_id}` | operador+ o llave `withdraw` | Solicitar (reserva el saldo) |
+| `GET /v1/portal/exits?state` · `GET /v1/portal/exits/:id` | lectura | Seguimiento |
+| `POST /v1/portal/exits/:id/approve` `{code}` · `/cancel` | aprobador+ (+2FA) · operador+ | Aprobación interna y cancelación |
+| `POST /v1/withdrawals/:id/approve` `{code}` · `/reject` `{reason}` | tesorero (consola) | Autorizar (1 o 2 tesoreros) o rechazar |
+| `PATCH /v1/assets/:id` `{dual_treasurer_threshold\|null, code}` | tesorero + 2FA | Umbral de dos tesoreros |
+
+Migración `013_portal_salidas` (idempotente): rol `operador` → `ejecutivo`; `wallets.wl_status/wl_requested_by/wl_approved_by/active_from/removed_*` (las direcciones existentes quedan vigentes); `assets.dual_treasurer_threshold`; tablas `client_approval_thresholds` y `exit_simulations`; `withdrawals` con origen, simulación, huella, aprobación del cliente, tiempo objetivo y segunda autorización (`approval_status` admite `client_pending`).
+
+Variables nuevas: `WHITELIST_COOLDOWN_HOURS` (24), `EXIT_SIMULATION_TTL_MIN` (30), `EXIT_VALIDATION_SLA_MIN` (240). Para activar la regla: `ORIGIN_RULE=enforce`.
+
+Pruebas: `ORIGIN_RULE=enforce` + `node test/portal-fase3.e2e.mjs` (63 verificaciones: regla de origen, lista blanca, simulación, autorización y ejecución en cadena, umbral del cliente, dos tesoreros, `scope_changed`, rechazo, cancelación, fila alterada en la base, llaves, aislamiento, tiempo objetivo y bitácora) y `npx playwright test portal-salidas.spec.mjs` (5 recorridos: lista blanca, salida en cuatro pasos, aprobación interna, autorización y rechazo en la consola, permiso de la llave).
 
 Pendiente: TRON/BTC/LTC.
 
