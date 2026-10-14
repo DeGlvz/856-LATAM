@@ -22,7 +22,7 @@ const NAV = [
 ] as const;
 const CURRENT_PHASE = 5;
 
-const ROLE_LABEL = { lectura: 'Lectura', operador: 'Operador', tesorero: 'Tesorero' } as const;
+const ROLE_LABEL = { lectura: 'Lectura', ejecutivo: 'Ejecutivo de cuenta', tesorero: 'Tesorero' } as const;
 
 export function Layout() {
   const { operator, logout, can } = useAuth();

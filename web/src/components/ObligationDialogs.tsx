@@ -129,7 +129,7 @@ export function ObligationDialog({ obligation: o, onClose, onOpenRun }: { obliga
             <dd>{o.cancelled_at ? fmtDate(o.cancelled_at) : '—'}{o.cancelled_by && <span className="text-muted-foreground"> · {o.cancelled_by}</span>}
               {o.cancel_reason && <div className="text-muted-foreground">«{o.cancel_reason}»</div>}</dd></>}
         </dl>
-        {o.status === 'open' && can('operador') && (
+        {o.status === 'open' && can('ejecutivo') && (
           <form className="grid gap-2 rounded-md border border-destructive/30 p-3" onSubmit={(e: FormEvent) => { e.preventDefault(); cancel.mutate(); }}>
             <p className="text-sm">Al cancelarla sale de los siguientes cortes. No mueve saldo y queda en la bitácora con el motivo.</p>
             <Textarea aria-label="Motivo de cancelación" placeholder="Motivo (mín. 5 caracteres), p. ej. OC duplicada" maxLength={500} rows={2} value={reason} onChange={(e) => setReason(e.target.value)} />

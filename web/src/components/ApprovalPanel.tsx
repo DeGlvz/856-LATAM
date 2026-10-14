@@ -14,9 +14,13 @@ const REFRESH = ['approvals', 'summary', 'withdrawals', 'withdrawal', 'netting-r
  * Aprobar (con código 2FA) o rechazar (con motivo) un retiro o una corrida pendiente.
  * Reglas visibles: solo tesorería, quien solicitó no aprueba, el aprobador necesita 2FA.
  */
-export function ApprovalPanel({ kind, id, requestedByOperator, requestedBy, onDone, compact }: {
+export function ApprovalPanel({ kind, id, requestedByOperator, requestedBy, onDone, compact, dual, exit }: {
   kind: 'withdrawal' | 'run'; id: string; requestedByOperator: string | null; requestedBy?: string | null;
   onDone?: () => void; compact?: boolean;
+  /** Fase 3: arriba del umbral del activo se requieren dos tesoreros distintos. */
+  dual?: { firstBy: string | null; firstByOperator: string | null } | null;
+  /** Fase 3: salida originada por el cliente (la consola valida y autoriza; el texto cambia). */
+  exit?: boolean;
 }) {
   const { operator, can } = useAuth();
   const qc = useQueryClient();
@@ -30,8 +34,10 @@ export function ApprovalPanel({ kind, id, requestedByOperator, requestedBy, onDo
 
   if (!can('tesorero')) return <p className="text-sm text-muted-foreground">Pendiente de aprobación por un segundo tesorero.</p>;
   const own = !!operator && requestedByOperator === operator.id;
-  const label = kind === 'withdrawal' ? 'retiro' : 'corrida';
-  const art = kind === 'withdrawal' ? 'el retiro' : 'la corrida';
+  const firstMine = !!operator && !!dual?.firstByOperator && dual.firstByOperator === operator.id;
+  const label = exit ? 'salida' : kind === 'withdrawal' ? 'retiro' : 'corrida';
+  const art = exit ? 'la salida' : kind === 'withdrawal' ? 'el retiro' : 'la corrida';
+  const approveText = exit ? `Autorizar ${dual ? (dual.firstBy ? 'salida (2.ª de 2)' : 'salida (1.ª de 2)') : 'salida'}` : `Aprobar ${label}`;
 
   return (
     <div className="grid gap-3 rounded-md border border-warning/60 bg-warning/5 p-3 text-sm">
@@ -41,7 +47,12 @@ export function ApprovalPanel({ kind, id, requestedByOperator, requestedBy, onDo
           <p>Doble aprobación: solicitado por <b>{requestedBy ?? '—'}</b>. Otro tesorero debe aprobarlo con su código 2FA.</p>
         </div>
       )}
-      {own ? (
+      {dual && (
+        <p className="text-xs" data-dual>{dual.firstBy ? <>Autorizó <b>{dual.firstBy}</b>; falta un segundo tesorero distinto.</> : 'Supera el umbral del activo: requiere dos tesoreros distintos.'}</p>
+      )}
+      {firstMine ? (
+        <p className="text-muted-foreground">Usted ya dio la primera autorización: la segunda debe darla otro tesorero.</p>
+      ) : own ? (
         <p className="text-muted-foreground">Usted lo solicitó: no puede aprobarlo. Puede rechazarlo si ya no procede.</p>
       ) : !operator?.totp_enabled ? (
         <p>Para aprobar necesita el 2FA activo. <Link to="/seguridad" className="font-medium underline">Activarlo en Seguridad</Link>.</p>
@@ -50,7 +61,7 @@ export function ApprovalPanel({ kind, id, requestedByOperator, requestedBy, onDo
           <Input aria-label={`Código 2FA para aprobar ${art}`} inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="Código 2FA"
             className="h-9 w-36 text-center font-mono tracking-widest" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} />
           <Button type="submit" size="sm" className="h-9" disabled={code.length !== 6 || approve.isPending}>
-            {approve.isPending ? <Loader2 className="animate-spin" /> : <Check />}Aprobar {label}
+            {approve.isPending ? <Loader2 className="animate-spin" /> : <Check />}{approveText}
           </Button>
         </form>
       )}
