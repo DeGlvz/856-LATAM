@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { api, type Asset } from './api';
+import { api, type Summary, type Asset } from './api';
 
 export function useAssets() {
   const q = useQuery({ queryKey: ['assets'], queryFn: () => api<{ assets: (Asset & { active: boolean })[] }>('/assets').then((r) => r.assets), staleTime: 5 * 60_000 });
@@ -20,3 +20,9 @@ export const ENTRY_KIND: Record<string, string> = {
   deposit: 'Depósito', withdrawal: 'Retiro', transfer: 'Transferencia', fee: 'Comisión',
   conversion: 'Conversión', netting: 'Compensación', adjustment: 'Ajuste',
 };
+
+/** Fase 3: con ORIGIN_RULE=enforce la consola no origina retiros ni altas de lista blanca de clientes. */
+export function useConsoleOriginates() {
+  const q = useQuery({ queryKey: ['summary'], queryFn: () => api<Summary>('/summary'), staleTime: 60_000 });
+  return q.data ? q.data.origin_rule !== 'enforce' : false;
+}

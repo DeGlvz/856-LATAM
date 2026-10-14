@@ -13,7 +13,7 @@ interface AuthCtx {
   can: (role: Role) => boolean;
 }
 const Ctx = createContext<AuthCtx | null>(null);
-const RANK: Record<Role, number> = { lectura: 0, operador: 1, tesorero: 2 };
+const RANK: Record<Role, number> = { lectura: 0, ejecutivo: 1, tesorero: 2 };
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();

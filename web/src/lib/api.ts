@@ -27,10 +27,10 @@ export async function api<T>(path: string, init: RequestInit & { json?: unknown 
   return body as T;
 }
 
-export type Role = 'lectura' | 'operador' | 'tesorero';
+export type Role = 'lectura' | 'ejecutivo' | 'tesorero';
 export interface Operator { id: string; email: string; name: string; role: Role; totp_enabled: boolean }
 
-export interface Asset { id: string; symbol: string; decimals: number; kind: string; network: string }
+export interface Asset { id: string; symbol: string; decimals: number; kind: string; network: string; dual_treasurer_threshold?: string | null }
 export interface ReconBalance {
   asset_id: string; hot_wallet?: string; deposit_addresses?: string; onchain_total: string | null;
   ledger_custody: string; difference: string | null; error?: string;
@@ -56,8 +56,9 @@ export interface Summary {
   deposits_pending: number;
   sweeps_open: number;
   clients_by_status: Record<string, number>;
-  approvals_pending?: { withdrawals: number; netting_runs: number };
+  approvals_pending?: { withdrawals: number; netting_runs: number; exits_overdue?: number };
   dual_approval?: 'off' | 'console' | 'all';
+  origin_rule?: 'off' | 'enforce';
 }
 
 // ───────────── Fase 2: clientes, cuentas, asientos ─────────────
@@ -79,6 +80,7 @@ export interface Wallet {
   id: string; client_id: string | null; chain: string; network: string; address: string;
   purpose: 'master_hot' | 'master_cold' | 'deposit' | 'withdrawal_whitelist';
   derivation_index: number | null; webhook_registered: boolean; label: string | null; active: boolean; created_at: string;
+  wl_status?: 'pending_approval' | 'active' | 'removed' | null; active_from?: string | null;
 }
 export interface PostingLine {
   account_id: string; account_code: string; client_id?: string | null; asset_id: string;
@@ -166,13 +168,19 @@ export interface NettingRunDetail extends Omit<NettingRunRow, 'obligations'> {
 export interface PendingWithdrawal {
   id: string; client_id: string; client_name: string; client_status: ClientStatus; asset_id: string; amount: string; to_address: string;
   requested_by: string | null; requested_by_operator: string | null; created_at: string;
+  // Fase 3 (salida originada por el cliente); null en retiros anteriores
+  simulation_id: string | null; scope_hash: string | null; origin_kind: string | null; origin_label: string | null;
+  dual_required: boolean; validation_due_at: string | null; overdue: boolean;
+  first_approved_by: string | null; first_approved_by_operator: string | null; first_approved_at: string | null;
+  client_approver: string | null; client_approved_at: string | null; wl_label: string | null; wl_active_from: string | null;
+  sim_available: string | null; sim_balance_after: string | null; sim_payable_open: string | null; sim_fee: string | null; simulated_at: string | null;
 }
 export interface PendingRun {
   id: string; asset_id: string; obligations: number; participants: number; gross_amount: string; net_amount: string;
   expected_net_amount: string; savings_bps: number; created_by: string | null; requested_by_operator: string | null; last_error: string | null; created_at: string;
 }
 export interface Approvals {
-  policy: { dual_approval: 'off' | 'console' | 'all'; require_2fa: boolean };
+  policy: { dual_approval: 'off' | 'console' | 'all'; require_2fa: boolean; origin_rule?: 'off' | 'enforce' };
   withdrawals: PendingWithdrawal[]; netting_runs: PendingRun[];
 }
 export interface AuditEntry {
