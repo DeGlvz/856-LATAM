@@ -1,24 +1,13 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, Loader2, RotateCcw, ShieldCheck, ShieldOff } from 'lucide-react';
-import { api, type OperatorRow } from '@/lib/api';
+import { Link } from 'react-router';
+import { useMutation } from '@tanstack/react-query';
+import { ArrowRight, KeyRound, Loader2, ShieldCheck, ShieldOff, UsersRound } from 'lucide-react';
+import { api, opError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { CopyButton, ErrorBox, fmtDate } from '@/components/common';
+import { CodeInput, CopyButton, ErrorBox } from '@/components/common';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-
-const ROLE = { lectura: 'Lectura', operador: 'Operador', tesorero: 'Tesorero' } as const;
-
-function CodeInput({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
-  return (
-    <Input aria-label={label} inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000"
-      className="h-10 w-40 text-center font-mono text-lg tracking-[0.3em]" value={value} onChange={(e) => onChange(e.target.value.replace(/\D/g, ''))} />
-  );
-}
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 export function Security() {
   const { operator, can } = useAuth();
@@ -29,7 +18,15 @@ export function Security() {
         <p className="text-sm text-muted-foreground">Segundo factor (TOTP) para entrar a la consola y para aprobar retiros y corridas.</p>
       </div>
       {operator && <MyTwoFactor />}
-      {can('tesorero') && <OperatorsCard />}
+      {can('tesorero') && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><UsersRound className="size-4" />Operadores</CardTitle>
+            <CardDescription>Altas por invitación, roles, desactivación y restablecimiento del 2FA de otros operadores.</CardDescription>
+            <CardAction><Button asChild size="sm" variant="outline"><Link to="/operadores">Administrar operadores<ArrowRight /></Link></Button></CardAction>
+          </CardHeader>
+        </Card>
+      )}
     </div>
   );
 }
@@ -105,77 +102,10 @@ function MyTwoFactor() {
             <CodeInput label="Código para desactivar 2FA" value={code} onChange={setCode} />
             <Button type="submit" variant="destructive" disabled={code.length !== 6 || disable.isPending}>{disable.isPending && <Loader2 className="animate-spin" />}Desactivar 2FA</Button>
             <Button type="button" variant="ghost" onClick={() => setDisabling(false)}>Cancelar</Button>
-            <ErrorBox error={disable.error} className="w-full" />
+            <ErrorBox error={opError(disable.error)} className="w-full" />
           </form>
         )}
       </CardContent>
     </Card>
-  );
-}
-
-function OperatorsCard() {
-  const { operator } = useAuth();
-  const q = useQuery({ queryKey: ['operators'], queryFn: () => api<{ operators: OperatorRow[] }>('/operators').then((r) => r.operators) });
-  const [reset, setReset] = useState<OperatorRow | null>(null);
-  const tesoreros2fa = (q.data ?? []).filter((o) => o.role === 'tesorero' && o.active && o.totp_enabled).length;
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Operadores</CardTitle>
-        <CardDescription>
-          Estado del 2FA por operador. La doble aprobación necesita al menos dos tesoreros con 2FA
-          {q.data && <> (hoy: <b>{tesoreros2fa}</b>)</>}.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <ErrorBox error={q.error} />
-        <Table>
-          <TableHeader><TableRow><TableHead>Operador</TableHead><TableHead>Rol</TableHead><TableHead>2FA</TableHead><TableHead>Último acceso</TableHead><TableHead /></TableRow></TableHeader>
-          <TableBody>
-            {q.data?.map((o) => (
-              <TableRow key={o.id}>
-                <TableCell><div className="text-sm font-medium">{o.name}</div><div className="text-xs text-muted-foreground">{o.email}</div></TableCell>
-                <TableCell><Badge variant="outline">{ROLE[o.role]}</Badge>{!o.active && <Badge variant="secondary" className="ml-1">Inactivo</Badge>}</TableCell>
-                <TableCell>{o.totp_enabled ? <Badge variant="success">Activo</Badge> : <Badge variant="secondary">Inactivo</Badge>}</TableCell>
-                <TableCell className="text-xs text-muted-foreground">{o.last_login_at ? fmtDate(o.last_login_at) : 'Nunca'}</TableCell>
-                <TableCell className="text-right">
-                  {o.totp_enabled && o.id !== operator?.id && <Button size="sm" variant="ghost" onClick={() => setReset(o)}><RotateCcw />Restablecer 2FA</Button>}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-        <p className="mt-3 text-xs text-muted-foreground">Altas de operadores: <code className="font-mono">npm run operator:create -- &lt;correo&gt; &lt;rol&gt;</code> en el servidor.</p>
-      </CardContent>
-      <ResetDialog target={reset} onClose={() => setReset(null)} />
-    </Card>
-  );
-}
-
-function ResetDialog({ target, onClose }: { target: OperatorRow | null; onClose: () => void }) {
-  const qc = useQueryClient();
-  const [reason, setReason] = useState('');
-  const m = useMutation({
-    mutationFn: () => api(`/operators/${target!.id}/totp/reset`, { method: 'POST', json: { reason: reason.trim() } }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['operators'] }); onClose(); },
-  });
-  useEffect(() => { setReason(''); m.reset(); }, [target?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  return (
-    <Dialog open={!!target} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Restablecer 2FA de {target?.email}</DialogTitle>
-          <DialogDescription>Borra su segundo factor y cierra sus sesiones. Deberá volver a activarlo. Úselo solo si perdió el teléfono; queda en la bitácora con el motivo.</DialogDescription>
-        </DialogHeader>
-        <form className="grid gap-3" onSubmit={(e: FormEvent) => { e.preventDefault(); m.mutate(); }}>
-          <Input aria-label="Motivo" autoFocus maxLength={300} placeholder="Motivo (mín. 5 caracteres)" value={reason} onChange={(e) => setReason(e.target.value)} />
-          <ErrorBox error={m.error} />
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>
-            <Button type="submit" variant="destructive" disabled={reason.trim().length < 5 || m.isPending}>{m.isPending && <Loader2 className="animate-spin" />}Restablecer</Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
   );
 }

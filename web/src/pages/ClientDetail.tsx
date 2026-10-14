@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowLeftRight, ExternalLink, KeyRound, Loader2, Pencil, Plus, RefreshCw, Scale, ShieldCheck, UserPlus, Users, Wallet as WalletIcon } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ArrowLeftRight, ExternalLink, KeyRound, Loader2, Pencil, Plus, RefreshCw, Scale, ShieldCheck, UserPlus, Users, Wallet as WalletIcon } from 'lucide-react';
 import { api, type ClientDetail as TClient, type ClientStatus, type EntryRow, type ObligationRow, type Summary, type Wallet } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { CLIENT_KIND, CLIENT_STATUS, ENTRY_KIND, useAssets } from '@/lib/hooks';
@@ -390,6 +390,12 @@ function PortalCard({ clientId, disabled }: { clientId: string; disabled: boolea
       <CardContent>
         {status.isPending && <Skeleton className="h-10" />}
         <ErrorBox error={status.error} />
+        {s && s.users > 0 && s.admins < 2 && (
+          <div role="status" className="mb-3 flex items-start gap-2 rounded-md border border-warning/60 bg-warning/10 px-3 py-2 text-sm">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            <span>{s.admins === 0 ? 'El portal tiene usuarios pero ningún administrador activo.' : 'El portal tiene un solo administrador.'} Recomiende al cliente invitar a un segundo admin: si el único pierde su acceso, la recuperación pasa por 856.</span>
+          </div>
+        )}
         {s && (
           <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
             <div><div className="text-muted-foreground">Usuarios activos</div><div className="text-lg font-semibold">{s.users}</div></div>
