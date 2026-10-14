@@ -1,10 +1,12 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { config } from '../config.js';
 import { pool } from '../db.js';
 import { HttpError } from '../idempotency.js';
 import {
-  audit, clearSessionCookie, completeMfa, consumeTotp, login, revokeSession, setSessionCookie, type Operator,
+  audit, clearSessionCookie, completeMfa, login, revokeSession, setSessionCookie, type Operator,
 } from '../auth/operators.js';
+import { disableOwnTotp } from '../auth/operator-admin.js';
 import { decryptSecret, encryptSecret, generateSecret, otpauthUrl, verifyCode } from '../auth/totp.js';
 
 const LoginBody = z.object({ email: z.string().email().max(200), password: z.string().min(1).max(200) });
@@ -98,9 +100,7 @@ export async function authRoutes(app: FastifyInstance) {
     const o = me(req);
     const { code } = parse(CodeBody, req.body);
     if (!o.totp_enabled) throw new HttpError(409, 'El 2FA no está activo', 'totp_not_enabled');
-    if ((await consumeTotp(o.id, code)) == null) throw new HttpError(422, 'Código incorrecto o ya usado', 'bad_code');
-    await pool.query(
-      'UPDATE operators SET totp_secret_enc = NULL, totp_pending_enc = NULL, totp_enabled_at = NULL, totp_last_step = NULL WHERE id = $1', [o.id]);
+    await disableOwnTotp(o, code);
     await audit({ operator_id: o.id, actor: o.email, action: 'totp_disabled', status: 200, ip: req.ip });
     return { totp_enabled: false };
   });
@@ -109,8 +109,12 @@ export async function authRoutes(app: FastifyInstance) {
   app.get('/operators', async () => {
     const { rows } = await pool.query(
       `SELECT id, email, name, role, active, totp_enabled_at IS NOT NULL AS totp_enabled, totp_enabled_at,
-              last_login_at, locked_until, created_at
-         FROM operators ORDER BY role DESC, email`);
+              last_login_at, locked_until, created_at, deactivated_at,
+              (SELECT email FROM operators d WHERE d.id = o.deactivated_by) AS deactivated_by,
+              (SELECT count(*)::int FROM operator_sessions s
+                WHERE s.operator_id = o.id AND s.revoked_at IS NULL AND s.expires_at > now()
+                  AND s.last_seen_at > now() - make_interval(mins => $1)) AS active_sessions
+         FROM operators o ORDER BY role DESC, email`, [config.SESSION_IDLE_MIN]);
     return { operators: rows };
   });
 
