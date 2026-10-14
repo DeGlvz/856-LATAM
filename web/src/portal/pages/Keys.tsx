@@ -88,11 +88,12 @@ function KeyDialog({ open, onClose, rotate, maxDays }: { open: boolean; onClose:
   const [pass, setPass] = useState('');
   const [pass2, setPass2] = useState('');
   const [code, setCode] = useState('');
+  const [withdraw, setWithdraw] = useState(false);
   const [supported, setSupported] = useState<boolean | null>(null);
   const [result, setResult] = useState<{ prefix: string; token?: string; file?: boolean } | null>(null);
   useEffect(() => {
     if (!open) return;
-    setName(''); setIps(''); setDays(String(maxDays)); setPass(''); setPass2(''); setCode(''); setResult(null);
+    setName(''); setIps(''); setDays(String(maxDays)); setPass(''); setPass2(''); setCode(''); setResult(null); setWithdraw(false);
     setKind(rotate?.kind ?? 'ed25519');
     ed25519Supported().then(setSupported);
   }, [open, rotate, maxDays]);
@@ -101,7 +102,7 @@ function KeyDialog({ open, onClose, rotate, maxDays }: { open: boolean; onClose:
   const m = useMutation({
     mutationFn: async () => {
       const common = {
-        ...(rotate ? {} : { name: name.trim(), kind }),
+        ...(rotate ? {} : { name: name.trim(), kind, ...(kind === 'ed25519' && withdraw ? { permissions: ['read', 'withdraw'] } : {}) }),
         ...(ips.trim() ? { ip_allowlist: ips.split(/[\s,]+/).filter(Boolean) } : {}),
         expires_days: Number(days), code,
       };
@@ -156,6 +157,12 @@ function KeyDialog({ open, onClose, rotate, maxDays }: { open: boolean; onClose:
                   ))}
                 </div>
               </>
+            )}
+            {!rotate && ed && (
+              <label className="flex items-start gap-2 rounded-md border p-3 text-sm">
+                <input type="checkbox" className="mt-1" checked={withdraw} onChange={(e) => setWithdraw(e.target.checked)} aria-label="Permitir originar salidas" />
+                <span><span className="font-medium">Permitir originar salidas</span><span className="block text-xs text-muted-foreground">La llave podrá simular, solicitar y cancelar salidas a su lista blanca. Igual pasan por su aprobación interna (si supera el umbral) y por la autorización de 856.</span></span>
+              </label>
             )}
             {ed && supported === false && <ErrorBox error="Este navegador no soporta Ed25519 en WebCrypto. Use una versión reciente de Chrome, Edge, Firefox o Safari." />}
             <div className="grid gap-4 sm:grid-cols-2">
