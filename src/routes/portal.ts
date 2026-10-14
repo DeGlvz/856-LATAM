@@ -11,6 +11,7 @@ import { HttpError } from '../idempotency.js';
 import { audit } from '../auth/operators.js';
 import * as P from '../portal/identity.js';
 import { ACCOUNT_KEY_ROUTES, portalAccountRoutes } from './portal-accounts.js';
+import { EXIT_KEY_READ, EXIT_KEY_WRITE, portalExitRoutes } from './portal-exits.js';
 
 const parse = <S extends z.ZodTypeAny>(s: S, v: unknown): z.infer<S> => {
   const r = s.safeParse(v);
@@ -24,7 +25,8 @@ const role = z.enum(['viewer', 'operator', 'approver', 'admin']);
 // Rutas sin sesión
 const PUBLIC = new Set(['/v1/portal/auth/login', '/v1/portal/auth/login/totp', '/v1/portal/invites/lookup', '/v1/portal/invites/accept']);
 // Rutas que aceptan llave de API (fase 1: identidad; fase 2: lectura de saldos y cuentas); el resto exige sesión de usuario
-const KEY_ROUTES = new Set(['GET /v1/portal/me', 'GET /v1/portal/ping', ...ACCOUNT_KEY_ROUTES]);
+const KEY_ROUTES = new Set(['GET /v1/portal/me', 'GET /v1/portal/ping', ...ACCOUNT_KEY_ROUTES, ...EXIT_KEY_READ, ...EXIT_KEY_WRITE]);
+const KEY_WITHDRAW = new Set(EXIT_KEY_WRITE);
 // Rutas permitidas a approver/admin mientras activan su 2FA obligatorio
 const ENROLL_ROUTES = new Set(['GET /v1/portal/me', 'POST /v1/portal/auth/logout', 'POST /v1/portal/auth/totp/setup', 'POST /v1/portal/auth/totp/enable']);
 
@@ -63,6 +65,9 @@ export async function portalRoutes(app: FastifyInstance) {
       req.portal = { kind: 'client_key', clientId: key.client_id, key };
       if (!KEY_ROUTES.has(route)) throw new HttpError(403, 'Esta operación requiere sesión de un usuario del portal', 'session_required');
       if (req.method === 'GET' && !key.permissions.includes('read')) throw new HttpError(403, 'La llave no tiene permiso read', 'forbidden');
+      if (KEY_WITHDRAW.has(route) && (key.kind !== 'ed25519' || !key.permissions.includes('withdraw'))) {
+        throw new HttpError(403, 'La llave no tiene permiso withdraw', 'forbidden');
+      }
       return;
     }
     const s = await P.sessionFromToken(req.cookies?.[P.PORTAL_COOKIE]);
@@ -209,4 +214,6 @@ export async function portalRoutes(app: FastifyInstance) {
 
   // ───────────── Fase 2: inicio y cuentas ─────────────
   await app.register(portalAccountRoutes);
+  // ───────────── Fase 3: lista blanca y salidas ─────────────
+  await app.register(portalExitRoutes);
 }

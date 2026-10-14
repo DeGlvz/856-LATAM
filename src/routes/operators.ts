@@ -3,7 +3,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { HttpError } from '../idempotency.js';
-import { audit, ROLES, type Operator, type Role } from '../auth/operators.js';
+import { audit, ROLES, type Operator, type Role, normalizeRole } from '../auth/operators.js';
 import {
   acceptOperatorInvite, createOperatorInvite, listOperatorInvites, lookupOperatorInvite, portalAlerts,
   requireTotpActor, revokeOperatorInvite, stepUp, updateOperator,
@@ -11,7 +11,7 @@ import {
 
 const uuid = z.string().uuid();
 const code = z.string({ error: 'code requerido (2FA)' }).regex(/^\d{6}$/, 'código 2FA de 6 dígitos');
-const role = z.enum(ROLES as [Role, ...Role[]], { error: 'rol inválido (lectura|operador|tesorero)' });
+const role = z.preprocess(normalizeRole, z.enum(ROLES as [Role, ...Role[]], { error: 'rol inválido (lectura|ejecutivo|tesorero)' }));
 const InviteBody = z.object({ email: z.string().trim().email('correo inválido').max(200), role, code });
 const RevokeBody = z.object({ code });
 const PatchBody = z.object({ role: role.optional(), active: z.boolean().optional(), code })

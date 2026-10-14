@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { assertConsoleMayOriginate } from '../ledger/origin.js';
 import { idempotent } from '../idempotency.js';
 import { LedgerError } from '../ledger/service.js';
 import * as T from '../ledger/transfers.js';
@@ -29,18 +30,20 @@ const WithdrawalBody = z.object({
 
 export async function transferRoutes(app: FastifyInstance) {
   // Retiros on-chain: reserva inmediata; firma, envío y confirmaciones los hace el worker
-  app.post('/withdrawals', async (req, reply) =>
-    idempotent(req, reply, async (key) => {
+  app.post('/withdrawals', async (req, reply) => {
+    await assertConsoleMayOriginate(req, 'withdrawal', null);
+    return idempotent(req, reply, async (key) => {
       const r = requester(req);
       return { status: 202, body: await T.requestWithdrawal({
         ...parse(WithdrawalBody, req.body), idempotency_key: key,
         requested_by: r.by, requested_by_operator: r.operatorId, needs_approval: r.needsApproval,
       }) };
-    }));
+    });
+  });
   app.get('/withdrawals', async (req) => {
     const q = parse(ListQuery.extend({
       status: z.enum(['reserved', 'signed', 'broadcast', 'confirmed', 'failed', 'cancelled']).optional(),
-      approval_status: z.enum(['not_required', 'pending', 'approved', 'rejected']).optional(),
+      approval_status: z.enum(['not_required', 'client_pending', 'pending', 'approved', 'rejected']).optional(),
     }), req.query);
     const r = await T.listWithdrawals(q);
     return { withdrawals: r.items, next_cursor: r.next_cursor };
