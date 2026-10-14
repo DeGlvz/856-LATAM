@@ -78,7 +78,7 @@ test('invitar operador: el enlace se muestra una sola vez y queda en pendientes'
   await page.getByRole('button', { name: 'Invitar operador' }).click();
   const dlg = page.getByRole('dialog');
   await dlg.getByLabel('Correo').fill(NEW);
-  await dlg.getByLabel('Rol').selectOption('operador');
+  await dlg.getByLabel('Rol').selectOption('ejecutivo');
   await stepUp(page, Promise.resolve(otp.wrong()));
   await expect(dlg.getByRole('alert')).toContainText('Código 2FA incorrecto');
   await stepUp(page);
@@ -92,7 +92,7 @@ test('invitar operador: el enlace se muestra una sola vez y queda en pendientes'
   await page.getByRole('button', { name: 'Invitar operador' }).click();
   await expect(page.getByRole('dialog').getByTestId('invite-link')).toHaveCount(0);
   await page.getByRole('dialog').getByRole('button', { name: 'Cancelar' }).click();
-  await expect(page.getByRole('row', { name: new RegExp(NEW) })).toContainText('Operador');
+  await expect(page.getByRole('row', { name: new RegExp(NEW) })).toContainText('Ejecutivo de cuenta');
   // Una segunda invitación al mismo correo: error en español
   await page.getByRole('button', { name: 'Invitar operador' }).click();
   await page.getByRole('dialog').getByLabel('Correo').fill(NEW);

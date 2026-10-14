@@ -103,6 +103,8 @@ test('retiro: el solicitante no puede aprobar; el segundo tesorero aprueba con 2
   expect(r.status(), await r.text()).toBe(202);
   const wd = await r.json();
   expect(wd.approval_status).toBe('pending');
+  // El solicitante no aprueba lo suyo: 403 (queda «Denegado» en la bitácora, lo usa la prueba de auditoría)
+  expect((await consolePost(p1, `/withdrawals/${wd.id}/approve`, { code: '000000' })).status()).toBe(403);
 
   await p1.getByRole('link', { name: /Aprobaciones/ }).click();
   const card1 = p1.locator('div.rounded-lg.border', { hasText: `PW Retiro ${R}` });
