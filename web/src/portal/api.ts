@@ -85,3 +85,46 @@ export async function downloadPortal(path: string, fallbackName: string) {
   a.download = name; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
+
+// ───────────── Fase 3: lista blanca y salidas ─────────────
+export type WlState = 'pending_approval' | 'cooling' | 'active' | 'removed';
+export interface WlEntry {
+  id: string; address: string; network: string; label: string | null; state: WlState;
+  requested_at: string; approved_at: string | null; active_from: string | null; removed_at: string | null; requested_by_me: boolean;
+}
+export interface Simulation {
+  id: string; asset_id: string; symbol: string; decimals: number; network: string; whitelist_id: string; to_address: string;
+  amount: string; fee: string; gas_estimate: string | null; gas_paid_by: '856'; available: string; balance_after: string;
+  payable_open: string; obligations: { id: string; amount: string; due_at: string | null; external_ref: string | null }[];
+  scope_hash: string; status: 'simulated' | 'submitted' | 'expired'; expires_at: string; created_at: string;
+}
+export type ExitState = 'client_approval' | 'validation' | 'authorized' | 'sent' | 'executed' | 'rejected' | 'cancelled' | 'failed';
+export interface ExitRow {
+  id: string; asset_id: string; symbol: string; decimals: number; network: string; to_address: string; amount: string; state: ExitState;
+  tx_hash: string | null; confirmations: number | null; required_confirmations: number;
+  origin: { kind: 'client_user' | 'client_key' | 'delegate'; user: string | null; user_id: string | null; key: string | null };
+  client_approved_at: string | null; client_approver: string | null; authorized_at: string | null;
+  authorizations: { required: number; given: number }; rejection_reason: string | null; validation_due_at: string | null;
+  simulation_id: string; scope_hash: string; created_at: string; updated_at: string;
+}
+export interface ThresholdRow { asset_id: string; symbol: string; decimals: number; threshold: string; updated_at: string }
+
+export const EXIT_STATE: Record<ExitState, { t: string; v: 'warning' | 'success' | 'destructive' | 'secondary' | 'outline' }> = {
+  client_approval: { t: 'Aprobación interna', v: 'warning' },
+  validation: { t: 'En validación 856', v: 'warning' },
+  authorized: { t: 'Autorizada', v: 'secondary' },
+  sent: { t: 'Enviada', v: 'secondary' },
+  executed: { t: 'Ejecutada', v: 'success' },
+  rejected: { t: 'Rechazada por 856', v: 'destructive' },
+  cancelled: { t: 'Cancelada', v: 'outline' },
+  failed: { t: 'Fallida', v: 'destructive' },
+};
+export const WL_STATE: Record<WlState, { t: string; v: 'warning' | 'success' | 'secondary' | 'outline' }> = {
+  pending_approval: { t: 'Por aprobar', v: 'warning' },
+  cooling: { t: 'En espera', v: 'secondary' },
+  active: { t: 'Vigente', v: 'success' },
+  removed: { t: 'Retirada', v: 'outline' },
+};
+/** Rango del rol del cliente para mostrar u ocultar acciones (el servidor vuelve a validarlo). */
+export const roleAtLeast = (r: ClientRole | null | undefined, min: ClientRole) =>
+  !!r && (['viewer', 'operator', 'approver', 'admin'] as const).indexOf(r) >= (['viewer', 'operator', 'approver', 'admin'] as const).indexOf(min);
