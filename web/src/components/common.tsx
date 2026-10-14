@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Check, Copy, XCircle } from 'lucide-react';
 import type { Asset, ClientStatus } from '@/lib/api';
+import { Input } from '@/components/ui/input';
 import { exactUnits, formatUnits } from '@/lib/amount';
 import { CLIENT_STATUS } from '@/lib/hooks';
 import { Badge } from '@/components/ui/badge';
@@ -50,3 +51,11 @@ export function Field({ label, htmlFor, hint, children }: { label: string; htmlF
 }
 
 export const fmtDate = (iso: string) => new Date(iso).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
+
+/** Campo para un código TOTP de 6 dígitos. */
+export function CodeInput({ value, onChange, label, autoFocus, className }: { value: string; onChange: (v: string) => void; label: string; autoFocus?: boolean; className?: string }) {
+  return (
+    <Input aria-label={label} inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000" autoFocus={autoFocus}
+      className={cn('h-10 w-40 text-center font-mono text-lg tracking-[0.3em]', className)} value={value} onChange={(e) => onChange(e.target.value.replace(/\D/g, ''))} />
+  );
+}
