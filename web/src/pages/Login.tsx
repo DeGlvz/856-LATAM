@@ -19,6 +19,7 @@ export function Login() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const notice = (loc.state as { notice?: string } | null)?.notice;
   if (operator) return <Navigate to="/" replace />;
   const done = () => nav((loc.state as { from?: string } | null)?.from ?? '/', { replace: true });
   const fail = (err: unknown) => setError(err instanceof ApiError && err.status === 429 ? 'Demasiados intentos. Espere un minuto.'
@@ -55,6 +56,7 @@ export function Login() {
         <CardContent>
           {!mfaToken ? (
             <form onSubmit={submit} className="grid gap-4">
+              {notice && <p role="status" className="rounded-md bg-success/10 px-3 py-2 text-sm text-success">{notice}</p>}
               <div className="grid gap-2">
                 <Label htmlFor="email">Correo</Label>
                 <Input id="email" type="email" autoComplete="username" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} />

@@ -182,4 +182,30 @@ export interface AuditEntry {
 export interface OperatorRow {
   id: string; email: string; name: string; role: Role; active: boolean; totp_enabled: boolean; totp_enabled_at: string | null;
   last_login_at: string | null; locked_until: string | null; created_at: string;
+  deactivated_at?: string | null; deactivated_by?: string | null; active_sessions?: number;
+}
+
+// ───────────── Administración de operadores ─────────────
+export interface OperatorInvite { id: string; email: string; role: Role; created_at: string; expires_at: string; created_by: string }
+export interface PortalAlert { client_id: string; name: string; admins: number; users: number }
+
+/** Mensajes en español para los códigos de error de administración de operadores. */
+const OP_ERRORS: Record<string, string> = {
+  self_change: 'No puede cambiar su propio rol o estado: pídalo a otro tesorero.',
+  self_reset: 'No puede restablecer su propio 2FA: pídalo a otro tesorero.',
+  last_treasurer: 'Debe quedar al menos un tesorero activo con 2FA: active el 2FA de otro tesorero antes de hacer este cambio.',
+  email_in_use: 'Ese correo ya pertenece a un operador activo.',
+  operator_inactive: 'Ese correo pertenece a un operador desactivado: reactívelo desde la tabla en lugar de invitarlo.',
+  invite_pending: 'Ya hay una invitación vigente para ese correo: revóquela para emitir otra.',
+  invite_not_pending: 'La invitación ya fue usada o revocada.',
+  bad_code: 'Código 2FA incorrecto o ya usado: espere al siguiente código de su app.',
+  totp_required: 'Necesita activar su 2FA (Seguridad) para administrar operadores.',
+  invalid_invite: 'La invitación no es válida: ya se usó, se revocó o venció. Pida un enlace nuevo.',
+  weak_password: 'La contraseña requiere al menos 12 caracteres.',
+};
+export function opError(e: unknown): Error | null {
+  if (!e) return null;
+  if (e instanceof ApiError && e.code && OP_ERRORS[e.code]) return new ApiError(e.status, OP_ERRORS[e.code], e.code);
+  if (e instanceof ApiError && e.status === 429) return new ApiError(429, 'Demasiados intentos. Espere un minuto.', 'rate_limited');
+  return e instanceof Error ? e : new Error(String(e));
 }

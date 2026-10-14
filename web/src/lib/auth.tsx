@@ -29,7 +29,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Cualquier 401 (sesión vencida o revocada) regresa al login y limpia datos en memoria
   useEffect(() => {
-    const onUnauth = () => { qc.setQueryData(['me'], null); qc.removeQueries({ predicate: (q) => q.queryKey[0] !== 'me' }); };
+    // Solo si había sesión: sin sesión (p. ej. aceptando una invitación) se cortarían consultas en curso
+    const onUnauth = () => { if (!qc.getQueryData(['me'])) return; qc.setQueryData(['me'], null); qc.removeQueries({ predicate: (q) => q.queryKey[0] !== 'me' }); };
     window.addEventListener('c856:unauthorized', onUnauth);
     return () => window.removeEventListener('c856:unauthorized', onUnauth);
   }, [qc]);

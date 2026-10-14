@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink, Outlet } from 'react-router';
 import {
-  ArrowLeftRight, Building2, CheckCheck, FileClock, Gauge, KeyRound, LogOut, Menu, Network, ShieldCheck, X,
+  ArrowLeftRight, Building2, CheckCheck, FileClock, Gauge, KeyRound, LogOut, Menu, Network, ShieldCheck, UsersRound, X,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { api, type Summary } from '@/lib/api';
@@ -17,6 +17,7 @@ const NAV = [
   { to: '/compensacion', label: 'Compensación', icon: Network, phase: 4 },
   { to: '/aprobaciones', label: 'Aprobaciones', icon: CheckCheck, phase: 5 },
   { to: '/auditoria', label: 'Auditoría', icon: FileClock, phase: 5, tesorero: true },
+  { to: '/operadores', label: 'Operadores', icon: UsersRound, phase: 5, tesorero: true },
   { to: '/seguridad', label: 'Seguridad', icon: KeyRound, phase: 5 },
 ] as const;
 const CURRENT_PHASE = 5;

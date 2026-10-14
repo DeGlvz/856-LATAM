@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import {
-  Activity, AlertTriangle, CheckCircle2, Database, ExternalLink, Fuel, RefreshCw, Scale, Send, XCircle,
+  Activity, AlertTriangle, CheckCircle2, Database, ExternalLink, Fuel, RefreshCw, Scale, Send, Users, XCircle,
 } from 'lucide-react';
-import { api, type Asset, type InflightWithdrawal, type ReconBalance, type Summary } from '@/lib/api';
+import { api, type Asset, type InflightWithdrawal, type PortalAlert, type ReconBalance, type Summary } from '@/lib/api';
 import { WdBadge } from '@/components/WithdrawalDialogs';
 import { ago, exactUnits, formatUnits, shortHex, toBig } from '@/lib/amount';
 import { Badge } from '@/components/ui/badge';
@@ -53,6 +53,8 @@ export function Dashboard() {
           <ReconCard s={s} />
         </> : [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-36 rounded-xl" />)}
       </div>
+
+      <PortalAlertsCard />
 
       {s ? <ReconTable s={s} /> : <Skeleton className="h-48 rounded-xl" />}
       {s ? <InflightTable s={s} /> : <Skeleton className="h-48 rounded-xl" />}
@@ -157,6 +159,34 @@ function ReconCard({ s }: { s: Summary }) {
         {r.status === 'ok'
           ? <>{r.balances.length} activos · hot wallet + {r.deposit_addresses} direcciones de depósito</>
           : r.error}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Clientes con usuarios en el portal y menos de 2 admins: si su único admin pierde el acceso, la recuperación pasa por 856. */
+function PortalAlertsCard() {
+  const q = useQuery({
+    queryKey: ['portal-alerts'], refetchInterval: 60_000,
+    queryFn: () => api<{ clients: PortalAlert[] }>('/clients/portal-alerts').then((r) => r.clients),
+  });
+  if (!q.data?.length) return null;
+  return (
+    <Card role="region" className="border-warning/60" aria-labelledby="portal-alerts-title">
+      <CardHeader>
+        <CardTitle id="portal-alerts-title" className="flex items-center gap-2"><Users className="size-4" />Clientes con un solo admin en el portal</CardTitle>
+        <CardDescription>Con menos de dos administradores, si el único pierde su acceso el cliente no puede recuperarse solo. Pídales invitar a un segundo admin.</CardDescription>
+        <CardAction><Badge variant="warning"><AlertTriangle />{q.data.length}</Badge></CardAction>
+      </CardHeader>
+      <CardContent>
+        <ul className="grid gap-1.5 text-sm sm:grid-cols-2 lg:grid-cols-3">
+          {q.data.map((c) => (
+            <li key={c.client_id} className="flex min-w-0 items-center justify-between gap-2 rounded-md border px-3 py-2">
+              <Link to={`/clientes/${c.client_id}`} className="truncate font-medium hover:underline">{c.name}</Link>
+              <span className="num shrink-0 text-xs text-muted-foreground">{c.admins} admin · {c.users} usuario{c.users === 1 ? '' : 's'}</span>
+            </li>
+          ))}
+        </ul>
       </CardContent>
     </Card>
   );
