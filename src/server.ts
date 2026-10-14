@@ -15,6 +15,7 @@ import { portalRoutes } from './routes/portal.js';
 import { transferRoutes } from './routes/transfers.js';
 import { authRoutes } from './routes/auth.js';
 import { consoleRoutes } from './routes/console.js';
+import { operatorRoutes } from './routes/operators.js';
 import { audit, bootstrapOperator, hasRole, requiredRole, sessionFromRequest } from './auth/operators.js';
 import { ensureHotWalletRegistered, startWorker } from './ledger/transfers.js';
 import { getSigner } from './chain/signer.js';
@@ -63,7 +64,7 @@ app.get('/health', async () => {
 });
 
 // /v1: API key (integraciones) o sesión de operador (consola). Webhooks validan firma; login es público.
-const PUBLIC = new Set(['/v1/auth/login', '/v1/auth/login/totp']);
+const PUBLIC = new Set(['/v1/auth/login', '/v1/auth/login/totp', '/v1/auth/invites/lookup', '/v1/auth/invites/accept']);
 await app.register(async (v1) => {
   v1.addHook('onRequest', async (req, reply) => {
     const path = req.url.split('?')[0];
@@ -101,6 +102,7 @@ await app.register(async (v1) => {
   });
   await v1.register(authRoutes);
   await v1.register(consoleRoutes);
+  await v1.register(operatorRoutes);
   await v1.register(chainRoutes);
   await v1.register(webhookRoutes);
   await v1.register(ledgerRoutes);

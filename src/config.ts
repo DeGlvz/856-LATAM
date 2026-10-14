@@ -38,6 +38,8 @@ const Env = z.object({
   // Primer operador (tesorero): se crea solo si la tabla está vacía. Borrar la contraseña después del primer arranque.
   CONSOLE_BOOTSTRAP_EMAIL: z.string().email().optional(),
   CONSOLE_BOOTSTRAP_PASSWORD: z.string().min(12).optional(),
+  // Vigencia del enlace de invitación de un operador nuevo
+  CONSOLE_INVITE_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(72),
   // Tablero: alerta de gas si la hot wallet tiene menos de este saldo nativo (wei)
   GAS_LOW_WEI: z.coerce.bigint().default(50_000_000_000_000_000n), // 0.05 ETH
   // Doble aprobación (retiros y corridas de compensación): off | console (solo lo pedido desde la consola) | all (también API)
