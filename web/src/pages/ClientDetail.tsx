@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, ArrowLeft, ArrowLeftRight, ExternalLink, KeyRound, Loader2, Pencil, Plus, RefreshCw, Scale, ShieldCheck, UserPlus, Users, Wallet as WalletIcon } from 'lucide-react';
 import { api, type ClientDetail as TClient, type ClientStatus, type EntryRow, type ObligationRow, type Summary, type Wallet } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { CLIENT_KIND, CLIENT_STATUS, ENTRY_KIND, useAssets } from '@/lib/hooks';
+import { CLIENT_KIND, CLIENT_STATUS, ENTRY_KIND, useAssets, useConsoleOriginates } from '@/lib/hooks';
 import { shortHex } from '@/lib/amount';
 import { Amount, CopyButton, ErrorBox, Field, StatusBadge, fmtDate } from '@/components/common';
 import { EntryDialog } from '@/components/EntryDialog';
@@ -80,7 +80,7 @@ export function ClientDetail() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Button asChild variant="outline" size="sm"><Link to={`/movimientos?client_id=${c.id}`}><ArrowLeftRight />Retiros y depósitos</Link></Button>
-        {can('operador') && !closed && (
+        {can('ejecutivo') && !closed && (
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => setEditing(true)}><Pencil />Editar</Button>
             <Button variant="outline" size="sm" onClick={() => setChangingStatus(true)} disabled={!c.allowed_transitions.length}><ShieldCheck />Cambiar estado</Button>
@@ -105,7 +105,7 @@ export function ClientDetail() {
         <CardHeader>
           <CardTitle>Cuentas</CardTitle>
           <CardDescription>Saldo disponible por activo (pasivo de la plataforma con el cliente).</CardDescription>
-          {can('operador') && !closed && missing.length > 0 && (
+          {can('ejecutivo') && !closed && missing.length > 0 && (
             <CardAction>
               <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); const v = new FormData(e.currentTarget).get('asset') as string; if (v) openAccount.mutate(v); }}>
                 <Select name="asset" aria-label="Activo" className="h-8 w-44">
@@ -148,7 +148,7 @@ export function ClientDetail() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><WalletIcon className="size-4" />Direcciones de depósito</CardTitle>
             <CardDescription>Derivadas (HD) de la semilla de la plataforma; todas siguen acreditando.</CardDescription>
-            {can('operador') && !closed && (
+            {can('ejecutivo') && !closed && (
               <CardAction>
                 <Button size="sm" variant="outline" disabled={depositAddr.isPending} onClick={() => depositAddr.mutate(!!current)}>
                   {depositAddr.isPending ? <Loader2 className="animate-spin" /> : current ? <RefreshCw /> : <Plus />}{current ? 'Rotar' : 'Generar'}
@@ -246,6 +246,7 @@ function WhitelistCard({ clientId, network, wallets, loading, explorer, disabled
   clientId: string; network: string; wallets: Wallet[]; loading: boolean; explorer: string; disabled: boolean; onChange: () => void;
 }) {
   const { can } = useAuth();
+  const originates = useConsoleOriginates();
   const [address, setAddress] = useState('');
   const [label, setLabel] = useState('');
   const add = useMutation({
@@ -261,7 +262,7 @@ function WhitelistCard({ clientId, network, wallets, loading, explorer, disabled
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><KeyRound className="size-4" />Lista blanca de retiro</CardTitle>
-        <CardDescription>Los retiros solo salen hacia estas direcciones. Alta y baja: tesorero.</CardDescription>
+        <CardDescription>Los retiros solo salen hacia estas direcciones. {originates ? 'Alta y baja: tesorero.' : 'El cliente las da de alta desde su portal (otro usuario suyo las aprueba y esperan antes de usarse); aquí solo se pueden desactivar.'}</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-2">
         {loading && <Skeleton className="h-10" />}
@@ -273,14 +274,16 @@ function WhitelistCard({ clientId, network, wallets, loading, explorer, disabled
             </a>
             <CopyButton value={w.address} />
             {w.label && <span className="truncate text-sm">{w.label}</span>}
-            <Badge variant={w.active ? 'success' : 'secondary'}>{w.active ? 'Activa' : 'Inactiva'}</Badge>
+            {w.wl_status === 'pending_approval' ? <Badge variant="warning">Por aprobar (cliente)</Badge>
+              : w.active && w.active_from && new Date(w.active_from) > new Date() ? <Badge variant="secondary" title={fmtDate(w.active_from)}>En espera</Badge>
+              : <Badge variant={w.active ? 'success' : 'secondary'}>{w.active ? 'Activa' : 'Inactiva'}</Badge>}
             {can('tesorero') && !disabled && (
               <Button size="sm" variant="ghost" className="ml-auto h-7" disabled={toggle.isPending} onClick={() => toggle.mutate(w)}>{w.active ? 'Desactivar' : 'Reactivar'}</Button>
             )}
           </div>
         ))}
         <ErrorBox error={toggle.error} />
-        {can('tesorero') && !disabled && (
+        {can('tesorero') && !disabled && originates && (
           <form className="mt-2 grid gap-2 sm:grid-cols-[1fr_140px_auto]" onSubmit={(e) => { e.preventDefault(); add.mutate(); }}>
             <Input aria-label="Dirección" placeholder="0x… (40 hex)" className="font-mono text-xs" value={address} onChange={(e) => setAddress(e.target.value)} aria-invalid={address !== '' && !valid} />
             <Input aria-label="Etiqueta" placeholder="Etiqueta" maxLength={100} value={label} onChange={(e) => setLabel(e.target.value)} />

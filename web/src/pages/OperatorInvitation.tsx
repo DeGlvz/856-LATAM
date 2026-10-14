@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 
-const ROLE_LABEL = { lectura: 'Lectura', operador: 'Operador', tesorero: 'Tesorero' } as const;
+const ROLE_LABEL = { lectura: 'Lectura', ejecutivo: 'Ejecutivo de cuenta', tesorero: 'Tesorero' } as const;
 
 function Shell({ title, desc, children }: { title: string; desc: string; children: ReactNode }) {
   return (

@@ -8,7 +8,7 @@ import {
 } from '@/lib/api';
 import { ago, shortHex } from '@/lib/amount';
 import { useAuth } from '@/lib/auth';
-import { useAssets } from '@/lib/hooks';
+import { useAssets, useConsoleOriginates } from '@/lib/hooks';
 import { Amount, ErrorBox, Field, fmtDate } from '@/components/common';
 import { EntryDialog } from '@/components/EntryDialog';
 import { NewWithdrawalDialog, WD_STATUS, WdBadge, WithdrawalDialog } from '@/components/WithdrawalDialogs';
@@ -48,6 +48,7 @@ function useList<T>(key: string, path: string, params: Record<string, string | u
 
 export function Movements() {
   const { can } = useAuth();
+  const originates = useConsoleOriginates();
   const qc = useQueryClient();
   const [sp, setSp] = useSearchParams();
   const tab = (sp.get('tab') as Tab) || 'retiros';
@@ -73,8 +74,8 @@ export function Movements() {
         </div>
         <div className="flex flex-wrap gap-2">
           {can('tesorero') && <Button variant="outline" onClick={() => setTickOpen(true)}><Cog />Ciclo del worker</Button>}
-          {can('operador') && <Button variant="outline" onClick={() => setReport(true)}><FileSearch />Reportar depósito</Button>}
-          {can('tesorero') && <Button onClick={() => setNewWd(true)}><Plus />Nuevo retiro</Button>}
+          {can('ejecutivo') && <Button variant="outline" onClick={() => setReport(true)}><FileSearch />Reportar depósito</Button>}
+          {can('tesorero') && originates && <Button onClick={() => setNewWd(true)}><Plus />Nuevo retiro</Button>}
         </div>
       </div>
 

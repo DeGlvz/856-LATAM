@@ -45,6 +45,14 @@ export function Dashboard() {
         </div>
       )}
 
+      {!!s?.approvals_pending?.exits_overdue && (
+        <div role="alert" data-alert="exits_overdue" className="flex flex-wrap items-center gap-2 rounded-lg border border-warning/60 bg-warning/10 px-4 py-3 text-sm">
+          <AlertTriangle className="size-4" />
+          {s.approvals_pending.exits_overdue} salida(s) de clientes rebasaron el tiempo objetivo de validación.
+          <Link to="/aprobaciones" className="font-medium underline">Ir a Aprobaciones</Link>
+        </div>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {s ? <>
           <HealthCard s={s} />
