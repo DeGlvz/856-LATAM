@@ -1,12 +1,13 @@
 // Alta de operador de la consola desde la terminal (la contraseña se lee por stdin, nunca como argumento).
-// Uso: node dist/scripts/create-operator.js <email> <rol: lectura|operador|tesorero> [nombre]
+// Uso: node dist/scripts/create-operator.js <email> <rol: lectura|ejecutivo|tesorero> [nombre]
 import { createInterface } from 'node:readline';
-import { createOperator, ROLES, type Role } from '../auth/operators.js';
+import { createOperator, ROLES, type Role, normalizeRole } from '../auth/operators.js';
 import { pool } from '../db.js';
 
-const [email, role, ...name] = process.argv.slice(2);
+const [email, rawRole, ...name] = process.argv.slice(2);
+const role = normalizeRole(rawRole) as string;
 if (!email || !ROLES.includes(role as Role)) {
-  console.error('Uso: create-operator <email> <lectura|operador|tesorero> [nombre]');
+  console.error('Uso: create-operator <email> <lectura|ejecutivo|tesorero> [nombre]');
   process.exit(1);
 }
 const rl = createInterface({ input: process.stdin, output: process.stderr, terminal: process.stdin.isTTY });
