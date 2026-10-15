@@ -8,6 +8,7 @@ import { HttpError } from '../idempotency.js';
 import { decodeCursor, page } from '../pagination.js';
 import { getOrCreateDepositAddress } from '../ledger/deposit-addresses.js';
 import { obligationNotices } from './obligations.js';
+import { explorerOf, findNet, KNOWN, primaryNet } from '../chain/networks.js';
 
 const IN_FLIGHT = ['reserved', 'signed', 'broadcast']; // retiros aún no finales
 const TX_HASH_RE = /^0x[0-9a-f]{64}$/;
@@ -74,8 +75,9 @@ export async function balances(clientId: string) {
        ids AS (SELECT asset_id FROM acc UNION SELECT asset_id FROM res UNION SELECT asset_id FROM pay UNION SELECT asset_id FROM rec)
        SELECT s.id AS asset_id, s.symbol, s.decimals, s.network,
               COALESCE(acc.balance, 0) AS available, COALESCE(res.v, 0) AS reserved,
-              COALESCE(pay.v, 0) AS payable, COALESCE(rec.v, 0) AS receivable
+              COALESCE(pay.v, 0) AS payable, COALESCE(rec.v, 0) AS receivable, ca.status AS asset_status
          FROM ids JOIN assets s ON s.id = ids.asset_id
+         LEFT JOIN client_assets ca ON ca.client_id = $1 AND ca.asset_id = s.id
          LEFT JOIN acc ON acc.asset_id = s.id LEFT JOIN res ON res.asset_id = s.id
          LEFT JOIN pay ON pay.asset_id = s.id LEFT JOIN rec ON rec.asset_id = s.id
         ORDER BY s.id`, [clientId, IN_FLIGHT]);
@@ -86,6 +88,8 @@ export async function balances(clientId: string) {
         asset_id: r.asset_id, symbol: r.symbol, decimals: r.decimals, network: r.network,
         available: String(r.available), reserved: String(r.reserved), payable: String(r.payable), receivable: String(r.receivable),
         total: (BigInt(r.available) + BigInt(r.reserved)).toString(),
+        // Multi-red: enabled | exit_only | null (no habilitado: solo se muestra porque hay saldo u operaciones)
+        asset_status: r.asset_status ?? null, explorer: explorerOf(r.network),
       })),
     };
   });
@@ -263,9 +267,11 @@ export async function statementCsv(clientId: string, period: string, assetId: st
 }
 
 // ═════════════ 5. Direcciones de depósito ═════════════
+export const netLabel = (id: string) => findNet(id)?.label ?? KNOWN[id]?.label ?? id;
 const depositView = (w: { id: string; address: string; network: string; derivation_index: number | null; created_at: Date; active: boolean }) => ({
-  id: w.id, address: w.address, network: w.network, derivation_index: w.derivation_index, created_at: w.created_at, active: w.active,
-  uri: `ethereum:${w.address}`,
+  id: w.id, address: w.address, network: w.network, network_label: netLabel(w.network),
+  explorer: explorerOf(w.network), derivation_index: w.derivation_index, created_at: w.created_at, active: w.active,
+  uri: KNOWN[w.network]?.chainId ? `ethereum:${w.address}@${KNOWN[w.network].chainId}` : `ethereum:${w.address}`,
 });
 
 export async function listDepositAddresses(clientId: string) {
@@ -276,11 +282,11 @@ export async function listDepositAddresses(clientId: string) {
 }
 
 /** Genera una dirección nueva (rotar = generar otra; las anteriores siguen acreditando). Reutiliza la lógica de la consola. */
-export async function createDepositAddress(clientId: string, network?: string) {
-  if (network && network !== config.ALCHEMY_NETWORK) {
-    throw new HttpError(422, `Red no soportada para depósitos: ${network} (disponible: ${config.ALCHEMY_NETWORK})`, 'network_not_supported');
-  }
-  const r = await getOrCreateDepositAddress(clientId, true);
+export async function createDepositAddress(clientId: string, network: string = primaryNet.id) {
+  // En una red donde aún no tiene dirección se le asigna la suya (la misma de sus otras redes EVM); si ya tiene, se genera otra
+  const { rows: [has] } = await pool.query(
+    `SELECT 1 FROM wallets WHERE client_id = $1 AND network = $2 AND purpose = 'deposit' AND active LIMIT 1`, [clientId, network]);
+  const r = await getOrCreateDepositAddress(clientId, !!has, network);
   const { rows: [w] } = await pool.query(
     `SELECT id, address, network, derivation_index, created_at, active FROM wallets WHERE id = $1 AND client_id = $2`, [r.wallet_id, clientId]);
   return depositView(w);
@@ -291,7 +297,7 @@ export async function listDeposits(clientId: string, f: { status?: string; limit
   const cur = decodeCursor(f.cursor);
   const { rows } = await pool.query(
     `SELECT d.id, d.tx_hash, d.log_index, d.asset_id, s.symbol, s.decimals, d.amount, d.from_address, w.address AS to_address,
-            d.status, d.confirmations, d.block_number, d.created_at, d.credited_at, d.created_at::text AS _ts
+            d.network, d.status, d.confirmations, d.block_number, d.created_at, d.credited_at, d.created_at::text AS _ts
        FROM deposits d JOIN wallets w ON w.id = d.wallet_id JOIN assets s ON s.id = d.asset_id
       WHERE d.client_id = $1 AND ($2::text IS NULL OR d.status = $2)
         AND ($3::timestamptz IS NULL OR (d.created_at, d.id) < ($3::timestamptz, $4::uuid))
@@ -299,7 +305,7 @@ export async function listDeposits(clientId: string, f: { status?: string; limit
     [clientId, f.status ?? null, cur?.[0] ?? null, cur?.[1] ?? null, f.limit + 1]);
   const p = page(rows, f.limit);
   return {
-    deposits: p.items.map((d) => ({ ...d, required_confirmations: config.CONFIRMATIONS })),
+    deposits: p.items.map((d) => ({ ...d, required_confirmations: findNet(d.network)?.confirmations ?? config.CONFIRMATIONS, network_label: netLabel(d.network), explorer: explorerOf(d.network) })),
     next_cursor: p.next_cursor,
   };
 }

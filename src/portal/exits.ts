@@ -2,7 +2,8 @@
 // El cliente ORIGINA (usuario operator+ o llave Ed25519 con permiso withdraw); la tesorería de 856 VALIDA y AUTORIZA en la consola.
 // Todo se filtra por el client_id de la sesión o la llave; un recurso de otro cliente responde 404.
 import { encodeFunctionData, erc20Abi, isAddress, type Address } from 'viem';
-import { client as chain } from '../chain.js';
+import { isEnabled, net, primaryNet } from '../chain/networks.js';
+import { assertAssetEnabled } from '../ledger/client-assets.js';
 import { getSigner } from '../chain/signer.js';
 import { config } from '../config.js';
 import { pool, tx, type Tx } from '../db.js';
@@ -36,11 +37,12 @@ export async function listWhitelist(clientId: string, me?: string) {
 }
 
 /** Solicitud de alta: la hace un usuario operator+; queda pendiente de que la apruebe OTRO usuario approver+. */
-export async function requestWhitelist(u: ClientUser, b: { address: string; label?: string }) {
+export async function requestWhitelist(u: ClientUser, b: { address: string; label?: string; network?: string }) {
   if (!roleAtLeast(u.role, 'operator')) throw new HttpError(403, 'Requiere rol operator', 'forbidden');
   if (!isAddress(b.address)) throw new HttpError(400, 'Dirección inválida', 'invalid_address');
   const address = lower(b.address);
-  const network = config.ALCHEMY_NETWORK;
+  // Multi-red: la dirección se autoriza para UNA red (la misma dirección EVM en otra red es otra alta)
+  const network = net(b.network ?? primaryNet.id).id;
   return tx(async (c) => {
     const { rows: [cl] } = await c.query('SELECT status FROM clients WHERE id = $1', [u.client_id]);
     if (cl.status === 'closed') throw new HttpError(409, 'Cliente cerrado', 'client_closed');
@@ -128,8 +130,9 @@ export function originOf(p: PortalPrincipal): Origin {
   return { kind: 'client_key', ref: p.key.prefix };
 }
 
-async function estimateGas(asset: { kind: string; contract_address: string | null }, to: string, amount: bigint) {
+async function estimateGas(asset: { kind: string; contract_address: string | null; network: string }, to: string, amount: bigint) {
   try {
+    const chain = net(asset.network).client;
     const s = getSigner();
     if (!s) return null;
     const call = asset.kind === 'native'
@@ -155,9 +158,10 @@ export async function simulate(p: PortalPrincipal, b: { asset_id: string; whitel
   if (cl.status !== 'active') throw new HttpError(422, 'Su cuenta no está activa (KYB pendiente o suspendida): no puede retirar', 'client_not_active');
   const { rows: [asset] } = await pool.query('SELECT * FROM assets WHERE id = $1 AND active', [b.asset_id]);
   if (!asset) throw NOT_FOUND('Activo');
-  if (asset.chain !== 'ethereum' || asset.network !== config.ALCHEMY_NETWORK || !['native', 'erc20'].includes(asset.kind)) {
-    throw new HttpError(422, `Retiros de ${asset.id} no habilitados en esta red`, 'network_not_supported');
+  if (asset.chain !== 'ethereum' || !isEnabled(asset.network) || !['native', 'erc20'].includes(asset.kind)) {
+    throw new HttpError(422, `Retiros de ${asset.id} no habilitados: la red ${asset.network} no está encendida`, 'network_not_supported');
   }
+  await assertAssetEnabled(pool, clientId, asset.id, 'out');
   const { rows: [wl] } = await pool.query(
     `SELECT * FROM wallets WHERE id = $1 AND client_id = $2 AND purpose = 'withdrawal_whitelist'`, [b.whitelist_id, clientId]);
   if (!wl) throw NOT_FOUND('Dirección');
