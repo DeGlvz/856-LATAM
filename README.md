@@ -362,7 +362,59 @@ Variables nuevas: `OBLIGATION_ACCEPT_TTL_HOURS` (72), `OBLIGATION_IMPORT_MAX_ROW
 
 Pruebas: `ORIGIN_RULE=enforce` + `node test/portal-fase4.e2e.mjs` (68 verificaciones: códigos, alta, duplicados, aislamiento, aceptación, umbral con 2FA, rechazo, cancelación, vencimiento, regla de origen, llaves `trade`/`read`/`withdraw`, CSV con errores por fila y confirmación atómica, posiciones, corrida con asiento, bitácora y migración re-ejecutable) y `npx playwright test portal-obligaciones.spec.mjs` (5 recorridos).
 
-Pendiente: TRON/BTC/LTC.
+### Multi-red EVM (ola 1) y activos habilitados por cliente
+**Varias redes EVM en una sola instalación.** La red principal sigue siendo `ALCHEMY_NETWORK`; `NETWORKS` agrega las demás (csv). Redes conocidas (chainId, explorador y moneda nativa ya cargados): `eth-sepolia` (11155111), `base-sepolia` (84532), `arb-sepolia` (421614), `polygon-amoy` (80002, POL), `bnb-testnet` (97, tBNB), `opt-sepolia` y `avax-fuji`.
+
+- **Arranque:** cada red se verifica contra su chainId esperado; si no coincide o no responde, esa red se apaga (`503 network_down`) y las demás siguen. Pedir algo en una red no encendida → `422 network_not_supported`.
+- **Worker:** recorre las redes una tras otra con su propio manejo de errores; `POST /v1/worker/tick` devuelve `{networks: {<red>: "ok" | error}}`.
+- **Nonces y unicidad por red:** retiros y barridos usan `(network, from, nonce)`; depósitos, `(network, tx_hash, log_index)`. La misma hot wallet firma en todas las redes con nonces independientes.
+- **Webhooks:** un webhook *Address Activity* de Alchemy por red, con su llave de firma. La red del evento es la de la llave que valida la firma (nunca la que diga el cuerpo).
+- **Direcciones de depósito:** la misma dirección derivada sirve en todas las redes EVM; se registra por red y solo en redes donde el cliente tiene algún activo habilitado. La URI del QR incluye la red (`ethereum:<dirección>@<chainId>`).
+- **Activos nuevos (migración 015):** `EURC-ETH-SEPOLIA`, `ETH-BASE-SEPOLIA`, `USDC-BASE-SEPOLIA`, `EURC-BASE-SEPOLIA`, `ETH-ARB-SEPOLIA`, `USDC-ARB-SEPOLIA`, `POL-AMOY`, `USDC-AMOY` y `BNB-TESTNET`, con los contratos de prueba de Circle. Circle no publica USDC/EURC en BNB testnet ni EURC en Arbitrum o Amoy: en BNB solo va el nativo hasta desplegar un token de prueba propio.
+
+**Activos habilitados por cliente.** Cada cliente opera solo los activos que tiene habilitados:
+
+| Estado | Recibir depósitos | Retirar / compensar |
+|---|---|---|
+| `enabled` (Habilitado) | sí | sí |
+| `exit_only` (Solo salida) | no: el depósito queda **en revisión** (`held`) | sí, lo que ya tiene |
+| sin fila (deshabilitado) | no: queda en revisión | no (`403 asset_not_enabled`) |
+
+- **Por defecto** un cliente nuevo recibe todos los activos de `DEFAULT_CLIENT_NETWORKS` (las 5 redes) más los que pida al crearse (`assets`). Los clientes existentes conservan lo que tenían y reciben además los de esas redes.
+- **Quién cambia:** el **Tesorero** aplica el cambio con 2FA; el **Ejecutivo** lo solicita con motivo y lo aprueba un tesorero distinto (`403 same_operator`; una sola solicitud pendiente por cliente y activo, `409 request_pending`). Deshabilitar con saldo u operaciones abiertas no procede (`409 asset_in_use`): se usa «Solo salida».
+- **Depósitos en revisión:** un depósito en un activo no habilitado no se acredita; aparece en Aprobaciones y el Tesorero lo acredita con 2FA (no habilita el activo). En el portal se ve «En revisión».
+- **Compensación:** el acreedor necesita el activo para recibir y el deudor para pagar; si la contraparte no lo tiene → `422 counterparty_asset_not_enabled`. La carga CSV lo marca en el campo «activo».
+- **Consola:** tablero con una fila por red (salud, bloque, gas, conciliación), tarjeta «Activos habilitados» en el cliente, selector de red al generar dirección o dar de alta en lista blanca, columna Red en movimientos, solicitudes y depósitos en revisión en Aprobaciones.
+- **Portal:** insignia «Solo salida» en saldos, selector de red al generar dirección (con los activos que recibe), red en depósitos y lista blanca, y el asistente de salidas solo ofrece destinos de la misma red que el activo.
+
+| Método y ruta | Quién | Uso |
+|---|---|---|
+| `GET /v1/networks` | lectura | Redes encendidas, chainId, confirmaciones, explorador |
+| `GET /v1/clients/:id/assets` | lectura | Activos del cliente por red, saldo y solicitud pendiente |
+| `PUT /v1/clients/:id/assets/:assetId` `{status, code}` | tesorero (2FA) | `enabled` · `exit_only` · `disabled` |
+| `POST /v1/clients/:id/asset-requests` `{asset_id, action, reason}` | ejecutivo+ | Solicitar `enable` · `exit_only` · `disable` |
+| `GET /v1/asset-requests?status&client_id` | lectura | Solicitudes |
+| `POST /v1/asset-requests/:id/approve` `{code}` · `/reject` `{reason}` | tesorero distinto (2FA al aprobar) | Decidir |
+| `POST /v1/deposits/:id/release` `{code}` | tesorero (2FA) | Acreditar un depósito en revisión |
+| `POST /v1/clients/:id/deposit-address` `{network?}` · `GET /v1/treasury/hot-wallet?network` | — | Ahora por red (por defecto, la principal) |
+| `POST /v1/deposits/report` `{tx_hash, network?}` | — | Si no se indica red, se busca en todas |
+| `GET /v1/portal/assets` | portal: lectura o llave | Activos propios y su estado |
+| `POST /v1/portal/deposit-addresses` `{network?}` · `POST /v1/portal/whitelist` `{address, network?, label?}` | portal: operador+ | Por red |
+
+Migración `015_multired` (idempotente): columna `network` en `withdrawals`, `sweeps`, `tx_attempts` y `deposits` (con valor de la red principal para lo existente); índices únicos por red; estado `held` y columnas `held_reason`, `released_by`, `released_at` en `deposits`; activos nuevos; tablas `client_assets` y `client_asset_requests`.
+
+Variables nuevas: `NETWORKS`, `DEFAULT_CLIENT_NETWORKS` y, por red, con el sufijo de su id en mayúsculas y `_` (`BASE_SEPOLIA`, `ARB_SEPOLIA`, `POLYGON_AMOY`, `BNB_TESTNET`): `ALCHEMY_WEBHOOK_ID_<RED>`, `ALCHEMY_WEBHOOK_SIGNING_KEY_<RED>` y, opcionales, `CONFIRMATIONS_<RED>`, `GAS_LOW_WEI_<RED>`, `GAS_BUMP_MAX_FEE_WEI_<RED>`, `EXPLORER_URL_<RED>`, `RPC_URL_<RED>` (solo pruebas locales). La red principal sigue usando las variables sin sufijo.
+
+**Puesta en marcha (una vez):**
+1. **Alchemy:** en la app de 856-LATAM, habilitar Base Sepolia, Arbitrum Sepolia, Polygon Amoy y BNB Testnet.
+2. **Webhooks:** crear un webhook *Address Activity* por red apuntando a `https://<dominio>/v1/webhooks/alchemy`; en Railway pegar su id y su llave de firma en `ALCHEMY_WEBHOOK_ID_<RED>` y `ALCHEMY_WEBHOOK_SIGNING_KEY_<RED>`. Agregar `NETWORKS=base-sepolia,arb-sepolia,polygon-amoy,bnb-testnet`.
+3. **Token de Notify:** renovar `ALCHEMY_NOTIFY_TOKEN` si venció (registra las direcciones en cada webhook).
+4. **Fondeo de la hot wallet** en cada red: nativo de los faucets (Alchemy pide saldo en mainnet; tBNB del faucet de BNB Chain) y USDC/EURC del faucet de Circle. El tablero marca «Bajo» por red.
+5. **Plan de Alchemy:** cinco redes multiplican las lecturas del worker; revisar los créditos del plan.
+
+Pruebas: `node test/multired.e2e.mjs` con `ORIGIN_RULE=off` y dos cadenas locales (`RPC_URL` y `RPC_B`, `NETWORKS=eth-sepolia,base-sepolia`, `RPC_URL_BASE_SEPOLIA`; 39 verificaciones: redes, activos por defecto, misma dirección en dos redes, webhook por llave, depósitos, saldos y retiros por red con nonces independientes, solo salida → en revisión → acreditar, solicitudes ejecutivo/tesorero, bitácora y migración re-ejecutable) y `npx playwright test multired.spec.mjs` (5 recorridos: tablero por red, activos del cliente, solicitud y aprobación, depósito en revisión, portal por red).
+
+Pendiente: Tron (ola 2a), Solana y Bitcoin (ola 2b).
 
 Pruebas: `bash test/smoke.sh` (libro), `bash test/netting.sh` (compensación), `node test/console-fase4.e2e.mjs` (consola de compensación), `node test/transfers.e2e.mjs` y `node test/deposits-sweep.e2e.mjs` (on-chain, contra cadena local Hardhat/Anvil).
 
@@ -385,4 +437,4 @@ Después, en Alchemy → Webhooks, apuntar a `https://<uri-akash>/v1/webhooks/al
 ## Consideraciones de seguridad
 - Las variables del SDL son visibles para el proveedor Akash. Para producción usar una API key de Alchemy restringida (allowlist de dominios/IP, solo métodos necesarios) y rotarla.
 - Akash expone HTTP en el ingress del proveedor; para TLS propio, poner Cloudflare (proxy) delante con dominio personalizado.
-- Red: cambiar `ALCHEMY_NETWORK` (`eth-mainnet`, `base-mainnet`, `polygon-mainnet`, `arb-mainnet`…).
+- Red: `ALCHEMY_NETWORK` es la red principal; `NETWORKS` agrega otras redes EVM (ver «Multi-red EVM»). La misma llave firma en todas: un compromiso de la hot wallet afecta a todas las redes.
