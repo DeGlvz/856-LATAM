@@ -9,7 +9,7 @@ import { config } from '../config.js';
 import { pool, tx, type Tx } from '../db.js';
 import { HttpError } from '../idempotency.js';
 import { openClientAccount } from '../ledger/service.js';
-import { assertScopeUnchanged, cancelWithdrawal, exitScopeHash, requestWithdrawal } from '../ledger/transfers.js';
+import { assertScopeUnchanged, cancelWithdrawal, exitScopeHash, requestWithdrawal, treasurersWith2fa } from '../ledger/transfers.js';
 import { roleAtLeast, type ClientUser, type PortalPrincipal } from './identity.js';
 
 const lower = (a: string) => a.toLowerCase();
@@ -221,10 +221,12 @@ export async function submit(p: PortalPrincipal, simulationId: string, ip: strin
       'SELECT threshold FROM client_approval_thresholds WHERE client_id = $1 AND asset_id = $2', [clientId, sim.asset_id]);
     const needsClient = th && BigInt(sim.amount) >= BigInt(th.threshold);
     const { rows: [asset] } = await c.query('SELECT dual_treasurer_threshold FROM assets WHERE id = $1', [sim.asset_id]);
-    const dual = asset.dual_treasurer_threshold != null && BigInt(sim.amount) >= BigInt(asset.dual_treasurer_threshold);
+    // Fase M1: con un solo tesorero activo con 2FA, el umbral de dos tesoreros no aplica (lo autoriza el único tesorero)
+    const overDual = asset.dual_treasurer_threshold != null && BigInt(sim.amount) >= BigInt(asset.dual_treasurer_threshold);
+    const dual = overDual && (await treasurersWith2fa(c)) >= 2;
     const w = await requestWithdrawal({
       client_id: clientId, asset_id: sim.asset_id, to_address: sim.to_address, amount: String(sim.amount),
-      idempotency_key: `exit:${sim.id}`, metadata: { simulation_id: sim.id },
+      idempotency_key: `exit:${sim.id}`, metadata: { simulation_id: sim.id, ...(overDual && !dual ? { single_treasurer: true } : {}) },
       requested_by: origin.kind === 'client_user' ? `portal:${(p as { user: ClientUser }).user.email}` : `llave:${origin.ref}`,
       exit: {
         approval_status: needsClient ? 'client_pending' : 'pending', origin_kind: origin.kind, origin_ref: origin.ref, origin_ip: ip,
