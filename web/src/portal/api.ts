@@ -50,7 +50,7 @@ export const ROLE_HELP: Record<ClientRole, string> = {
 
 // ───────────── Fase 2: saldos, movimientos, estados de cuenta y depósitos ─────────────
 export interface AssetView { asset_id: string; symbol: string; decimals: number; network: string }
-export interface BalanceRow extends AssetView { available: string; reserved: string; payable: string; receivable: string; total: string }
+export interface BalanceRow extends AssetView { available: string; reserved: string; payable: string; receivable: string; total: string; asset_status?: MyAssetStatus | null; explorer?: string | null }
 export interface Line {
   id: string; created_at: string; asset_id: string; kind: string; direction: 'credit' | 'debit'; amount: string; balance_after: string;
   reference: string | null; reference_type: 'withdrawal' | 'netting_run' | 'tx_hash' | null; label: string;
@@ -61,16 +61,31 @@ export interface Statement {
   asset: AssetView; period: string; timezone: 'UTC'; period_start: string; period_end: string;
   opening_balance: string; credits: string; debits: string; closing_balance: string; current_balance: string; entries: Line[];
 }
-export interface DepositAddress { id: string; address: string; network: string; derivation_index: number | null; created_at: string; active: boolean; uri: string }
+export interface DepositAddress { id: string; address: string; network: string; derivation_index: number | null; created_at: string; active: boolean; uri: string; network_label?: string; explorer?: string | null }
 export interface DepositRow {
   id: string; tx_hash: string; log_index: number; asset_id: string; symbol: string; decimals: number; amount: string;
-  from_address: string; to_address: string; status: 'pending' | 'credited' | 'orphaned'; confirmations: number | null;
+  from_address: string; to_address: string; status: 'pending' | 'held' | 'credited' | 'orphaned'; confirmations: number | null; network?: string; network_label?: string; explorer?: string | null;
   required_confirmations: number; block_number: string | null; created_at: string; credited_at: string | null;
 }
 export interface Notice { code: string; severity: 'info' | 'warning' | 'critical'; message: string; data?: Record<string, unknown> }
 
 /** Explorador de bloques por red (el portal no consulta la configuración interna de 856). */
-export const explorerFor = (network: string) => (network === 'eth-mainnet' ? 'https://etherscan.io' : 'https://sepolia.etherscan.io');
+// Multi-red: explorador y nombre por red (el servidor manda el explorador configurado cuando lo tiene).
+export const NETS: Record<string, { label: string; explorer: string; native?: string }> = {
+  'eth-sepolia': { label: 'Ethereum Sepolia', explorer: 'https://sepolia.etherscan.io' },
+  'base-sepolia': { label: 'Base Sepolia', explorer: 'https://sepolia.basescan.org' },
+  'arb-sepolia': { label: 'Arbitrum Sepolia', explorer: 'https://sepolia.arbiscan.io' },
+  'polygon-amoy': { label: 'Polygon Amoy', explorer: 'https://amoy.polygonscan.com', native: 'POL' },
+  'bnb-testnet': { label: 'BNB Smart Chain Testnet', explorer: 'https://testnet.bscscan.com', native: 'tBNB' },
+  'opt-sepolia': { label: 'OP Sepolia', explorer: 'https://sepolia-optimism.etherscan.io' },
+  'avax-fuji': { label: 'Avalanche Fuji', explorer: 'https://testnet.snowtrace.io', native: 'AVAX' },
+  'eth-mainnet': { label: 'Ethereum', explorer: 'https://etherscan.io' },
+};
+export const explorerFor = (network: string, fromServer?: string | null) => fromServer ?? NETS[network]?.explorer ?? 'https://sepolia.etherscan.io';
+export const netLabel = (network: string) => NETS[network]?.label ?? network;
+export const nativeOf = (network: string) => NETS[network]?.native ?? 'ETH';
+export type MyAssetStatus = 'enabled' | 'exit_only';
+export interface MyAsset { asset_id: string; symbol: string; network: string; network_label: string; kind: string; decimals: number; status: MyAssetStatus; network_enabled: boolean; network_primary?: boolean }
 
 /** Descarga autenticada (cookie de sesión) de un CSV del portal; nunca pone la sesión en la URL. */
 export async function downloadPortal(path: string, fallbackName: string) {
