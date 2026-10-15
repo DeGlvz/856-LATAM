@@ -18,6 +18,8 @@ const Env = z.object({
   SIGNER_PRIVATE_KEY: z.string().regex(/^0x[0-9a-fA-F]{64}$/, 'llave hex de 32 bytes con 0x').optional(),
   // Semilla HD (hex 32-64 bytes) para direcciones de depósito. Si falta, se deriva de SIGNER_PRIVATE_KEY (solo testnet)
   DEPOSIT_HD_SEED: z.string().regex(/^0x[0-9a-fA-F]{64,128}$/).optional(),
+  // Alternativa a DEPOSIT_HD_SEED: frase mnemónica BIP-39 (12 o 24 palabras). En production se exige una de las dos.
+  HD_MNEMONIC: z.preprocess((v) => (typeof v === 'string' && !v.trim() ? undefined : v), z.string().trim().refine((v) => [12, 15, 18, 21, 24].includes(v.split(/\s+/).length), 'frase de 12 a 24 palabras').optional()),
   // Alchemy Notify: registrar direcciones de depósito en el webhook Address Activity
   ALCHEMY_WEBHOOK_ID: z.string().optional(),
   ALCHEMY_NOTIFY_TOKEN: z.string().optional(),
@@ -75,8 +77,14 @@ const Env = z.object({
   // Multi-red EVM (ola 1): redes encendidas y redes habilitadas por defecto a cada cliente nuevo.
   // Ajustes por red con sufijo del slug en mayúsculas (p. ej. CONFIRMATIONS_BASE_SEPOLIA): ver src/chain/networks.ts
   NETWORKS: z.string().optional(),
-  DEFAULT_CLIENT_NETWORKS: z.string().default('eth-sepolia,base-sepolia,arb-sepolia,polygon-amoy,bnb-testnet'),
+  // Por defecto según ENVIRONMENT: sandbox → las 5 redes de prueba de la ola 1; production → las 4 redes main (M1)
+  DEFAULT_CLIENT_NETWORKS: z.string().optional(),
+  // Fase M1: ambiente del despliegue. production = solo redes main; sandbox = solo redes de prueba (para clientes).
+  ENVIRONMENT: z.enum(['production', 'sandbox']).default('sandbox'),
 });
 
 export const config = Env.parse(process.env);
+export const isProduction = config.ENVIRONMENT === 'production';
+export const defaultClientNetworks = config.DEFAULT_CLIENT_NETWORKS
+  ?? (isProduction ? 'eth-mainnet,base-mainnet,arb-mainnet,bnb-mainnet' : 'eth-sepolia,base-sepolia,arb-sepolia,polygon-amoy,bnb-testnet');
 export const rpcUrl = config.RPC_URL ?? `https://${config.ALCHEMY_NETWORK}.g.alchemy.com/v2/${config.ALCHEMY_API_KEY}`;

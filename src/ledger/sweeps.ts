@@ -16,6 +16,18 @@ type Kind = 'gas_topup' | 'sweep_token' | 'sweep_native';
  * Son movimientos internos (la custodia total no cambia); solo el gas se registra como gasto.
  * Si una dirección tiene tokens pero no ETH para gas, primero la hot wallet le envía gas (gas_topup).
  */
+/**
+ * Mínimo para barrer un activo, en unidades base: variable SWEEP_MIN_<ID DEL ACTIVO> (guiones → guion bajo),
+ * p. ej. SWEEP_MIN_USDT_MAINNET=50000000 (50 USDT). Sin variable: el valor por defecto (nativo: SWEEP_MIN_NATIVE_WEI).
+ * Debajo del mínimo el depósito se acredita igual al cliente; solo se espera a juntar más antes de barrer.
+ */
+export function sweepMin(assetId: string, fallback: bigint): bigint {
+  const v = process.env[`SWEEP_MIN_${assetId.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`]?.trim();
+  if (!v) return fallback;
+  if (!/^\d+$/.test(v)) throw new Error(`SWEEP_MIN de ${assetId} debe ser un entero en unidades base`);
+  return BigInt(v);
+}
+
 export async function sweepStep(n: Net, log: Log) {
   const hot = getSigner();
   const keyring = getDepositKeyring();
@@ -47,7 +59,8 @@ export async function sweepStep(n: Net, log: Log) {
       let token: { id: string; contract_address: string; bal: bigint } | null = null;
       for (const t of tokens) {
         const bal = await client.readContract({ address: t.contract_address, abi: erc20Abi, functionName: 'balanceOf', args: [w.address as Address] }).catch(() => 0n);
-        if (bal > 0n) { token = { ...t, bal }; break; }
+        // Fase M1: solo se barre al superar el mínimo del activo (en Ethereum el gas hace incosteable barrer montos chicos)
+        if (bal > 0n && bal >= sweepMin(t.id, 1n)) { token = { ...t, bal }; break; }
       }
 
       if (token) {
@@ -62,7 +75,7 @@ export async function sweepStep(n: Net, log: Log) {
           await createSweep(log, { wallet_id: w.id, kind: 'sweep_token', asset_id: token.id, amount: token.bal,
             signer: depSigner, to: token.contract_address, value: 0n, data, gas, chainId, fees, n });
         }
-      } else if (eth >= config.SWEEP_MIN_NATIVE_WEI) {
+      } else if (eth >= sweepMin(nativeId, config.SWEEP_MIN_NATIVE_WEI)) {
         const gas = 21000n;
         const value = eth - gas * fees.maxFeePerGas;
         if (value > 0n) {

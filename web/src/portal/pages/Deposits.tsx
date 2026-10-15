@@ -5,7 +5,7 @@ import { explorerFor, netLabel, papi, type DepositAddress, type DepositRow, type
 import { usePortal } from '../auth';
 import { Money } from '../money';
 import { CopyButton, ErrorBox, fmtDate } from '@/components/common';
-import { shortHex } from '@/lib/amount';
+import { formatUnits, shortHex } from '@/lib/amount';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -47,7 +47,8 @@ export function Deposits() {
     for (const a of assets.data ?? []) {
       if (a.status !== 'enabled' || !a.network_enabled) continue;
       const e = m.get(a.network) ?? { label: a.network_label, symbols: [] };
-      e.symbols.push(a.symbol); m.set(a.network, e);
+      // Fase M1: depósito mínimo recomendado (debajo se acredita igual, pero no conviene por costo de red)
+      e.symbols.push(a.sweep_min ? `${a.symbol} (mín. recomendado ${formatUnits(a.sweep_min, a.decimals)})` : a.symbol); m.set(a.network, e);
     }
     return m;
   }, [assets.data]);

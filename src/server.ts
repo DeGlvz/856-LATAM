@@ -24,14 +24,33 @@ import { migrate } from './migrations/index.js';
 import { ensureAllSystemAccounts } from './ledger/service.js';
 import { clientAssetRoutes } from './routes/client-assets.js';
 import { verifyNetworks } from './chain/networks.js';
+import { ensureCatalog } from './chain/catalog.js';
+import { assertTreasuryAtBoot, configErrors, foreignNetworks, SETUP_ALLOWED, setupRequired } from './environment.js';
 
 const app = Fastify({ logger: true, trustProxy: true });
 
+// Fase M1: el ambiente (production/sandbox) se valida antes de tocar la base o la cadena
+const envErrors = configErrors();
+if (envErrors.length) {
+  for (const e of envErrors) app.log.fatal({ environment: config.ENVIRONMENT }, e);
+  await pool.end().catch(() => undefined);
+  process.exit(1);
+}
+app.log.info({ environment: config.ENVIRONMENT }, 'ambiente');
+
 if (config.MIGRATE_ON_START) await migrate(pool, (m) => app.log.info(m));
+// Activos de redes del otro ambiente: inactivos (no aparecen ni operan aquí). Activos main: alta idempotente.
+await pool.query('UPDATE assets SET active = false WHERE active AND network = ANY($1)', [foreignNetworks()]);
+await ensureCatalog(app.log);
 await ensureAllSystemAccounts();
 await verifyNetworks(app.log);
 await ensureHotWalletRegistered();
 await bootstrapOperator(app.log);
+try { await assertTreasuryAtBoot(app.log); } catch (e) {
+  app.log.fatal((e as Error).message);
+  await pool.end().catch(() => undefined);
+  process.exit(1);
+}
 
 // Conserva el cuerpo crudo para verificar firmas HMAC
 app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
@@ -58,16 +77,25 @@ await app.register(helmet);
 await app.register(rateLimit, { max: config.RATE_LIMIT_PER_MIN, timeWindow: '1 minute' });
 await app.register(cookie);
 
+// Modo de alta (production sin tesorero con 2FA): solo login y 2FA de la consola
+app.addHook('onRequest', async (req, reply) => {
+  const path = req.url.split('?')[0];
+  if (!path.startsWith('/v1/') || SETUP_ALLOWED.some((r) => r.test(path))) return;
+  if (await setupRequired()) {
+    return reply.code(503).send({ error: 'Servicio en modo de alta: un tesorero debe activar su 2FA en la consola (Seguridad) antes de operar', code: 'setup_required' });
+  }
+});
+
 app.get('/health', async () => {
   const [chainId, block, db] = await Promise.all([
     client.getChainId(), client.getBlockNumber(),
     pool.query('SELECT 1').then(() => 'ok', () => 'down'),
   ]);
-  return { status: db === 'ok' ? 'ok' : 'degraded', network: config.ALCHEMY_NETWORK, chainId, block: block.toString(), db };
+  return { status: db === 'ok' ? 'ok' : 'degraded', environment: config.ENVIRONMENT, network: config.ALCHEMY_NETWORK, chainId, block: block.toString(), db };
 });
 
 // /v1: API key (integraciones) o sesión de operador (consola). Webhooks validan firma; login es público.
-const PUBLIC = new Set(['/v1/auth/login', '/v1/auth/login/totp', '/v1/auth/invites/lookup', '/v1/auth/invites/accept']);
+const PUBLIC = new Set(['/v1/meta', '/v1/auth/login', '/v1/auth/login/totp', '/v1/auth/invites/lookup', '/v1/auth/invites/accept']);
 await app.register(async (v1) => {
   v1.addHook('onRequest', async (req, reply) => {
     const path = req.url.split('?')[0];
@@ -103,6 +131,8 @@ await app.register(async (v1) => {
       metadata: typeof reason === 'string' ? { reason: reason.slice(0, 300) } : {} })
       .catch((e) => req.log.error(e, 'audit_log'));
   });
+  // Público: ambiente del despliegue (distintivo «PRUEBAS» en consola y portal, también antes del login)
+  v1.get('/meta', async () => ({ environment: config.ENVIRONMENT, setup_required: await setupRequired() }));
   await v1.register(authRoutes);
   await v1.register(consoleRoutes);
   await v1.register(operatorRoutes);

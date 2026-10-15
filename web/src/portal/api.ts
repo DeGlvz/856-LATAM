@@ -85,7 +85,7 @@ export const explorerFor = (network: string, fromServer?: string | null) => from
 export const netLabel = (network: string) => NETS[network]?.label ?? network;
 export const nativeOf = (network: string) => NETS[network]?.native ?? 'ETH';
 export type MyAssetStatus = 'enabled' | 'exit_only';
-export interface MyAsset { asset_id: string; symbol: string; network: string; network_label: string; kind: string; decimals: number; status: MyAssetStatus; network_enabled: boolean; network_primary?: boolean }
+export interface MyAsset { asset_id: string; symbol: string; network: string; network_label: string; kind: string; decimals: number; status: MyAssetStatus; network_enabled: boolean; network_primary?: boolean; sweep_min?: string | null }
 
 /** Descarga autenticada (cookie de sesión) de un CSV del portal; nunca pone la sesión en la URL. */
 export async function downloadPortal(path: string, fallbackName: string) {

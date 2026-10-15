@@ -416,6 +416,53 @@ Pruebas: `node test/multired.e2e.mjs` con `ORIGIN_RULE=off` y dos cadenas locale
 
 Pendiente: Tron (ola 2a), Solana y Bitcoin (ola 2b).
 
+### Fase M1 — paso a mainnet con sandbox para clientes
+**Dos despliegues del mismo código**, separados por `ENVIRONMENT`:
+
+| Despliegue | `ENVIRONMENT` | Redes | Base, llaves y hot wallet |
+|---|---|---|---|
+| Producción (`856-latam-production`) | `production` | `eth-mainnet` (principal), `base-mainnet`, `arb-mainnet`, `bnb-mainnet` | propias, nuevas |
+| Sandbox (`856-latam-sandbox`) | `sandbox` | `eth-sepolia` | propias; aquí vive lo que hoy está en Sepolia |
+
+**Activos main** (alta idempotente al arrancar, solo para las redes encendidas; contratos verificados el 15-oct-2026 en la fuente del emisor y en el explorador oficial, ver `src/chain/catalog.ts`):
+
+| Red | Activos (decimales) |
+|---|---|
+| Ethereum | `ETH-MAINNET` (18), `USDT-MAINNET` Tether (6), `USDC-MAINNET` Circle (6), `EURE-MAINNET` Monerium (18) |
+| Base (red de fiat) | `ETH-BASE` (18), `USDC-BASE` Circle (6), `EURE-BASE` Monerium (18) |
+| Arbitrum | `ETH-ARB` (18), `USDT-ARB` USDT0 de Tether (6), `USDC-ARB` Circle (6), `EURE-ARB` Monerium (18) |
+| BNB Smart Chain | `BNB-BSC` (18), `USDT-BSC` Binance-Peg (18), `USDC-BSC` Binance-Peg (18) |
+
+Si un activo ya existe con otra red, contrato o decimales, el arranque se detiene (un error ahí acreditaría depósitos de un token equivocado). Los activos de redes del otro ambiente quedan inactivos y no se listan.
+
+**Reglas de arranque** (el proceso termina con el motivo en el log):
+- `NETWORKS`/`ALCHEMY_NETWORK` con redes del otro ambiente, o una red desconocida en `production` → rechazado. En `production` el chainId se verifica siempre, incluso con `RPC_URL_<RED>`.
+- `production` exige `ORIGIN_RULE=enforce`, `TOTP_ENCRYPTION_KEY` y semilla HD propia (`HD_MNEMONIC` o `DEPOSIT_HD_SEED`; no se deriva de `SIGNER_PRIVATE_KEY`). Un `SWEEP_MIN_*` que no sea entero → rechazado.
+- `production` sin ningún tesorero activo con 2FA → rechazado, salvo el primer despliegue (`CONSOLE_BOOTSTRAP_*` o un tesorero aún sin 2FA): arranca en **modo de alta**, con el worker detenido y `/v1` (portal incluido) respondiendo `503 setup_required` excepto login y 2FA. Sale solo en cuanto el tesorero activa su 2FA.
+
+**Un solo tesorero (decisión de esta fase).** El umbral de dos tesoreros (`dual_treasurer_threshold` del activo) aplica solo si hay al menos dos tesoreros activos con 2FA. Con uno, toda salida la autoriza ese tesorero con 2FA y queda marcada `single_treasurer` en el retiro. Al activar el 2FA de un segundo tesorero el umbral vuelve a aplicar sin cambiar código ni configuración. La consola muestra fijo «Operando con un solo tesorero».
+
+**Bloqueantes antes de fondos reales.** `POST /v1/internal-transfers` valida activos habilitados: el emisor debe tener el activo habilitado o en «solo salida» y el receptor habilitado, si no `422 asset_not_enabled`. `ORIGIN_RULE=enforce` es obligatorio en `production`.
+
+**Barrido con mínimo por activo.** `SWEEP_MIN_<ID DEL ACTIVO>` en unidades base (p. ej. `SWEEP_MIN_USDT_MAINNET`). Debajo del mínimo el depósito se acredita al cliente igual; solo se espera a juntar más antes de barrer (en Ethereum el gas hace incosteable barrer montos chicos). El portal lo muestra como «mín. recomendado» al generar la dirección.
+
+**Distintivo de ambiente.** En el sandbox, franja «PRUEBAS» en todas las pantallas de consola y portal (también en el login) e insignia fija en la cabecera.
+
+| Método y ruta | Quién | Uso |
+|---|---|---|
+| `GET /v1/meta` | público | `{environment, setup_required}` |
+| `GET /health` | público | agrega `environment` |
+| `GET /v1/summary` | consola | agrega `environment` y `treasurers {active_with_2fa, single}` |
+| `GET /v1/portal/assets` | portal | agrega `sweep_min` por activo |
+
+Migraciones: ninguna de esquema. Solo datos al arrancar (catálogo main, activos del otro ambiente inactivos). La base del sandbox se crea desde cero con las migraciones actuales.
+
+Variables nuevas: `ENVIRONMENT`, `HD_MNEMONIC`, `SWEEP_MIN_<ACTIVO>` (y las de Alchemy por red ya existentes: `ALCHEMY_WEBHOOK_ID_<RED>`, `ALCHEMY_WEBHOOK_SIGNING_KEY_<RED>`). `DEFAULT_CLIENT_NETWORKS` toma por defecto las redes del ambiente.
+
+**Riesgos aceptados en M1.** Un solo tesorero: punto único de falla y sin control dual (guardar fuera de línea sus códigos de recuperación de 2FA). Llaves de hot wallet y semilla HD en variables de entorno de Railway (la interfaz `Signer` queda lista para MPC). USDT y USDC en BNB son Binance-Peg (emisor Binance, no Tether ni Circle).
+
+Pruebas: `node test/m1.e2e.mjs` (47 verificaciones: reglas de arranque de ambos ambientes, modo de alta, catálogo y decimales 6 vs 18 con conversión exacta, transferencia interna 422, un solo tesorero vs dos, mínimo de barrido; ver cabecera para variables) y `npx playwright test m1.spec.mjs`.
+
 Pruebas: `bash test/smoke.sh` (libro), `bash test/netting.sh` (compensación), `node test/console-fase4.e2e.mjs` (consola de compensación), `node test/transfers.e2e.mjs` y `node test/deposits-sweep.e2e.mjs` (on-chain, contra cadena local Hardhat/Anvil).
 
 ## Local
@@ -438,3 +485,4 @@ Después, en Alchemy → Webhooks, apuntar a `https://<uri-akash>/v1/webhooks/al
 - Las variables del SDL son visibles para el proveedor Akash. Para producción usar una API key de Alchemy restringida (allowlist de dominios/IP, solo métodos necesarios) y rotarla.
 - Akash expone HTTP en el ingress del proveedor; para TLS propio, poner Cloudflare (proxy) delante con dominio personalizado.
 - Red: `ALCHEMY_NETWORK` es la red principal; `NETWORKS` agrega otras redes EVM (ver «Multi-red EVM»). La misma llave firma en todas: un compromiso de la hot wallet afecta a todas las redes.
+- Ambientes (fase M1): producción y sandbox nunca comparten base, llaves ni hot wallet. Nunca enviar fondos reales a la hot wallet del sandbox.

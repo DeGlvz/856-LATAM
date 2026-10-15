@@ -27,7 +27,7 @@ export async function createAsset(a: AssetInput) {
 }
 
 export async function listAssets() {
-  return (await pool.query('SELECT * FROM assets ORDER BY id')).rows;
+  return (await pool.query('SELECT * FROM assets WHERE active ORDER BY id')).rows;
 }
 
 // Cuentas de la plataforma por activo:
@@ -243,7 +243,22 @@ export async function postEntry(input: EntryInput): Promise<{ entry: Awaited<Ret
 }
 
 // Atajos de negocio sobre postEntry
-export function internalTransfer(i: { from: string; to: string; amount: string; idempotency_key?: string; description?: string; metadata?: Record<string, unknown> }) {
+export async function internalTransfer(i: { from: string; to: string; amount: string; idempotency_key?: string; description?: string; metadata?: Record<string, unknown> }) {
+  // Fase M1 (bloqueante antes de fondos reales): el emisor debe poder disponer del activo (habilitado o solo salida)
+  // y el receptor recibirlo (habilitado). Si no → 422 asset_not_enabled.
+  for (const [ref, dir] of [[i.from, 'out'], [i.to, 'in']] as const) {
+    let { rows: [a] } = await pool.query('SELECT client_id, asset_id FROM accounts WHERE id::text = $1 OR code = $1', [ref]);
+    // Cuenta de cliente aún no abierta: el código dice de quién y de qué activo es (client:<id>:<activo>:available)
+    const m = !a && /^client:([0-9a-f-]{36}):([A-Z0-9-]+):/.exec(ref);
+    if (m) a = { client_id: m[1], asset_id: m[2] };
+    if (!a?.client_id) continue; // cuenta de sistema o inexistente (postEntry responde por ella)
+    const { rows: [ca] } = await pool.query('SELECT status FROM client_assets WHERE client_id = $1 AND asset_id = $2', [a.client_id, a.asset_id]);
+    if (!ca || (dir === 'in' && ca.status !== 'enabled')) {
+      throw new LedgerError(422, dir === 'out'
+        ? `El activo ${a.asset_id} no está habilitado para el cliente que envía`
+        : `El activo ${a.asset_id} no está habilitado para recibir en el cliente destino${ca ? ' (está en «solo salida»)' : ''}`, 'asset_not_enabled');
+    }
+  }
   // Pasivo del emisor baja (débito), pasivo del receptor sube (crédito): sin gas, instantáneo
   return postEntry({
     kind: 'transfer', description: i.description, idempotency_key: i.idempotency_key, metadata: i.metadata,

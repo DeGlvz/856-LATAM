@@ -7,6 +7,7 @@ import { assertAssetEnabled, assetStatus } from './client-assets.js';
 import { getSigner } from '../chain/signer.js';
 import { nextNonce } from '../chain/nonce.js';
 import { config } from '../config.js';
+import { setupRequired } from '../environment.js';
 import { pool, tx, type Tx } from '../db.js';
 import { LedgerError, openClientAccount, postEntryIn } from './service.js';
 import { registerPendingAddresses } from './deposit-addresses.js';
@@ -196,6 +197,12 @@ async function authorizationMatches(c: Tx, w: { id: string; client_id: string; a
     amount: w.amount, fee: sim.fee, payable_open: sim.payable_open }) === w.authorized_hash;
 }
 
+/** Tesoreros activos con 2FA (el umbral de dos tesoreros exige al menos dos). */
+export async function treasurersWith2fa(c: Tx | typeof pool) {
+  const { rows: [r] } = await c.query(`SELECT count(*)::int AS n FROM operators WHERE role = 'tesorero' AND active AND totp_enabled_at IS NOT NULL`);
+  return r.n as number;
+}
+
 // ── Doble aprobación ──
 export async function approveWithdrawal(id: string, by: { email: string; id: string }) {
   await tx(async (c) => {
@@ -209,13 +216,24 @@ export async function approveWithdrawal(id: string, by: { email: string; id: str
     if (cl.status !== 'active') throw new LedgerError(422, `Cliente no activo (estado: ${cl.status}); rechace el retiro`, 'client_not_active');
     // Salida del portal: lo que se autoriza debe ser exactamente lo simulado (destino aún vigente, mismos montos)
     if (w.simulation_id) await assertScopeUnchanged(c, w);
-    if (w.dual_required && !w.approved_by_operator) {
+    // Fase M1 — modo de un solo tesorero: el umbral de dos tesoreros solo aplica si hay al menos dos activos con 2FA.
+    // Al dar de alta un segundo tesorero vuelve a aplicar sin cambiar código ni configuración.
+    const dual = w.dual_required && (await treasurersWith2fa(c)) >= 2;
+    if (!dual && w.dual_required) {
+      await c.query(
+        `UPDATE withdrawals SET approval_status = 'approved',
+                approved_by = COALESCE(approved_by, $2), approved_by_operator = COALESCE(approved_by_operator, $3), approved_at = COALESCE(approved_at, now()),
+                authorized_hash = scope_hash, metadata = metadata || '{"single_treasurer": true}'::jsonb, updated_at = now() WHERE id = $1`,
+        [id, by.email, by.id]);
+      return;
+    }
+    if (dual && !w.approved_by_operator) {
       // Primera de dos autorizaciones: queda pendiente del segundo tesorero
       await c.query(`UPDATE withdrawals SET approved_by = $2, approved_by_operator = $3, approved_at = now(), updated_at = now() WHERE id = $1`,
         [id, by.email, by.id]);
       return;
     }
-    if (w.dual_required) {
+    if (dual) {
       if (w.approved_by_operator === by.id) throw new LedgerError(403, 'Este monto requiere dos tesoreros distintos', 'same_operator');
       await c.query(
         `UPDATE withdrawals SET approval_status = 'approved', approved2_by = $2, approved2_by_operator = $3, approved2_at = now(),
@@ -630,7 +648,10 @@ export async function workerTick(log: Logger) {
 }
 
 export function startWorker(log: Logger) {
-  const t = setInterval(() => { workerTick(log).catch((e) => log.error({ err: (e as Error).message }, 'error en worker')); },
+  const t = setInterval(() => {
+    // Modo de alta (production sin tesorero con 2FA): no se firma ni se barre nada
+    setupRequired().then((on) => on ? undefined : workerTick(log)).catch((e) => log.error({ err: (e as Error).message }, 'error en worker'));
+  },
     config.WORKER_INTERVAL_MS);
   t.unref();
   return () => clearInterval(t);

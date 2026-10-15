@@ -6,7 +6,7 @@ import { getSigner } from '../chain/signer.js';
 import { config } from '../config.js';
 import { pool } from '../db.js';
 import { HttpError } from '../idempotency.js';
-import { hotWalletStatus } from '../ledger/transfers.js';
+import { hotWalletStatus, treasurersWith2fa } from '../ledger/transfers.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { setWalletActive, updateClient } from '../ledger/clients.js';
 import { hasRole } from '../auth/operators.js';
@@ -139,6 +139,9 @@ export async function consoleRoutes(app: FastifyInstance) {
       obligations_pending: { total: Number(approvals[0]?.op ?? 0), expiring_24h: Number(approvals[0]?.oe ?? 0) },
       dual_approval: config.DUAL_APPROVAL,
       origin_rule: config.ORIGIN_RULE,
+      // Fase M1: ambiente y tesoreros activos con 2FA (con uno solo, el umbral de dos tesoreros no aplica)
+      environment: config.ENVIRONMENT,
+      treasurers: await treasurersWith2fa(pool).then((n) => ({ active_with_2fa: n, single: n < 2 })),
     };
   });
 

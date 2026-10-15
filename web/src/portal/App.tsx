@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { EnvBanner } from '@/components/EnvBanner';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router';
 import { usePortal } from './auth';
 import { PortalLayout } from './Layout';
@@ -32,6 +33,7 @@ function AdminOnly({ children }: { children: ReactNode }) {
 export default function PortalApp() {
   return (
     <BrowserRouter basename="/portal">
+      <EnvBanner />
       <Routes>
         <Route path="/login" element={<PortalLogin />} />
         <Route path="/invitacion" element={<Invitation />} />
