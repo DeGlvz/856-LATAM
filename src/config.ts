@@ -69,6 +69,9 @@ const Env = z.object({
   WHITELIST_COOLDOWN_HOURS: z.coerce.number().min(0).max(720).default(24),   // espera antes de usar una dirección nueva
   EXIT_SIMULATION_TTL_MIN: z.coerce.number().int().min(1).max(1440).default(30), // vigencia de una simulación de salida
   EXIT_VALIDATION_SLA_MIN: z.coerce.number().int().min(5).default(240),      // tiempo objetivo de tesorería para validar
+  // Fase 4 del portal: obligaciones
+  OBLIGATION_ACCEPT_TTL_HOURS: z.coerce.number().min(1).max(2160).default(72), // plazo del deudor para aceptar
+  OBLIGATION_IMPORT_MAX_ROWS: z.coerce.number().int().min(1).max(20000).default(5000),
 });
 
 export const config = Env.parse(process.env);
