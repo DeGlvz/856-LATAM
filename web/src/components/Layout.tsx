@@ -28,7 +28,8 @@ export function Layout() {
   const { operator, logout, can } = useAuth();
   const [open, setOpen] = useState(false);
   const summary = useQuery({ queryKey: ['summary'], queryFn: () => api<Summary>('/summary'), refetchInterval: 15_000, enabled: !!operator });
-  const pending = (summary.data?.approvals_pending?.withdrawals ?? 0) + (summary.data?.approvals_pending?.netting_runs ?? 0);
+  const ap = summary.data?.approvals_pending;
+  const pending = (ap?.withdrawals ?? 0) + (ap?.netting_runs ?? 0) + (ap?.asset_requests ?? 0) + (ap?.deposits_held ?? 0);
   const nav: readonly (typeof NAV)[number][] = NAV.filter((n: (typeof NAV)[number]) => !('tesorero' in n) || can('tesorero'));
 
   const sidebar = (
