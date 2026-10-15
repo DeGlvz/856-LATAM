@@ -9,6 +9,7 @@ const BLOCKED = new Set(['suspended', 'closed']);
 export async function createObligation(o: {
   debtor_id: string; creditor_id: string; asset_id: string; amount: string;
   due_at?: string; external_ref?: string; metadata?: Record<string, unknown>;
+  origin_kind?: 'console' | 'api'; created_by?: string;
 }) {
   if (o.debtor_id === o.creditor_id) throw new LedgerError(422, 'Deudor y acreedor deben ser distintos', 'invalid_obligation');
   const { rows: parties } = await pool.query<{ id: string; status: string }>(
@@ -18,9 +19,11 @@ export async function createObligation(o: {
     throw new LedgerError(409, 'Cliente cerrado: no admite nuevas obligaciones', 'client_closed');
   }
   const { rows } = await pool.query(
-    `INSERT INTO obligations (debtor_id, creditor_id, asset_id, amount, due_at, external_ref, metadata)
-     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-    [o.debtor_id, o.creditor_id, o.asset_id, o.amount, o.due_at ?? null, o.external_ref ?? null, o.metadata ?? {}],
+    // Registro interno (consola o API global, solo con ORIGIN_RULE=off): nace abierta, como antes de la fase 4
+    `INSERT INTO obligations (debtor_id, creditor_id, asset_id, amount, due_at, external_ref, metadata, origin_kind, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+    [o.debtor_id, o.creditor_id, o.asset_id, o.amount, o.due_at ?? null, o.external_ref ?? null, o.metadata ?? {},
+      o.origin_kind ?? null, o.created_by ?? null],
   );
   return rows[0];
 }
@@ -54,9 +57,9 @@ export async function listObligations(f: ObligationFilter) {
 export async function cancelObligation(id: string, reason: string, by: string) {
   const { rows } = await pool.query(
     `UPDATE obligations SET status = 'cancelled', cancel_reason = $2, cancelled_at = now(), cancelled_by = $3
-      WHERE id = $1 AND status = 'open' RETURNING *`, [id, reason.trim(), by],
+      WHERE id = $1 AND status IN ('open','pending_acceptance') RETURNING *`, [id, reason.trim(), by],
   );
-  if (!rows[0]) throw new LedgerError(409, 'La obligación no existe o ya no está abierta', 'not_open');
+  if (!rows[0]) throw new LedgerError(409, 'La obligación no existe o ya no está abierta ni pendiente', 'not_open');
   return rows[0];
 }
 
