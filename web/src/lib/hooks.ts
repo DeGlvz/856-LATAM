@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { api, type Summary, type Asset } from './api';
+import { api, type Summary, type Asset, type NetworkInfo } from './api';
 
 export function useAssets() {
   const q = useQuery({ queryKey: ['assets'], queryFn: () => api<{ assets: (Asset & { active: boolean })[] }>('/assets').then((r) => r.assets), staleTime: 5 * 60_000 });
@@ -25,4 +25,11 @@ export const ENTRY_KIND: Record<string, string> = {
 export function useConsoleOriginates() {
   const q = useQuery({ queryKey: ['summary'], queryFn: () => api<Summary>('/summary'), staleTime: 60_000 });
   return q.data ? q.data.origin_rule !== 'enforce' : false;
+}
+
+/** Multi-red: redes encendidas (etiqueta, explorador y confirmaciones por red). */
+export function useNetworks() {
+  const q = useQuery({ queryKey: ['networks'], queryFn: () => api<{ networks: NetworkInfo[] }>('/networks').then((r) => r.networks), staleTime: 5 * 60_000 });
+  const byId = (id: string) => q.data?.find((n) => n.id === id);
+  return { ...q, networks: q.data ?? [], byId, label: (id: string) => byId(id)?.label ?? id, explorer: (id: string) => byId(id)?.explorer ?? 'https://sepolia.etherscan.io' };
 }
