@@ -57,6 +57,7 @@ export interface Summary {
   sweeps_open: number;
   clients_by_status: Record<string, number>;
   approvals_pending?: { withdrawals: number; netting_runs: number; exits_overdue?: number };
+  obligations_pending?: { total: number; expiring_24h: number };
   dual_approval?: 'off' | 'console' | 'all';
   origin_rule?: 'off' | 'enforce';
 }
@@ -134,13 +135,16 @@ export interface SweepRow {
 }
 
 // ───────────── Fase 4: compensación ─────────────
-export type ObligationStatus = 'open' | 'settled' | 'cancelled';
+export type ObligationStatus = 'pending_acceptance' | 'open' | 'settled' | 'cancelled' | 'rejected' | 'expired';
 export interface ObligationRow {
   id: string; debtor_id: string; debtor_name: string; debtor_status: ClientStatus;
   creditor_id: string; creditor_name: string; creditor_status: ClientStatus;
   asset_id: string; amount: string; due_at: string | null; external_ref: string | null; status: ObligationStatus;
   netting_run_id: string | null; metadata: Record<string, unknown>; created_at: string; settled_at: string | null;
   cancel_reason: string | null; cancelled_at: string | null; cancelled_by: string | null;
+  // Fase 4 del portal: aceptación por el deudor
+  accept_due_at?: string | null; accepted_by?: string | null; accepted_at?: string | null;
+  rejected_by?: string | null; rejected_at?: string | null; rejected_reason?: string | null; origin_kind?: string | null; created_by?: string | null;
 }
 export interface NettingPosition {
   client_id: string; client_name: string; client_status: ClientStatus;

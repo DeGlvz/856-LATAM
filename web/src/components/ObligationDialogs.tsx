@@ -16,8 +16,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 
-export const OB_STATUS: Record<ObligationStatus, { label: string; variant: 'warning' | 'success' | 'outline' }> = {
-  open: { label: 'Abierta', variant: 'warning' }, settled: { label: 'Liquidada', variant: 'success' }, cancelled: { label: 'Cancelada', variant: 'outline' },
+export const OB_STATUS: Record<ObligationStatus, { label: string; plural: string; variant: 'warning' | 'success' | 'outline' | 'secondary' | 'destructive' }> = {
+  pending_acceptance: { label: 'Por aceptar', plural: 'Por aceptar', variant: 'secondary' },
+  open: { label: 'Abierta', plural: 'Abiertas', variant: 'warning' }, settled: { label: 'Liquidada', plural: 'Liquidadas', variant: 'success' },
+  cancelled: { label: 'Cancelada', plural: 'Canceladas', variant: 'outline' },
+  rejected: { label: 'Rechazada', plural: 'Rechazadas', variant: 'destructive' }, expired: { label: 'Vencida', plural: 'Vencidas', variant: 'outline' },
 };
 const OB_KEYS = ['obligations', 'netting-preview', 'client'];
 
@@ -125,11 +128,18 @@ export function ObligationDialog({ obligation: o, onClose, onOpenRun }: { obliga
           <dt className="text-muted-foreground">Creada</dt><dd>{fmtDate(o.created_at)}</dd>
           {o.status === 'settled' && <><dt className="text-muted-foreground">Liquidada</dt><dd>{o.settled_at ? fmtDate(o.settled_at) : '—'}
             {o.netting_run_id && onOpenRun && <Button variant="link" size="sm" className="h-auto px-2" onClick={() => onOpenRun(o.netting_run_id!)}>Ver corrida</Button>}</dd></>}
+          {o.status === 'pending_acceptance' && o.accept_due_at && <><dt className="text-muted-foreground">Aceptación</dt>
+            <dd>El deudor debe aceptarla en su portal antes de {fmtDate(o.accept_due_at)}</dd></>}
+          {o.accepted_at && <><dt className="text-muted-foreground">Aceptada</dt><dd>{fmtDate(o.accepted_at)}{o.accepted_by && <span className="text-muted-foreground"> · {o.accepted_by}</span>}</dd></>}
+          {o.status === 'rejected' && <><dt className="text-muted-foreground">Rechazada</dt>
+            <dd>{o.rejected_at ? fmtDate(o.rejected_at) : '—'}{o.rejected_by && <span className="text-muted-foreground"> · {o.rejected_by}</span>}
+              {o.rejected_reason && <div className="text-muted-foreground">«{o.rejected_reason}»</div>}</dd></>}
+          {o.created_by && <><dt className="text-muted-foreground">Registró</dt><dd>{o.created_by}</dd></>}
           {o.status === 'cancelled' && <><dt className="text-muted-foreground">Cancelada</dt>
             <dd>{o.cancelled_at ? fmtDate(o.cancelled_at) : '—'}{o.cancelled_by && <span className="text-muted-foreground"> · {o.cancelled_by}</span>}
               {o.cancel_reason && <div className="text-muted-foreground">«{o.cancel_reason}»</div>}</dd></>}
         </dl>
-        {o.status === 'open' && can('ejecutivo') && (
+        {(o.status === 'open' || o.status === 'pending_acceptance') && can('ejecutivo') && (
           <form className="grid gap-2 rounded-md border border-destructive/30 p-3" onSubmit={(e: FormEvent) => { e.preventDefault(); cancel.mutate(); }}>
             <p className="text-sm">Al cancelarla sale de los siguientes cortes. No mueve saldo y queda en la bitácora con el motivo.</p>
             <Textarea aria-label="Motivo de cancelación" placeholder="Motivo (mín. 5 caracteres), p. ej. OC duplicada" maxLength={500} rows={2} value={reason} onChange={(e) => setReason(e.target.value)} />

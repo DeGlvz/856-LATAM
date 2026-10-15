@@ -12,6 +12,7 @@ import { registerPendingAddresses } from './deposit-addresses.js';
 import { sweepStep } from './sweeps.js';
 import { bumpNow, bumpStuck, findReceipt, listAttempts, recordOriginal } from '../chain/replace.js';
 import { decodeCursor, page } from '../pagination.js';
+import { expirePending } from '../portal/obligations.js';
 
 const MAX_ATTEMPTS = 5;
 const lower = (a: string) => a.toLowerCase();
@@ -558,6 +559,7 @@ export async function workerTick(log: Logger) {
       await creditConfirmedDeposits(log);
       await registerPendingAddresses(log);
       await sweepStep(log);
+      await expirePending(); // fase 4: aceptaciones de obligaciones fuera de plazo
       return { ok: true };
     } finally {
       await c.query('SELECT pg_advisory_unlock(856003)');

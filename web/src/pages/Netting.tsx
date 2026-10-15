@@ -5,7 +5,7 @@ import { AlertTriangle, ArrowLeft, CheckCircle2, Info, Loader2, Play, Plus, Scal
 import { api, newIdemKey, type NettingPreview, type NettingRunDetail, type NettingRunRow, type ObligationRow, type ObligationStatus, type RunStatus, type Summary } from '@/lib/api';
 import { ago, exactUnits } from '@/lib/amount';
 import { useAuth } from '@/lib/auth';
-import { useAssets } from '@/lib/hooks';
+import { useAssets, useConsoleOriginates } from '@/lib/hooks';
 import { Amount, CopyButton, ErrorBox, Field, fmtDate, StatusBadge } from '@/components/common';
 import { EntryDialog } from '@/components/EntryDialog';
 import { ApprovalPanel } from '@/components/ApprovalPanel';
@@ -29,6 +29,7 @@ const pct = (bps: number) => `${(bps / 100).toLocaleString('es-MX', { maximumFra
 
 export function Netting() {
   const { can } = useAuth();
+  const originates = useConsoleOriginates(); // fase 4: con la regla de origen las registra el cliente en su portal
   const { assets } = useAssets();
   const [sp, setSp] = useSearchParams();
   const tab = (sp.get('tab') as Tab) || 'obligaciones';
@@ -53,7 +54,7 @@ export function Netting() {
           <p className="text-sm text-muted-foreground">Obligaciones entre clientes y liquidación multilateral por el neto, en un solo asiento.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {can('ejecutivo') && <Button variant="outline" onClick={() => setNewOb(true)}><Plus />Nueva obligación</Button>}
+          {can('ejecutivo') && originates && <Button variant="outline" onClick={() => setNewOb(true)}><Plus />Nueva obligación</Button>}
           <Button onClick={() => set('tab', 'simular')}><Scale />Simular corrida</Button>
         </div>
       </div>
@@ -99,7 +100,7 @@ function ObligationsTab({ assetId, sp, set, selected, toggle, onOpen, onSimulate
     <Card className="py-2"><CardContent className="grid gap-3 px-3">
       <div className="flex flex-wrap items-center gap-3 pt-2">
         <Select aria-label="Estado" className="h-9 w-44" value={status} onChange={(e) => set('status', e.target.value === 'open' ? null : e.target.value)}>
-          {Object.entries(OB_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}s</option>)}
+          {Object.entries(OB_STATUS).map(([k, v]) => <option key={k} value={k}>{v.plural}</option>)}
           <option value="all">Todas</option>
         </Select>
         <Input aria-label="Buscar referencia" className="h-9 w-64" placeholder="Referencia (OC, factura, CFDI)" value={refText} onChange={(e) => setRefText(e.target.value)} />

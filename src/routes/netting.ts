@@ -4,6 +4,7 @@ import { idempotent } from '../idempotency.js';
 import { LedgerError } from '../ledger/service.js';
 import * as N from '../ledger/netting.js';
 import { assertApprover, decider, requester } from '../ledger/approvals.js';
+import { assertConsoleMayOriginate } from '../ledger/origin.js';
 
 const amount = z.string().regex(/^[1-9]\d{0,77}$/, 'entero positivo en unidades base');
 const uuid = z.string().uuid();
@@ -24,7 +25,7 @@ const ObligationBody = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 const ObligationQuery = z.object({
-  client_id: uuid.optional(), status: z.enum(['open', 'settled', 'cancelled']).optional(), asset_id: z.string().optional(),
+  client_id: uuid.optional(), status: z.enum(['pending_acceptance', 'open', 'settled', 'cancelled', 'rejected', 'expired']).optional(), asset_id: z.string().optional(),
   external_ref: z.string().trim().min(1).max(200).optional(), from: ts.optional(), to: ts.optional(),
   netting_run_id: uuid.optional(), limit: z.coerce.number().int().min(1).max(1000).default(100), cursor: z.string().max(300).optional(),
 });
@@ -39,8 +40,17 @@ const RunsQuery = z.object({
 });
 
 export async function nettingRoutes(app: FastifyInstance) {
-  app.post('/obligations', async (req, reply) =>
-    idempotent(req, reply, async () => ({ status: 201, body: await N.createObligation(parse(ObligationBody, req.body)) })));
+  app.post('/obligations', async (req, reply) => {
+    // Fase 4: con ORIGIN_RULE=enforce solo el cliente registra obligaciones (portal o su llave); la consola no origina
+    await assertConsoleMayOriginate(req, 'obligation', (req.body as { creditor_id?: string } | undefined)?.creditor_id ?? null);
+    return idempotent(req, reply, async () => ({
+      status: 201,
+      body: await N.createObligation({
+        ...parse(ObligationBody, req.body),
+        origin_kind: req.principal?.kind === 'operator' ? 'console' : 'api', created_by: actor(req),
+      }),
+    }));
+  });
   app.get('/obligations', async (req) => N.listObligations(parse(ObligationQuery, req.query)));
   app.post<{ Params: { id: string } }>('/obligations/:id/cancel', async (req) =>
     N.cancelObligation(parse(uuid, req.params.id), parse(CancelBody, req.body ?? {}).reason, actor(req)));

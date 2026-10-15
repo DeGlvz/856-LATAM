@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import {
-  Activity, AlertTriangle, CheckCircle2, Database, ExternalLink, Fuel, RefreshCw, Scale, Send, Users, XCircle,
+  Activity, AlertTriangle, Info, CheckCircle2, Database, ExternalLink, Fuel, RefreshCw, Scale, Send, Users, XCircle,
 } from 'lucide-react';
 import { api, type Asset, type InflightWithdrawal, type PortalAlert, type ReconBalance, type Summary } from '@/lib/api';
 import { WdBadge } from '@/components/WithdrawalDialogs';
@@ -50,6 +50,14 @@ export function Dashboard() {
           <AlertTriangle className="size-4" />
           {s.approvals_pending.exits_overdue} salida(s) de clientes rebasaron el tiempo objetivo de validación.
           <Link to="/aprobaciones" className="font-medium underline">Ir a Aprobaciones</Link>
+        </div>
+      )}
+
+      {!!s?.obligations_pending?.expiring_24h && (
+        <div role="status" data-alert="obligations_expiring" className="flex flex-wrap items-center gap-2 rounded-lg border px-4 py-3 text-sm">
+          <Info className="size-4" />
+          {s.obligations_pending.expiring_24h} de {s.obligations_pending.total} obligación(es) por aceptar vencen en menos de 24 h. La acepta o rechaza el deudor en su portal.
+          <Link to="/compensacion?status=pending_acceptance" className="font-medium underline">Ver obligaciones</Link>
         </div>
       )}
 
