@@ -13,18 +13,28 @@ import { createPublicClient, http, type PublicClient } from 'viem';
 import { config } from '../config.js';
 import { HttpError } from '../idempotency.js';
 
-interface Known { chainId: number; explorer: string; native: string; label: string }
-/** Redes de prueba conocidas (los chainId se verifican al arrancar contra la propia red). */
+interface Known { chainId: number; explorer: string; native: string; label: string; env: 'test' | 'main' }
+/**
+ * Redes conocidas (los chainId se verifican al arrancar contra la propia red).
+ * env: 'test' solo puede encenderse con ENVIRONMENT=sandbox; 'main' solo con ENVIRONMENT=production (fase M1).
+ */
 export const KNOWN: Record<string, Known> = {
-  'eth-sepolia': { chainId: 11155111, explorer: 'https://sepolia.etherscan.io', native: 'ETH', label: 'Ethereum Sepolia' },
-  'base-sepolia': { chainId: 84532, explorer: 'https://sepolia.basescan.org', native: 'ETH', label: 'Base Sepolia' },
-  'arb-sepolia': { chainId: 421614, explorer: 'https://sepolia.arbiscan.io', native: 'ETH', label: 'Arbitrum Sepolia' },
-  'polygon-amoy': { chainId: 80002, explorer: 'https://amoy.polygonscan.com', native: 'POL', label: 'Polygon Amoy' },
-  'bnb-testnet': { chainId: 97, explorer: 'https://testnet.bscscan.com', native: 'BNB', label: 'BNB Smart Chain Testnet' },
-  'opt-sepolia': { chainId: 11155420, explorer: 'https://sepolia-optimism.etherscan.io', native: 'ETH', label: 'OP Sepolia' },
-  'avax-fuji': { chainId: 43113, explorer: 'https://testnet.snowtrace.io', native: 'AVAX', label: 'Avalanche Fuji' },
-  'eth-mainnet': { chainId: 1, explorer: 'https://etherscan.io', native: 'ETH', label: 'Ethereum' },
+  'eth-sepolia': { chainId: 11155111, explorer: 'https://sepolia.etherscan.io', native: 'ETH', label: 'Ethereum Sepolia', env: 'test' },
+  'base-sepolia': { chainId: 84532, explorer: 'https://sepolia.basescan.org', native: 'ETH', label: 'Base Sepolia', env: 'test' },
+  'arb-sepolia': { chainId: 421614, explorer: 'https://sepolia.arbiscan.io', native: 'ETH', label: 'Arbitrum Sepolia', env: 'test' },
+  'polygon-amoy': { chainId: 80002, explorer: 'https://amoy.polygonscan.com', native: 'POL', label: 'Polygon Amoy', env: 'test' },
+  'bnb-testnet': { chainId: 97, explorer: 'https://testnet.bscscan.com', native: 'BNB', label: 'BNB Smart Chain Testnet', env: 'test' },
+  'opt-sepolia': { chainId: 11155420, explorer: 'https://sepolia-optimism.etherscan.io', native: 'ETH', label: 'OP Sepolia', env: 'test' },
+  'avax-fuji': { chainId: 43113, explorer: 'https://testnet.snowtrace.io', native: 'AVAX', label: 'Avalanche Fuji', env: 'test' },
+  // Fase M1 — redes principales (dinero real)
+  'eth-mainnet': { chainId: 1, explorer: 'https://etherscan.io', native: 'ETH', label: 'Ethereum', env: 'main' },
+  'base-mainnet': { chainId: 8453, explorer: 'https://basescan.org', native: 'ETH', label: 'Base', env: 'main' },
+  'arb-mainnet': { chainId: 42161, explorer: 'https://arbiscan.io', native: 'ETH', label: 'Arbitrum One', env: 'main' },
+  'bnb-mainnet': { chainId: 56, explorer: 'https://bscscan.com', native: 'BNB', label: 'BNB Smart Chain', env: 'main' },
 };
+/** Ambiente al que pertenece una red ('production' | 'sandbox'); null si no es conocida. */
+export const envOfNetwork = (id: string): 'production' | 'sandbox' | null =>
+  KNOWN[id] ? (KNOWN[id].env === 'main' ? 'production' : 'sandbox') : null;
 
 export interface Net {
   id: string; label: string; primary: boolean; client: PublicClient; rpcUrl: string; local: boolean;
@@ -44,8 +54,8 @@ function build(id: string): Net {
   return {
     id, label: k?.label ?? id, primary, rpcUrl, local: !!override,
     client: createPublicClient({ transport: http(rpcUrl, { retryCount: 2, timeout: 15_000 }) }) as PublicClient,
-    // Con RPC propio (cadena local de pruebas) no se exige el chainId público
-    expectedChainId: override ? null : k?.chainId ?? null, chainId: null, healthy: true, error: null,
+    // Con RPC propio (cadena local de pruebas) no se exige el chainId público, salvo en production (M1): ahí siempre
+    expectedChainId: override && config.ENVIRONMENT !== 'production' ? null : k?.chainId ?? null, chainId: null, healthy: true, error: null,
     confirmations: Number(env(`CONFIRMATIONS_${S}`) ?? config.CONFIRMATIONS),
     gasLowWei: BigInt(env(`GAS_LOW_WEI_${S}`) ?? config.GAS_LOW_WEI),
     maxFeeWei: BigInt(env(`GAS_BUMP_MAX_FEE_WEI_${S}`) ?? config.GAS_BUMP_MAX_FEE_WEI),
