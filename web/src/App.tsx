@@ -1,4 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router';
+import { EnvBanner } from '@/components/EnvBanner';
 import type { ReactNode } from 'react';
 import { useAuth } from './lib/auth';
 import type { Role } from './lib/api';
@@ -33,6 +34,7 @@ function RequireRole({ role, children }: { role: Role; children: ReactNode }) {
 export default function App() {
   return (
     <BrowserRouter basename="/console">
+      <EnvBanner />
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/invitacion" element={<OperatorInvitation />} />
