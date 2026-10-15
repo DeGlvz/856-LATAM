@@ -61,6 +61,8 @@ export interface Summary {
   networks?: NetworkStatus[];
   dual_approval?: 'off' | 'console' | 'all';
   origin_rule?: 'off' | 'enforce';
+  environment?: 'production' | 'sandbox';
+  treasurers?: { active_with_2fa: number; single: boolean };
 }
 
 // ───────────── Fase 2: clientes, cuentas, asientos ─────────────
