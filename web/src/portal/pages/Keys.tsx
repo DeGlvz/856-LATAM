@@ -89,11 +89,12 @@ function KeyDialog({ open, onClose, rotate, maxDays }: { open: boolean; onClose:
   const [pass2, setPass2] = useState('');
   const [code, setCode] = useState('');
   const [withdraw, setWithdraw] = useState(false);
+  const [trade, setTrade] = useState(false);
   const [supported, setSupported] = useState<boolean | null>(null);
   const [result, setResult] = useState<{ prefix: string; token?: string; file?: boolean } | null>(null);
   useEffect(() => {
     if (!open) return;
-    setName(''); setIps(''); setDays(String(maxDays)); setPass(''); setPass2(''); setCode(''); setResult(null); setWithdraw(false);
+    setName(''); setIps(''); setDays(String(maxDays)); setPass(''); setPass2(''); setCode(''); setResult(null); setWithdraw(false); setTrade(false);
     setKind(rotate?.kind ?? 'ed25519');
     ed25519Supported().then(setSupported);
   }, [open, rotate, maxDays]);
@@ -102,7 +103,7 @@ function KeyDialog({ open, onClose, rotate, maxDays }: { open: boolean; onClose:
   const m = useMutation({
     mutationFn: async () => {
       const common = {
-        ...(rotate ? {} : { name: name.trim(), kind, ...(kind === 'ed25519' && withdraw ? { permissions: ['read', 'withdraw'] } : {}) }),
+        ...(rotate ? {} : { name: name.trim(), kind, ...(kind === 'ed25519' && (withdraw || trade) ? { permissions: ['read', ...(withdraw ? ['withdraw'] : []), ...(trade ? ['trade'] : [])] } : {}) }),
         ...(ips.trim() ? { ip_allowlist: ips.split(/[\s,]+/).filter(Boolean) } : {}),
         expires_days: Number(days), code,
       };
@@ -157,6 +158,12 @@ function KeyDialog({ open, onClose, rotate, maxDays }: { open: boolean; onClose:
                   ))}
                 </div>
               </>
+            )}
+            {!rotate && ed && (
+              <label className="flex items-start gap-2 rounded-md border p-3 text-sm">
+                <input type="checkbox" className="mt-1" checked={trade} onChange={(e) => setTrade(e.target.checked)} aria-label="Permitir registrar y aceptar obligaciones" />
+                <span><span className="font-medium">Permitir registrar y aceptar obligaciones</span><span className="block text-xs text-muted-foreground">La llave podrá registrar obligaciones por cobrar (también por CSV) y aceptar o rechazar las que le registren, hasta su umbral de aprobación interna.</span></span>
+              </label>
             )}
             {!rotate && ed && (
               <label className="flex items-start gap-2 rounded-md border p-3 text-sm">

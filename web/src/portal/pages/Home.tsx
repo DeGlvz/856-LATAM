@@ -4,6 +4,7 @@ import { ArrowRight, KeyRound, ShieldCheck, Users } from 'lucide-react';
 import { papi, ROLE_HELP, ROLE_LABEL, type ActivityLine, type BalanceRow, type Notice } from '../api';
 import { usePortal } from '../auth';
 import { Money, NoticesBand } from '../money';
+import { CounterpartyCode } from './Obligations';
 import { ErrorBox, StatusBadge, fmtDate } from '@/components/common';
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -23,6 +24,7 @@ export function Home() {
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Bienvenido, {me.user.name.split(' ')[0]}</h1>
         <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">{me.client.name} <StatusBadge status={me.client.status as ClientStatus} /></p>
+        <div className="mt-2"><CounterpartyCode compact /></div>
       </div>
 
       <NoticesBand notices={notices.data?.notices ?? []} isAdmin={isAdmin} />
