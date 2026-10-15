@@ -22,11 +22,14 @@ import { getSigner } from './chain/signer.js';
 import { pool } from './db.js';
 import { migrate } from './migrations/index.js';
 import { ensureAllSystemAccounts } from './ledger/service.js';
+import { clientAssetRoutes } from './routes/client-assets.js';
+import { verifyNetworks } from './chain/networks.js';
 
 const app = Fastify({ logger: true, trustProxy: true });
 
 if (config.MIGRATE_ON_START) await migrate(pool, (m) => app.log.info(m));
 await ensureAllSystemAccounts();
+await verifyNetworks(app.log);
 await ensureHotWalletRegistered();
 await bootstrapOperator(app.log);
 
@@ -108,6 +111,7 @@ await app.register(async (v1) => {
   await v1.register(ledgerRoutes);
   await v1.register(nettingRoutes);
   await v1.register(transferRoutes);
+  await v1.register(clientAssetRoutes);
 }, { prefix: '/v1' });
 
 // Portal de clientes: autenticación propia y aislada (no hereda los hooks de /v1)
