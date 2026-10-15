@@ -39,6 +39,7 @@ const LINK: Record<string, { to: string; text: string; admin?: boolean }> = {
   admins_below_minimum: { to: '/usuarios', text: 'Invitar a otro administrador', admin: true },
   api_key_expiring: { to: '/llaves', text: 'Rotar llave', admin: true },
   totp_disabled: { to: '/seguridad', text: 'Activar 2FA' },
+  obligations_to_accept: { to: '/obligaciones?tab=aceptar', text: 'Revisar obligaciones' },
 };
 
 export function NoticesBand({ notices, isAdmin }: { notices: Notice[]; isAdmin: boolean }) {

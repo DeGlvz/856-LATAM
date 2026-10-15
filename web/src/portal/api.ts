@@ -128,3 +128,32 @@ export const WL_STATE: Record<WlState, { t: string; v: 'warning' | 'success' | '
 /** Rango del rol del cliente para mostrar u ocultar acciones (el servidor vuelve a validarlo). */
 export const roleAtLeast = (r: ClientRole | null | undefined, min: ClientRole) =>
   !!r && (['viewer', 'operator', 'approver', 'admin'] as const).indexOf(r) >= (['viewer', 'operator', 'approver', 'admin'] as const).indexOf(min);
+
+// ───────────── Fase 4: obligaciones y compensación ─────────────
+export type ObStatus = 'pending_acceptance' | 'open' | 'settled' | 'cancelled' | 'rejected' | 'expired';
+export interface ObRow {
+  id: string; role: 'creditor' | 'debtor'; counterparty: { name: string };
+  asset_id: string; symbol: string; decimals: number; amount: string; external_ref: string | null; due_at: string | null;
+  status: ObStatus; accept_due_at: string | null; accepted_at: string | null; rejected_at: string | null; rejected_reason: string | null;
+  cancelled_at: string | null; cancel_reason: string | null; netting_run_id: string | null; settled_at: string | null; in_pending_run: boolean;
+  origin: { kind: string; user: string | null; key: string | null } | null; import_id: string | null; created_at: string;
+}
+export interface ObImport {
+  id: string; filename: string | null; status: 'validated' | 'committed' | 'discarded'; total_rows: number; valid_rows: number; error_rows: number;
+  errors: { row: number; field: string; message: string }[];
+  preview: { row: number; counterparty: string; asset_id: string; amount: string; external_ref: string | null; due_at: string | null }[];
+  created?: number;
+}
+export interface MyPosition {
+  asset_id: string; symbol: string; decimals: number; open_obligations: number; receivable: string; payable: string; net: string;
+  gross: string; savings: string; savings_bps: number; available: string | null; shortfall: string;
+}
+export interface MyRunRow { id: string; asset_id: string; symbol: string; decimals: number; decided_at: string; created_at: string; receivable: string; payable: string; net: string }
+export interface MyRun extends MyRunRow {
+  entry: { id: string; direction: 'debit' | 'credit'; kind: 'abono' | 'cargo'; amount: string; balance_after: string; created_at: string } | null;
+  obligations: ObRow[];
+}
+export const OB_STATE: Record<ObStatus, { t: string; v: 'warning' | 'success' | 'destructive' | 'secondary' | 'outline' }> = {
+  pending_acceptance: { t: 'Por aceptar', v: 'warning' }, open: { t: 'Aceptada', v: 'secondary' }, settled: { t: 'Liquidada', v: 'success' },
+  cancelled: { t: 'Cancelada', v: 'outline' }, rejected: { t: 'Rechazada', v: 'destructive' }, expired: { t: 'Vencida', v: 'outline' },
+};

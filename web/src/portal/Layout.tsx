@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink, Outlet } from 'react-router';
-import { ArrowDownToLine, ArrowUpFromLine, ListChecks, Home as HomeIcon, KeyRound, Landmark, LogOut, Menu, ShieldCheck, Users as UsersIcon, X, Wallet } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpFromLine, FileText, ListChecks, Network, Home as HomeIcon, KeyRound, Landmark, LogOut, Menu, ShieldCheck, Users as UsersIcon, X, Wallet } from 'lucide-react';
 import { usePortal } from './auth';
 import { ROLE_LABEL } from './api';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,8 @@ const NAV = [
   { to: '/depositos', label: 'Depósitos', icon: ArrowDownToLine },
   { to: '/salidas', label: 'Salidas', icon: ArrowUpFromLine },
   { to: '/lista-blanca', label: 'Lista blanca', icon: ListChecks },
+  { to: '/obligaciones', label: 'Obligaciones', icon: FileText },
+  { to: '/compensacion', label: 'Compensación', icon: Network },
   { to: '/usuarios', label: 'Usuarios', icon: UsersIcon, admin: true },
   { to: '/llaves', label: 'Llaves de API', icon: KeyRound, admin: true },
   { to: '/seguridad', label: 'Seguridad', icon: ShieldCheck },
