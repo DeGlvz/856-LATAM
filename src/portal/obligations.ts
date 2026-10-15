@@ -8,6 +8,7 @@ import { HttpError } from '../idempotency.js';
 import { decodeCursor, page } from '../pagination.js';
 import { previewNetting } from '../ledger/netting.js';
 import { consumeTotp, roleAtLeast, type PortalPrincipal } from './identity.js';
+import { assertAssetEnabled, assetStatus } from '../ledger/client-assets.js';
 
 const NOT_FOUND = (what: string) => new HttpError(404, `${what} no encontrada`, 'not_found');
 const CODE_RE = /^856-[23456789ABCDEFGHJKMNPQRSTVWXYZ]{4}-[23456789ABCDEFGHJKMNPQRSTVWXYZ]{4}$/;
@@ -113,6 +114,10 @@ async function insertObligation(c: Tx, me: string, b: NewObligation, origin: Ori
   if (cp.status === 'closed') throw new HttpError(409, 'La contraparte está cerrada: no admite obligaciones', 'counterparty_closed');
   const { rows: [a] } = await c.query('SELECT id FROM assets WHERE id = $1 AND active', [b.asset_id]);
   if (!a) throw new HttpError(422, `Activo no disponible: ${b.asset_id}`, 'asset_not_found');
+  // Multi-red: el acreedor debe poder recibir el activo; el deudor, disponer de él
+  await assertAssetEnabled(c, me, b.asset_id, 'in');
+  const ds = await assetStatus(c, cp.id, b.asset_id);
+  if (!ds) throw new HttpError(422, `Su contraparte no tiene habilitado ${b.asset_id}`, 'counterparty_asset_not_enabled');
   if (b.external_ref) {
     const { rows: [dup] } = await c.query(
       `SELECT id FROM obligations WHERE creditor_id = $1 AND debtor_id = $2 AND asset_id = $3 AND external_ref = $4
@@ -154,6 +159,7 @@ export async function acceptObligation(p: PortalPrincipal, id: string, code?: st
   const origin = tradeOrigin(p);
   await tx(async (c) => {
     const o = await lockAsDebtor(c, p.clientId, id);
+    await assertAssetEnabled(c, p.clientId, o.asset_id, 'out');
     const { rows: [t] } = await c.query(
       'SELECT threshold FROM client_approval_thresholds WHERE client_id = $1 AND asset_id = $2', [p.clientId, o.asset_id]);
     if (t && BigInt(o.amount) >= BigInt(t.threshold)) {
@@ -256,6 +262,10 @@ export async function validateImport(p: PortalPrincipal, filename: string | unde
     `SELECT debtor_id, asset_id, external_ref FROM obligations
       WHERE creditor_id = $1 AND external_ref IS NOT NULL AND status IN ('pending_acceptance','open')`, [p.clientId]);
   const seen = new Set(existing.map((e) => `${e.debtor_id}|${e.asset_id}|${e.external_ref}`));
+  // Multi-red: activos habilitados del acreedor (recibir) y de las contrapartes (cualquier estado)
+  const { rows: en } = await pool.query<{ client_id: string; asset_id: string; status: string }>(
+    'SELECT client_id, asset_id, status FROM client_assets WHERE client_id = ANY($1)', [[p.clientId, ...cps.map((x) => x.id)]]);
+  const enabled = new Map(en.map((e) => [`${e.client_id}|${e.asset_id}`, e.status]));
 
   const errors: RowError[] = [];
   const valid: (NewObligation & { row: number; counterparty_name: string })[] = [];
@@ -271,6 +281,8 @@ export async function validateImport(p: PortalPrincipal, filename: string | unde
     const asset = assetById.get(assetId);
     if (!asset) err('activo', `Activo no disponible: ${assetId || '(vacío)'}`);
     const amount = asset ? toBaseUnits(r[idx.monto] ?? '', asset.decimals) : null;
+    if (asset && enabled.get(`${p.clientId}|${asset.id}`) !== 'enabled') err('activo', `No tiene habilitado ${asset.id} para recibir`);
+    else if (asset && cp && !enabled.has(`${cp.id}|${asset.id}`)) err('activo', `La contraparte no tiene habilitado ${asset.id}`);
     if (asset && !amount) err('monto', `Monto inválido: use punto decimal, sin separadores de miles y hasta ${asset.decimals} decimales`);
     const ref = idx.referencia >= 0 ? (r[idx.referencia] ?? '').trim() : '';
     if (ref.length > 200) err('referencia', 'Máximo 200 caracteres');

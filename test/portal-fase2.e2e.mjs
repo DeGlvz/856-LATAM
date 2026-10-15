@@ -120,13 +120,13 @@ await entry(ACC_U, USDC, 'credit', BIG, 'big');
 // ═════ Direcciones de depósito (operador+), rotación y depósito real en Hardhat
 check('viewer no genera direcciones → 403', (await v.call('POST', '/deposit-addresses', {})).body?.code, 'forbidden');
 const d1 = await o.call('POST', '/deposit-addresses', {});
-check('operador genera dirección → 201 con uri para QR', `${d1.status} ${d1.body.uri === `ethereum:${d1.body.address}`} ${d1.body.active}`, '201 true true');
+check('operador genera dirección → 201 con uri para QR', `${d1.status} ${/^ethereum:0x[0-9a-fA-F]{40}@\d+$/.test(d1.body.uri) && d1.body.uri.startsWith(`ethereum:${d1.body.address}@`)} ${d1.body.active}`, '201 true true');
 check('  …red no soportada → 422', (await o.call('POST', '/deposit-addresses', { network: 'tron-nile' })).body.code, 'network_not_supported');
 const d2 = await o.call('POST', '/deposit-addresses', { network: 'eth-sepolia' });
 check('rotar = generar otra (índice HD mayor)', d2.body.address !== d1.body.address && d2.body.derivation_index > d1.body.derivation_index, true);
 const das = (await v.call('GET', '/deposit-addresses')).body.addresses;
 check('viewer lista ambas direcciones, las dos activas', `${das.length} ${das.every((x) => x.active)}`, '2 true');
-check('  …campos públicos solamente', Object.keys(das[0]).sort().join(), 'active,address,created_at,derivation_index,id,network,uri');
+check('  …campos públicos solamente', Object.keys(das[0]).sort().join(), 'active,address,created_at,derivation_index,explorer,id,network,network_label,uri');
 
 const DEP_AMT = 777123456n;
 const h = await funder.writeContract({ address: TOKEN, abi: erc20Abi, functionName: 'transfer', args: [d1.body.address, DEP_AMT] });

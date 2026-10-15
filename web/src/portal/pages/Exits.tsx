@@ -5,7 +5,7 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, Check, CheckCircle2, Circle, ExternalLink, Loader2, Plus, Settings2, X } from 'lucide-react';
 import {
-  EXIT_STATE, explorerFor, papi, roleAtLeast,
+  EXIT_STATE, explorerFor, nativeOf, netLabel, papi, roleAtLeast,
   type BalanceRow, type ExitRow, type ExitState, type Simulation, type ThresholdRow, type WlEntry,
 } from '../api';
 import { usePortal } from '../auth';
@@ -129,8 +129,11 @@ function ExitWizard({ open, onClose }: { open: boolean; onClose: () => void }) {
 
   const a = bal.data?.balances.find((b) => b.asset_id === asset);
   const dest = list.data?.entries.find((w) => w.id === wl);
-  const usable = (list.data?.entries ?? []).filter((w) => w.state === 'active');
-  const cooling = (list.data?.entries ?? []).filter((w) => w.state === 'cooling' || w.state === 'pending_approval');
+  // Multi-red: solo destinos de la misma red que el activo
+  const sameNet = (w: WlEntry) => !a || w.network === a.network;
+  const usable = (list.data?.entries ?? []).filter((w) => w.state === 'active' && sameNet(w));
+  const otherNet = (list.data?.entries ?? []).filter((w) => w.state === 'active' && !sameNet(w)).length;
+  const cooling = (list.data?.entries ?? []).filter((w) => (w.state === 'cooling' || w.state === 'pending_approval') && sameNet(w));
   const base = a ? parseUnits(text, a.decimals) : null;
   const over = !!a && !!base && BigInt(base) > BigInt(a.available);
 
@@ -166,9 +169,10 @@ function ExitWizard({ open, onClose }: { open: boolean; onClose: () => void }) {
             {bal.data?.balances.map((b) => {
               const none = BigInt(b.available) <= 0n;
               return (
-                <button key={b.asset_id} type="button" role="radio" aria-checked={asset === b.asset_id} disabled={none} onClick={() => setAsset(b.asset_id)}
+                <button key={b.asset_id} type="button" role="radio" aria-checked={asset === b.asset_id} disabled={none} onClick={() => { setAsset(b.asset_id); setWl(''); }}
                   className={cn('flex items-center justify-between rounded-md border p-3 text-left text-sm disabled:opacity-50', asset === b.asset_id ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'hover:bg-accent')}>
-                  <span className="font-medium">{b.symbol} <span className="text-xs font-normal text-muted-foreground">{b.network}</span></span>
+                  <span className="font-medium">{b.symbol} <span className="text-xs font-normal text-muted-foreground">{netLabel(b.network)}</span>
+                    {b.asset_status === 'exit_only' && <Badge variant="secondary" className="ml-2">Solo salida</Badge>}</span>
                   <span className="text-xs">Disponible <Money v={b.available} decimals={b.decimals} symbol={b.symbol} /></span>
                 </button>
               );
@@ -179,13 +183,14 @@ function ExitWizard({ open, onClose }: { open: boolean; onClose: () => void }) {
         {step === 1 && (
           <div className="grid gap-2" role="radiogroup" aria-label="Destino">
             <ErrorBox error={list.error} />
-            {!usable.length && <p className="text-sm text-muted-foreground">No tiene direcciones vigentes. <Link to="/lista-blanca" className="underline" onClick={onClose}>Agregue una a su lista blanca</Link>.</p>}
+            {!usable.length && <p className="text-sm text-muted-foreground">No tiene direcciones vigentes{a ? ` en ${netLabel(a.network)}` : ''}. <Link to="/lista-blanca" className="underline" onClick={onClose}>Agregue una a su lista blanca</Link>.</p>}
             {usable.map((w) => (
               <button key={w.id} type="button" role="radio" aria-checked={wl === w.id} onClick={() => setWl(w.id)}
                 className={cn('grid gap-0.5 rounded-md border p-3 text-left text-sm', wl === w.id ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'hover:bg-accent')}>
                 <span className="font-medium">{w.label ?? 'Sin etiqueta'}</span><code className="font-mono text-xs break-all">{w.address}</code>
               </button>
             ))}
+            {otherNet > 0 && <p className="text-xs text-muted-foreground">{otherNet} dirección(es) de otra red no aplican para {a?.symbol}.</p>}
             {!!cooling.length && <p className="text-xs text-muted-foreground">{cooling.length} dirección(es) aún no se pueden usar (por aprobar o en espera).</p>}
           </div>
         )}
@@ -211,10 +216,10 @@ function ExitWizard({ open, onClose }: { open: boolean; onClose: () => void }) {
               <dt className="text-muted-foreground">Monto exacto</dt><dd className="font-semibold" data-testid="sim-amount"><Money v={sim.amount} decimals={sim.decimals} symbol={sim.symbol} exact /></dd>
               <dt className="text-muted-foreground">Destino</dt><dd><code className="font-mono text-xs break-all">{sim.to_address}</code>{dest?.label && <div className="text-xs text-muted-foreground">{dest.label}</div>}</dd>
               <dt className="text-muted-foreground">Comisión 856</dt><dd><Money v={sim.fee} decimals={sim.decimals} symbol={sim.symbol} exact /></dd>
-              <dt className="text-muted-foreground">Gas de red</dt><dd className="text-xs">Lo paga 856{sim.gas_estimate ? ` (≈ ${formatUnits(sim.gas_estimate, 18)} ETH)` : ''}</dd>
+              <dt className="text-muted-foreground">Gas de red</dt><dd className="text-xs">Lo paga 856{sim.gas_estimate ? ` (≈ ${formatUnits(sim.gas_estimate, 18)} ${nativeOf(sim.network)})` : ''}</dd>
               <dt className="text-muted-foreground">Disponible ahora</dt><dd><Money v={sim.available} decimals={sim.decimals} symbol={sim.symbol} exact /></dd>
               <dt className="text-muted-foreground">Quedará</dt><dd><Money v={sim.balance_after} decimals={sim.decimals} symbol={sim.symbol} exact /></dd>
-              <dt className="text-muted-foreground">Red</dt><dd className="font-mono text-xs">{sim.network}</dd>
+              <dt className="text-muted-foreground">Red</dt><dd className="text-xs">{netLabel(sim.network)}</dd>
             </dl>
             {BigInt(sim.payable_open) > 0n && (
               <div role="status" className="rounded-md border border-warning/60 bg-warning/10 p-3 text-xs">

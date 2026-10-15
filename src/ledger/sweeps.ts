@@ -1,5 +1,5 @@
 import { encodeFunctionData, erc20Abi, keccak256, type Address, type Hash, type Hex } from 'viem';
-import { client } from '../chain.js';
+import { chainIdOf, type Net } from '../chain/networks.js';
 import { nextNonce } from '../chain/nonce.js';
 import { getDepositKeyring, getSigner, type Signer } from '../chain/signer.js';
 import { config } from '../config.js';
@@ -16,14 +16,15 @@ type Kind = 'gas_topup' | 'sweep_token' | 'sweep_native';
  * Son movimientos internos (la custodia total no cambia); solo el gas se registra como gasto.
  * Si una dirección tiene tokens pero no ETH para gas, primero la hot wallet le envía gas (gas_topup).
  */
-export async function sweepStep(log: Log) {
+export async function sweepStep(n: Net, log: Log) {
   const hot = getSigner();
   const keyring = getDepositKeyring();
   if (!hot || !keyring || !config.SWEEP_ENABLED) return;
-  await broadcastSweeps(log);
-  await confirmSweeps(log);
+  await broadcastSweeps(n, log);
+  await confirmSweeps(n, log);
 
-  const network = config.ALCHEMY_NETWORK;
+  const network = n.id;
+  const client = n.client;
   const hotAddr = hot.address().toLowerCase();
   const { rows: native } = await pool.query(`SELECT id FROM assets WHERE network = $1 AND kind = 'native' AND active`, [network]);
   if (!native[0]) return;
@@ -37,7 +38,7 @@ export async function sweepStep(log: Log) {
       ORDER BY w.derivation_index`, [network]);
   if (!wallets.length) return;
   const fees = await client.estimateFeesPerGas();
-  const chainId = await client.getChainId();
+  const chainId = await chainIdOf(n);
 
   for (const w of wallets) {
     try {
@@ -56,52 +57,52 @@ export async function sweepStep(log: Log) {
         if (eth < need) {
           // Fondear gas desde la hot wallet (con margen para un segundo barrido)
           await createSweep(log, { wallet_id: w.id, kind: 'gas_topup', asset_id: nativeId, amount: need * 2n - eth,
-            signer: hot, to: w.address, value: need * 2n - eth, gas: 21000n, chainId, fees });
+            signer: hot, to: w.address, value: need * 2n - eth, gas: 21000n, chainId, fees, n });
         } else {
           await createSweep(log, { wallet_id: w.id, kind: 'sweep_token', asset_id: token.id, amount: token.bal,
-            signer: depSigner, to: token.contract_address, value: 0n, data, gas, chainId, fees });
+            signer: depSigner, to: token.contract_address, value: 0n, data, gas, chainId, fees, n });
         }
       } else if (eth >= config.SWEEP_MIN_NATIVE_WEI) {
         const gas = 21000n;
         const value = eth - gas * fees.maxFeePerGas;
         if (value > 0n) {
           await createSweep(log, { wallet_id: w.id, kind: 'sweep_native', asset_id: nativeId, amount: value,
-            signer: depSigner, to: hotAddr, value, gas, chainId, fees });
+            signer: depSigner, to: hotAddr, value, gas, chainId, fees, n });
         }
       }
     } catch (e) {
       log.warn({ wallet: w.id, err: (e as Error).message.split('\n')[0] }, 'barrido omitido en este ciclo');
     }
   }
-  await broadcastSweeps(log);
+  await broadcastSweeps(n, log);
 }
 
 async function createSweep(log: Log, s: {
   wallet_id: string; kind: Kind; asset_id: string; amount: bigint; signer: Signer; to: string; value: bigint;
-  data?: Hex; gas: bigint; chainId: number; fees: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint };
+  data?: Hex; gas: bigint; chainId: number; fees: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }; n: Net;
 }) {
   const from = s.signer.address().toLowerCase();
   await tx(async (c) => {
-    const nonce = await nextNonce(c, from);
+    const nonce = await nextNonce(c, s.n, from);
     const raw = await s.signer.signTransaction({
       type: 'eip1559', chainId: s.chainId, nonce, gas: s.gas, to: s.to as Address, value: s.value, data: s.data,
       maxFeePerGas: s.fees.maxFeePerGas, maxPriorityFeePerGas: s.fees.maxPriorityFeePerGas,
     });
     const { rows: [row] } = await c.query(
-      `INSERT INTO sweeps (wallet_id, kind, asset_id, amount, from_address, to_address, nonce, raw_tx, tx_hash, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'signed') RETURNING id`,
-      [s.wallet_id, s.kind, s.asset_id, s.amount.toString(), from, s.to.toLowerCase(), nonce, raw, keccak256(raw)],
+      `INSERT INTO sweeps (wallet_id, kind, asset_id, amount, from_address, to_address, nonce, raw_tx, tx_hash, status, network)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'signed',$10) RETURNING id`,
+      [s.wallet_id, s.kind, s.asset_id, s.amount.toString(), from, s.to.toLowerCase(), nonce, raw, keccak256(raw), s.n.id],
     );
-    await recordOriginal(c, 'sweep', row.id, from, nonce, raw);
+    await recordOriginal(c, 'sweep', row.id, from, nonce, raw, s.n.id);
   });
   log.info({ wallet: s.wallet_id, kind: s.kind, amount: s.amount.toString() }, 'barrido firmado');
 }
 
-async function broadcastSweeps(log: Log) {
-  const { rows } = await pool.query(`SELECT id, raw_tx FROM sweeps WHERE status = 'signed' ORDER BY created_at`);
+async function broadcastSweeps(n: Net, log: Log) {
+  const { rows } = await pool.query(`SELECT id, raw_tx FROM sweeps WHERE status = 'signed' AND network = $1 ORDER BY created_at`, [n.id]);
   for (const s of rows) {
     try {
-      await client.sendRawTransaction({ serializedTransaction: s.raw_tx as Hex });
+      await n.client.sendRawTransaction({ serializedTransaction: s.raw_tx as Hex });
       await pool.query(`UPDATE sweeps SET status = 'broadcast', broadcast_at = now(), updated_at = now() WHERE id = $1`, [s.id]);
     } catch (e) {
       const msg = (e as Error).message;
@@ -115,14 +116,14 @@ async function broadcastSweeps(log: Log) {
   }
 }
 
-async function confirmSweeps(log: Log) {
-  const { rows } = await pool.query(`SELECT id, tx_hash FROM sweeps WHERE status = 'broadcast'`);
+async function confirmSweeps(n: Net, log: Log) {
+  const { rows } = await pool.query(`SELECT id, tx_hash FROM sweeps WHERE status = 'broadcast' AND network = $1`, [n.id]);
   if (!rows.length) return;
-  const head = await client.getBlockNumber({ cacheTime: 0 });
-  const { rows: [nat] } = await pool.query(`SELECT id FROM assets WHERE network = $1 AND kind = 'native' AND active`, [config.ALCHEMY_NETWORK]);
+  const head = await n.client.getBlockNumber({ cacheTime: 0 });
+  const { rows: [nat] } = await pool.query(`SELECT id FROM assets WHERE network = $1 AND kind = 'native' AND active`, [n.id]);
   for (const r of rows) {
-    const found = await findReceipt('sweep', r.id, r.tx_hash);
-    if (!found || Number(head - found.receipt.blockNumber + 1n) < config.CONFIRMATIONS) continue;
+    const found = await findReceipt(n, 'sweep', r.id, r.tx_hash);
+    if (!found || Number(head - found.receipt.blockNumber + 1n) < n.confirmations) continue;
     const { receipt } = found;
     if (found.hash !== r.tx_hash) await pool.query(`UPDATE sweeps SET tx_hash = $2, updated_at = now() WHERE id = $1 AND status = 'broadcast'`, [r.id, found.hash]);
     const gasCost = receipt.gasUsed * receipt.effectiveGasPrice;
@@ -151,7 +152,7 @@ async function confirmSweeps(log: Log) {
       log.info({ sweep: r.id, status: receipt.status }, 'barrido liquidado');
     } catch (e) {
       const code = (e as { code?: string }).code;
-      const msg = code === '23514' ? 'Custodia ETH insuficiente en libro para registrar gas de barrido' : (e as Error).message.split('\n')[0];
+      const msg = code === '23514' ? 'Custodia nativa insuficiente en libro para registrar gas de barrido' : (e as Error).message.split('\n')[0];
       await pool.query(`UPDATE sweeps SET last_error = $2, updated_at = now() WHERE id = $1`, [r.id, msg.slice(0, 500)]);
       log.error({ sweep: r.id, err: msg }, 'no se pudo liquidar barrido');
     }
@@ -163,7 +164,7 @@ export async function listSweeps(f: { status?: string; kind?: string; limit?: nu
   const cur = decodeCursor(f.cursor);
   const { rows } = await pool.query(
     `SELECT s.id, s.wallet_id, w.client_id, c.name AS client_name, s.kind, s.asset_id, s.amount, s.from_address, s.to_address,
-            s.nonce, s.tx_hash, s.status, s.block_number, s.gas_cost_wei, s.last_error, s.created_at, s.updated_at, s.bumps, s.broadcast_at,
+            s.nonce, s.tx_hash, s.status, s.block_number, s.gas_cost_wei, s.last_error, s.created_at, s.updated_at, s.bumps, s.broadcast_at, s.network,
             s.created_at::text AS _ts
        FROM sweeps s JOIN wallets w ON w.id = s.wallet_id LEFT JOIN clients c ON c.id = w.client_id
       WHERE ($1::text IS NULL OR s.status = $1) AND ($2::text IS NULL OR s.kind = $2)

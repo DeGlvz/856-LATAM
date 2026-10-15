@@ -56,8 +56,9 @@ export interface Summary {
   deposits_pending: number;
   sweeps_open: number;
   clients_by_status: Record<string, number>;
-  approvals_pending?: { withdrawals: number; netting_runs: number; exits_overdue?: number };
+  approvals_pending?: { withdrawals: number; netting_runs: number; exits_overdue?: number; deposits_held?: number; asset_requests?: number };
   obligations_pending?: { total: number; expiring_24h: number };
+  networks?: NetworkStatus[];
   dual_approval?: 'off' | 'console' | 'all';
   origin_rule?: 'off' | 'enforce';
 }
@@ -121,11 +122,12 @@ export interface TxAttempt {
   tx_hash: string; max_fee_per_gas: string; max_priority_fee_per_gas: string; reason: 'original' | 'bump' | 'manual';
   requested_by: string | null; sent_at: string | null; error: string | null; created_at: string;
 }
-export type DepositStatus = 'pending' | 'credited' | 'orphaned';
+export type DepositStatus = 'pending' | 'held' | 'credited' | 'orphaned';
 export interface DepositRow {
   id: string; tx_hash: string; log_index: number; wallet_id: string; client_id: string; client_name: string; asset_id: string;
   from_address: string | null; to_address: string; amount: string; block_number: string; confirmations: number;
   status: DepositStatus; entry_id: string | null; source: 'api' | 'webhook'; created_at: string; credited_at: string | null;
+  network?: string; held_reason?: string | null; released_by?: string | null; released_at?: string | null;
 }
 export type SweepStatus = 'signed' | 'broadcast' | 'confirmed' | 'failed';
 export interface SweepRow {
@@ -221,3 +223,25 @@ export function opError(e: unknown): Error | null {
   if (e instanceof ApiError && e.status === 429) return new ApiError(429, 'Demasiados intentos. Espere un minuto.', 'rate_limited');
   return e instanceof Error ? e : new Error(String(e));
 }
+
+// ───────────── Multi-red (ola 1) y activos habilitados por cliente ─────────────
+export interface NetworkInfo { id: string; label: string; primary: boolean; chain_id: number | null; healthy: boolean; error: string | null; confirmations: number; explorer: string | null; webhook: boolean }
+export interface NetworkStatus extends NetworkInfo {
+  status: 'ok' | 'down' | 'disabled'; block: string | null;
+  gas: { asset_id: string | null; decimals: number; balance_wei: string | null; threshold_wei: string; low: boolean | null };
+  reconciliation: { status: string; balances: ReconBalance[] };
+}
+export type ClientAssetStatus = 'enabled' | 'exit_only' | 'disabled';
+export interface ClientAssetRow {
+  asset_id: string; symbol: string; network: string; kind: string; decimals: number; status: ClientAssetStatus;
+  updated_by: string | null; updated_at: string | null; balance: string; pending_request: string | null; network_enabled: boolean;
+}
+export interface AssetRequest {
+  id: string; client_id: string; client_name: string; asset_id: string; symbol: string; network: string;
+  action: 'enable' | 'exit_only' | 'disable'; reason: string; status: 'pending' | 'approved' | 'rejected';
+  requested_by: string; requested_by_operator: string | null; decided_by: string | null; decided_at: string | null; decision_note: string | null; created_at: string;
+}
+export const ASSET_STATUS: Record<ClientAssetStatus, { label: string; variant: 'success' | 'warning' | 'outline' }> = {
+  enabled: { label: 'Habilitado', variant: 'success' }, exit_only: { label: 'Solo salida', variant: 'warning' }, disabled: { label: 'No habilitado', variant: 'outline' },
+};
+export const REQUEST_ACTION: Record<AssetRequest['action'], string> = { enable: 'Habilitar', exit_only: 'Pasar a solo salida', disable: 'Deshabilitar' };

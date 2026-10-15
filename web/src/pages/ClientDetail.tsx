@@ -4,7 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, ArrowLeft, ArrowLeftRight, ExternalLink, KeyRound, Loader2, Pencil, Plus, RefreshCw, Scale, ShieldCheck, UserPlus, Users, Wallet as WalletIcon } from 'lucide-react';
 import { api, type ClientDetail as TClient, type ClientStatus, type EntryRow, type ObligationRow, type Summary, type Wallet } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { CLIENT_KIND, CLIENT_STATUS, ENTRY_KIND, useAssets, useConsoleOriginates } from '@/lib/hooks';
+import { CLIENT_KIND, CLIENT_STATUS, ENTRY_KIND, useAssets, useConsoleOriginates, useNetworks } from '@/lib/hooks';
+import { ClientAssetsCard } from '@/components/ClientAssets';
 import { shortHex } from '@/lib/amount';
 import { Amount, CopyButton, ErrorBox, Field, StatusBadge, fmtDate } from '@/components/common';
 import { EntryDialog } from '@/components/EntryDialog';
@@ -45,8 +46,10 @@ export function ClientDetail() {
     mutationFn: (asset_id: string) => api(`/clients/${id}/accounts`, { method: 'POST', json: { asset_id } }),
     onSuccess: refresh,
   });
+  const nets = useNetworks();
+  const [depNet, setDepNet] = useState('');
   const depositAddr = useMutation({
-    mutationFn: (rotate: boolean) => api(`/clients/${id}/deposit-address`, { method: 'POST', json: { rotate } }),
+    mutationFn: (rotate: boolean) => api(`/clients/${id}/deposit-address`, { method: 'POST', json: { rotate, ...(depNet ? { network: depNet } : {}) } }),
     onSuccess: refresh,
   });
 
@@ -57,7 +60,8 @@ export function ClientDetail() {
   const missing = assets.filter((a) => a.active && !c.accounts.some((x) => x.asset_id === a.id));
   const deposits = (wallets.data ?? []).filter((w) => w.purpose === 'deposit');
   const whitelist = (wallets.data ?? []).filter((w) => w.purpose === 'withdrawal_whitelist');
-  const current = deposits.find((w) => w.active && w.derivation_index != null);
+  const selNet = depNet || network;
+  const current = deposits.find((w) => w.active && w.derivation_index != null && w.network === selNet);
 
   return (
     <div className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)] gap-6">
@@ -149,7 +153,12 @@ export function ClientDetail() {
             <CardTitle className="flex items-center gap-2"><WalletIcon className="size-4" />Direcciones de depósito</CardTitle>
             <CardDescription>Derivadas (HD) de la semilla de la plataforma; todas siguen acreditando.</CardDescription>
             {can('ejecutivo') && !closed && (
-              <CardAction>
+              <CardAction className="flex gap-2">
+                {nets.networks.length > 1 && (
+                  <Select aria-label="Red de la dirección" className="h-8 w-44 text-xs" value={selNet} onChange={(e) => setDepNet(e.target.value)}>
+                    {nets.networks.map((n) => <option key={n.id} value={n.id}>{n.label}</option>)}
+                  </Select>
+                )}
                 <Button size="sm" variant="outline" disabled={depositAddr.isPending} onClick={() => depositAddr.mutate(!!current)}>
                   {depositAddr.isPending ? <Loader2 className="animate-spin" /> : current ? <RefreshCw /> : <Plus />}{current ? 'Rotar' : 'Generar'}
                 </Button>
@@ -162,10 +171,11 @@ export function ClientDetail() {
             {!wallets.isPending && deposits.length === 0 && <p className="text-sm text-muted-foreground">Sin dirección de depósito.</p>}
             {deposits.map((w) => (
               <div key={w.id} className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2">
-                <a className="inline-flex items-center gap-1 font-mono text-xs hover:underline" href={`${explorer}/address/${w.address}`} target="_blank" rel="noreferrer noopener" title={w.address}>
+                <a className="inline-flex items-center gap-1 font-mono text-xs hover:underline" href={`${nets.explorer(w.network)}/address/${w.address}`} target="_blank" rel="noreferrer noopener" title={w.address}>
                   {shortHex(w.address, 10)}<ExternalLink className="size-3" />
                 </a>
                 <CopyButton value={w.address} />
+                <Badge variant="outline" className="text-[11px]">{nets.label(w.network)}</Badge>
                 {w.id === current?.id && <Badge variant="success">Vigente</Badge>}
                 {!w.active && <Badge variant="secondary">Inactiva</Badge>}
                 <Badge variant={w.webhook_registered ? 'outline' : 'warning'}>{w.webhook_registered ? 'Webhook' : 'Webhook pendiente'}</Badge>
@@ -179,6 +189,8 @@ export function ClientDetail() {
       </div>
 
       <PortalCard clientId={c.id} disabled={closed} />
+
+      <ClientAssetsCard clientId={c.id} disabled={closed} />
 
       {/* Obligaciones (compensación) */}
       <Card>
@@ -247,10 +259,12 @@ function WhitelistCard({ clientId, network, wallets, loading, explorer, disabled
 }) {
   const { can } = useAuth();
   const originates = useConsoleOriginates();
+  const nets = useNetworks();
+  const [wlNet, setWlNet] = useState('');
   const [address, setAddress] = useState('');
   const [label, setLabel] = useState('');
   const add = useMutation({
-    mutationFn: () => api('/wallets', { method: 'POST', json: { client_id: clientId, chain: 'ethereum', network, address: address.trim(), purpose: 'withdrawal_whitelist', ...(label.trim() ? { label: label.trim() } : {}) } }),
+    mutationFn: () => api('/wallets', { method: 'POST', json: { client_id: clientId, chain: 'ethereum', network: wlNet || network, address: address.trim(), purpose: 'withdrawal_whitelist', ...(label.trim() ? { label: label.trim() } : {}) } }),
     onSuccess: () => { setAddress(''); setLabel(''); onChange(); },
   });
   const toggle = useMutation({
@@ -269,10 +283,11 @@ function WhitelistCard({ clientId, network, wallets, loading, explorer, disabled
         {!loading && wallets.length === 0 && <p className="text-sm text-muted-foreground">Sin direcciones autorizadas.</p>}
         {wallets.map((w) => (
           <div key={w.id} className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2">
-            <a className="inline-flex items-center gap-1 font-mono text-xs hover:underline" href={`${explorer}/address/${w.address}`} target="_blank" rel="noreferrer noopener" title={w.address}>
+            <a className="inline-flex items-center gap-1 font-mono text-xs hover:underline" href={`${nets.byId(w.network)?.explorer ?? explorer}/address/${w.address}`} target="_blank" rel="noreferrer noopener" title={w.address}>
               {shortHex(w.address, 10)}<ExternalLink className="size-3" />
             </a>
             <CopyButton value={w.address} />
+            <Badge variant="outline" className="text-[11px]">{nets.label(w.network)}</Badge>
             {w.label && <span className="truncate text-sm">{w.label}</span>}
             {w.wl_status === 'pending_approval' ? <Badge variant="warning">Por aprobar (cliente)</Badge>
               : w.active && w.active_from && new Date(w.active_from) > new Date() ? <Badge variant="secondary" title={fmtDate(w.active_from)}>En espera</Badge>
@@ -284,9 +299,12 @@ function WhitelistCard({ clientId, network, wallets, loading, explorer, disabled
         ))}
         <ErrorBox error={toggle.error} />
         {can('tesorero') && !disabled && originates && (
-          <form className="mt-2 grid gap-2 sm:grid-cols-[1fr_140px_auto]" onSubmit={(e) => { e.preventDefault(); add.mutate(); }}>
+          <form className="mt-2 grid gap-2 sm:grid-cols-[1fr_140px_140px_auto]" onSubmit={(e) => { e.preventDefault(); add.mutate(); }}>
             <Input aria-label="Dirección" placeholder="0x… (40 hex)" className="font-mono text-xs" value={address} onChange={(e) => setAddress(e.target.value)} aria-invalid={address !== '' && !valid} />
             <Input aria-label="Etiqueta" placeholder="Etiqueta" maxLength={100} value={label} onChange={(e) => setLabel(e.target.value)} />
+            <Select aria-label="Red" className="h-9 text-xs" value={wlNet || network} onChange={(e) => setWlNet(e.target.value)}>
+              {nets.networks.map((n) => <option key={n.id} value={n.id}>{n.label}</option>)}
+            </Select>
             <Button type="submit" size="sm" className="h-9" disabled={!valid || add.isPending}><Plus />Agregar</Button>
           </form>
         )}

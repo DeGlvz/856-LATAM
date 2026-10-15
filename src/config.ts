@@ -72,6 +72,10 @@ const Env = z.object({
   // Fase 4 del portal: obligaciones
   OBLIGATION_ACCEPT_TTL_HOURS: z.coerce.number().min(1).max(2160).default(72), // plazo del deudor para aceptar
   OBLIGATION_IMPORT_MAX_ROWS: z.coerce.number().int().min(1).max(20000).default(5000),
+  // Multi-red EVM (ola 1): redes encendidas y redes habilitadas por defecto a cada cliente nuevo.
+  // Ajustes por red con sufijo del slug en mayúsculas (p. ej. CONFIRMATIONS_BASE_SEPOLIA): ver src/chain/networks.ts
+  NETWORKS: z.string().optional(),
+  DEFAULT_CLIENT_NETWORKS: z.string().default('eth-sepolia,base-sepolia,arb-sepolia,polygon-amoy,bnb-testnet'),
 });
 
 export const config = Env.parse(process.env);

@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { HttpError } from '../idempotency.js';
 import { roleAtLeast } from '../portal/identity.js';
 import * as A from '../portal/accounts.js';
+import { myAssets } from '../ledger/client-assets.js';
 
 const parse = <S extends z.ZodTypeAny>(s: S, v: unknown): z.infer<S> => {
   const r = s.safeParse(v);
@@ -28,11 +29,13 @@ export const ACCOUNT_KEY_ROUTES = [
   'GET /v1/portal/balances', 'GET /v1/portal/activity',
   'GET /v1/portal/accounts/:asset/entries', 'GET /v1/portal/accounts/:asset/entries.csv',
   'GET /v1/portal/statements/:period', 'GET /v1/portal/deposit-addresses',
-  'GET /v1/portal/deposits', 'GET /v1/portal/notices',
+  'GET /v1/portal/deposits', 'GET /v1/portal/notices', 'GET /v1/portal/assets',
 ];
 
 export async function portalAccountRoutes(app: FastifyInstance) {
   app.get('/balances', async (req) => A.balances(clientOf(req)));
+  // Multi-red: activos habilitados para el cliente (los administra 856) y redes encendidas
+  app.get('/assets', async (req) => myAssets(clientOf(req)));
 
   app.get('/activity', async (req) => {
     const q = parse(z.object({ limit: z.coerce.number().int().min(1).max(50).default(10) }), req.query);
@@ -68,7 +71,7 @@ export async function portalAccountRoutes(app: FastifyInstance) {
 
   app.get('/deposits', async (req) => {
     const q = parse(z.object({
-      status: z.enum(['pending', 'credited', 'orphaned']).optional(),
+      status: z.enum(['pending', 'held', 'credited', 'orphaned']).optional(),
       limit: z.coerce.number().int().min(1).max(200).default(50), cursor,
     }), req.query);
     return A.listDeposits(clientOf(req), q);

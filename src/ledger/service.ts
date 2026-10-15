@@ -1,4 +1,5 @@
 import { pool, tx, type Tx } from '../db.js';
+import { enableDefaults } from './client-assets.js';
 
 export class LedgerError extends Error {
   constructor(public statusCode: number, message: string, public code = 'ledger_error') { super(message); }
@@ -72,6 +73,8 @@ export async function createClient(input: {
     const client = rows[0];
     const accounts = [];
     for (const assetId of input.assets ?? []) accounts.push(await openClientAccount(c, client.id, assetId));
+    // Multi-red: activos habilitados = redes por defecto + los pedidos en el alta
+    await enableDefaults(c, client.id, input.assets ?? []);
     return { ...client, accounts };
   });
 }

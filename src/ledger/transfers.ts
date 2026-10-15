@@ -2,7 +2,8 @@ import {
   encodeFunctionData, decodeEventLog, erc20Abi, isAddress, keccak256, type Address, type Hash, type Hex,
 } from 'viem';
 import { createHash } from 'node:crypto';
-import { client } from '../chain.js';
+import { activeNetworks, chainIdOf, findNet, isEnabled, net, networks, primaryNet, type Net } from '../chain/networks.js';
+import { assertAssetEnabled, assetStatus } from './client-assets.js';
 import { getSigner } from '../chain/signer.js';
 import { nextNonce } from '../chain/nonce.js';
 import { config } from '../config.js';
@@ -55,9 +56,11 @@ export async function requestWithdrawal(i: {
       if (!cl) throw new LedgerError(404, 'Cliente no encontrado', 'not_found');
       if (cl.status !== 'active') throw new LedgerError(422, `Cliente no activo (estado: ${cl.status}): solo clientes con KYB aprobado pueden retirar`, 'client_not_active');
       const asset = await getAsset(c, i.asset_id);
-      if (asset.chain !== 'ethereum' || asset.network !== config.ALCHEMY_NETWORK || !['native', 'erc20'].includes(asset.kind)) {
-        throw new LedgerError(422, `Retiros de ${asset.id} no habilitados en esta red (${config.ALCHEMY_NETWORK})`, 'network_not_supported');
+      if (asset.chain !== 'ethereum' || !isEnabled(asset.network) || !['native', 'erc20'].includes(asset.kind)) {
+        throw new LedgerError(422, `Retiros de ${asset.id} no habilitados: la red ${asset.network} no está encendida en esta instalación`, 'network_not_supported');
       }
+      // Multi-red: el cliente debe tener el activo habilitado (o en «solo salida»)
+      await assertAssetEnabled(c, i.client_id, asset.id, 'out');
       // Lista blanca: solo a direcciones previamente registradas por el cliente
       const wl = await c.query(
         `SELECT 1 FROM wallets WHERE client_id = $1 AND network = $2 AND address = $3
@@ -72,13 +75,13 @@ export async function requestWithdrawal(i: {
       const { rows: [w] } = await c.query(
         `INSERT INTO withdrawals (client_id, account_id, asset_id, to_address, amount, status, idempotency_key, metadata,
                                   approval_status, requested_by, requested_by_operator,
-                                  origin_kind, origin_ref, origin_ip, simulation_id, scope_hash, dual_required, validation_due_at)
+                                  origin_kind, origin_ref, origin_ip, simulation_id, scope_hash, dual_required, validation_due_at, network)
          VALUES ($1,$2,$3,$4,$5,'reserved',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
-                 CASE WHEN $8 = 'pending' AND $14::uuid IS NOT NULL THEN now() + make_interval(mins => $17) END) RETURNING id`,
+                 CASE WHEN $8 = 'pending' AND $14::uuid IS NOT NULL THEN now() + make_interval(mins => $17) END, $18) RETURNING id`,
         [i.client_id, acc.id, asset.id, to, i.amount, i.idempotency_key ?? null, i.metadata ?? {},
           x ? x.approval_status : i.needs_approval ? 'pending' : 'not_required', i.requested_by ?? null, i.requested_by_operator ?? null,
           x?.origin_kind ?? (i.requested_by_operator ? 'console' : 'api'), x?.origin_ref ?? null, x?.origin_ip ?? null,
-          x?.simulation_id ?? null, x?.scope_hash ?? null, x?.dual_required ?? false, config.EXIT_VALIDATION_SLA_MIN],
+          x?.simulation_id ?? null, x?.scope_hash ?? null, x?.dual_required ?? false, config.EXIT_VALIDATION_SLA_MIN, asset.network],
       );
       // Reserva: el saldo sale de "disponible" y queda "en tránsito" hasta confirmarse
       const e = await postEntryIn(c, {
@@ -112,10 +115,11 @@ export async function getWithdrawal(id: string) {
             w.reserve_entry_id, w.settle_entry_id, w.reversal_entry_id, w.metadata, w.created_at, w.updated_at,
             w.approval_status, w.requested_by, w.requested_by_operator, w.approved_by, w.approved_at, w.rejected_by, w.rejected_reason,
             w.broadcast_at, w.bumps, w.origin_kind, w.origin_ref, w.origin_ip, w.simulation_id, w.scope_hash, w.authorized_hash,
-            w.client_approved_by, w.client_approved_at, w.validation_due_at, w.dual_required, w.approved2_by, w.approved2_at
+            w.client_approved_by, w.client_approved_at, w.validation_due_at, w.dual_required, w.approved2_by, w.approved2_at, w.network
        FROM withdrawals w JOIN clients c ON c.id = w.client_id WHERE w.id = $1`, [id]);
   if (!w) throw new LedgerError(404, 'Retiro no encontrado', 'not_found');
-  return { ...w, required_confirmations: config.CONFIRMATIONS, attempts_log: await listAttempts('withdrawal', id) };
+  return { ...w, required_confirmations: findNet(w.network)?.confirmations ?? config.CONFIRMATIONS, explorer: findNet(w.network)?.explorer ?? null,
+    attempts_log: await listAttempts('withdrawal', id) };
 }
 
 export async function listWithdrawals(f: { client_id?: string; status?: string; asset_id?: string; approval_status?: string; limit?: number; cursor?: string }) {
@@ -124,7 +128,7 @@ export async function listWithdrawals(f: { client_id?: string; status?: string; 
   const { rows } = await pool.query(
     `SELECT w.id, w.client_id, c.name AS client_name, w.asset_id, w.to_address, w.amount, w.status, w.tx_hash, w.nonce,
             w.confirmations, w.attempts, w.last_error, w.created_at, w.updated_at, w.approval_status, w.requested_by,
-            w.origin_kind, w.validation_due_at, w.dual_required, w.approved_by, w.created_at::text AS _ts
+            w.origin_kind, w.validation_due_at, w.dual_required, w.approved_by, w.network, w.created_at::text AS _ts
        FROM withdrawals w JOIN clients c ON c.id = w.client_id
       WHERE ($1::uuid IS NULL OR w.client_id = $1) AND ($2::text IS NULL OR w.status = $2) AND ($3::text IS NULL OR w.asset_id = $3)
         AND ($4::timestamptz IS NULL OR (w.created_at, w.id) < ($4::timestamptz, $5::uuid))
@@ -241,18 +245,19 @@ export async function rejectWithdrawal(id: string, by: string, reason: string) {
 }
 
 // ── Worker: firmar ──
-async function signReserved(log: Logger) {
+async function signReserved(n: Net, log: Logger) {
   const signer = getSigner();
   if (!signer) return;
   const from = lower(signer.address());
-  const chainId = await client.getChainId();
+  const chainId = await chainIdOf(n);
+  const client = n.client;
 
   for (;;) {
     const done = await tx(async (c) => {
       const { rows: [w] } = await c.query(
         // Solo lo que no requiere aprobación o ya fue aprobado por un segundo tesorero
-        `SELECT * FROM withdrawals WHERE status = 'reserved' AND approval_status IN ('not_required','approved')
-          ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1`,
+        `SELECT * FROM withdrawals WHERE status = 'reserved' AND approval_status IN ('not_required','approved') AND network = $1
+          ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1`, [n.id],
       );
       if (!w) return true;
       const asset = await getAsset(c, w.asset_id);
@@ -265,7 +270,7 @@ async function signReserved(log: Logger) {
         return false;
       }
       try {
-        const nonce = await nextNonce(c, from);
+        const nonce = await nextNonce(c, n, from);
         const call = asset.kind === 'native'
           ? { to: w.to_address as Address, value: BigInt(w.amount), data: undefined }
           : { to: asset.contract_address as Address, value: 0n,
@@ -281,8 +286,8 @@ async function signReserved(log: Logger) {
                   last_error = NULL, updated_at = now() WHERE id = $1`,
           [w.id, from, nonce, raw, keccak256(raw)],
         );
-        await recordOriginal(c, 'withdrawal', w.id, from, nonce, raw);
-        log.info({ withdrawal: w.id, nonce }, 'retiro firmado');
+        await recordOriginal(c, 'withdrawal', w.id, from, nonce, raw, n.id);
+        log.info({ withdrawal: w.id, network: n.id, nonce }, 'retiro firmado');
       } catch (e) {
         const msg = (e as Error).message.split('\n')[0].slice(0, 500);
         const attempts = w.attempts + 1;
@@ -304,11 +309,11 @@ async function signReserved(log: Logger) {
 }
 
 // ── Worker: enviar (y reenviar lo firmado que no salió) ──
-async function broadcastSigned(log: Logger) {
-  const { rows } = await pool.query(`SELECT id, raw_tx, tx_hash, attempts FROM withdrawals WHERE status = 'signed' ORDER BY nonce`);
+async function broadcastSigned(n: Net, log: Logger) {
+  const { rows } = await pool.query(`SELECT id, raw_tx, tx_hash, attempts FROM withdrawals WHERE status = 'signed' AND network = $1 ORDER BY nonce`, [n.id]);
   for (const w of rows) {
     try {
-      await client.sendRawTransaction({ serializedTransaction: w.raw_tx as Hex });
+      await n.client.sendRawTransaction({ serializedTransaction: w.raw_tx as Hex });
       await pool.query(`UPDATE withdrawals SET status = 'broadcast', broadcast_at = now(), updated_at = now() WHERE id = $1 AND status = 'signed'`, [w.id]);
       log.info({ withdrawal: w.id, tx: w.tx_hash }, 'retiro enviado');
     } catch (e) {
@@ -326,13 +331,13 @@ async function broadcastSigned(log: Logger) {
 }
 
 // ── Worker: confirmaciones y liquidación contable ──
-async function confirmBroadcast(log: Logger) {
-  const { rows } = await pool.query(`SELECT id, tx_hash FROM withdrawals WHERE status = 'broadcast' ORDER BY nonce`);
+async function confirmBroadcast(n: Net, log: Logger) {
+  const { rows } = await pool.query(`SELECT id, tx_hash FROM withdrawals WHERE status = 'broadcast' AND network = $1 ORDER BY nonce`, [n.id]);
   if (!rows.length) return;
-  const head = await client.getBlockNumber({ cacheTime: 0 });
+  const head = await n.client.getBlockNumber({ cacheTime: 0 });
   for (const r of rows) {
     // El hash vigente o cualquier intento anterior (gas bump): se mina solo uno por nonce
-    const found = await findReceipt('withdrawal', r.id, r.tx_hash);
+    const found = await findReceipt(n, 'withdrawal', r.id, r.tx_hash);
     if (!found) continue;
     const { receipt } = found;
     if (found.hash !== r.tx_hash) {
@@ -341,7 +346,7 @@ async function confirmBroadcast(log: Logger) {
     }
     const confs = Number(head - receipt.blockNumber + 1n);
     const reverted = receipt.status !== 'success';
-    if (!reverted && confs < config.CONFIRMATIONS) {
+    if (!reverted && confs < n.confirmations) {
       await pool.query('UPDATE withdrawals SET block_number = $2, confirmations = $3, updated_at = now() WHERE id = $1',
         [r.id, receipt.blockNumber.toString(), confs]);
       continue;
@@ -403,24 +408,30 @@ async function confirmBroadcast(log: Logger) {
 const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 
 /** Detecta depósitos en una transacción (nativos y ERC-20) hacia wallets de depósito registradas. Idempotente. */
-export async function detectDeposits(txHash: string, source: 'api' | 'webhook' = 'api') {
+export async function detectDeposits(txHash: string, source: 'api' | 'webhook' = 'api', network?: string) {
   if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) throw new LedgerError(400, 'Hash inválido', 'invalid_hash');
   const hash = lower(txHash) as Hash;
-  const receipt = await client.getTransactionReceipt({ hash }).catch(() => null);
-  if (!receipt) throw new LedgerError(404, 'Transacción no encontrada o aún no minada', 'tx_not_found');
+  // Con red conocida (webhook) se busca solo ahí; si no (reporte por hash), en cada red encendida
+  let n: Net | null = null;
+  let receipt: Awaited<ReturnType<Net['client']['getTransactionReceipt']>> | null = null;
+  for (const cand of network ? [net(network)] : activeNetworks()) {
+    receipt = await cand.client.getTransactionReceipt({ hash }).catch(() => null);
+    if (receipt) { n = cand; break; }
+  }
+  if (!receipt || !n) throw new LedgerError(404, 'Transacción no encontrada o aún no minada', 'tx_not_found');
   if (receipt.status !== 'success') throw new LedgerError(422, 'Transacción revertida', 'tx_reverted');
-  const txn = await client.getTransaction({ hash });
-  const network = config.ALCHEMY_NETWORK;
+  const txn = await n.client.getTransaction({ hash });
+  const netId = n.id;
 
   const { rows: wallets } = await pool.query(
-    `SELECT id, client_id, address FROM wallets WHERE network = $1 AND purpose = 'deposit' AND active AND client_id IS NOT NULL`, [network],
+    `SELECT id, client_id, address FROM wallets WHERE network = $1 AND purpose = 'deposit' AND active AND client_id IS NOT NULL`, [netId],
   );
   const byAddr = new Map(wallets.map((w) => [w.address as string, w]));
   // Lo que envía la propia plataforma (p.ej. gas para barrido) no es un depósito de cliente
   const { rows: own } = await pool.query(
-    `SELECT address FROM wallets WHERE network = $1 AND purpose IN ('master_hot','master_cold')`, [network]);
+    `SELECT address FROM wallets WHERE network = $1 AND purpose IN ('master_hot','master_cold')`, [netId]);
   const platform = new Set(own.map((w) => w.address as string));
-  const { rows: assets } = await pool.query(`SELECT id, kind, contract_address FROM assets WHERE network = $1 AND active`, [network]);
+  const { rows: assets } = await pool.query(`SELECT id, kind, contract_address FROM assets WHERE network = $1 AND active`, [netId]);
   const native = assets.find((a) => a.kind === 'native');
   const byContract = new Map(assets.filter((a) => a.contract_address).map((a) => [a.contract_address as string, a]));
 
@@ -440,13 +451,13 @@ export async function detectDeposits(txHash: string, source: 'api' | 'webhook' =
 
   for (const d of found) {
     await pool.query(
-      `INSERT INTO deposits (tx_hash, log_index, wallet_id, client_id, asset_id, from_address, amount, block_number, source)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (tx_hash, log_index) DO NOTHING`,
-      [hash, d.log_index, d.wallet.id, d.wallet.client_id, d.asset_id, d.from, d.amount.toString(), receipt.blockNumber.toString(), source],
+      `INSERT INTO deposits (tx_hash, log_index, wallet_id, client_id, asset_id, from_address, amount, block_number, source, network)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (network, tx_hash, log_index) DO NOTHING`,
+      [hash, d.log_index, d.wallet.id, d.wallet.client_id, d.asset_id, d.from, d.amount.toString(), receipt.blockNumber.toString(), source, netId],
     );
   }
-  const { rows } = await pool.query('SELECT * FROM deposits WHERE tx_hash = $1 ORDER BY log_index', [hash]);
-  return { tx_hash: hash, deposits: rows, required_confirmations: config.CONFIRMATIONS };
+  const { rows } = await pool.query('SELECT * FROM deposits WHERE tx_hash = $1 AND network = $2 ORDER BY log_index', [hash, netId]);
+  return { tx_hash: hash, network: netId, deposits: rows, required_confirmations: n.confirmations };
 }
 
 export async function listDeposits(f: { client_id?: string; status?: string; asset_id?: string; limit?: number; cursor?: string }) {
@@ -463,22 +474,29 @@ export async function listDeposits(f: { client_id?: string; status?: string; ass
   return page(rows, limit);
 }
 
-async function creditConfirmedDeposits(log: Logger) {
-  const { rows } = await pool.query(`SELECT id, tx_hash FROM deposits WHERE status = 'pending' ORDER BY created_at`);
+async function creditConfirmedDeposits(n: Net, log: Logger) {
+  const { rows } = await pool.query(`SELECT id, tx_hash FROM deposits WHERE status = 'pending' AND network = $1 ORDER BY created_at`, [n.id]);
   if (!rows.length) return;
-  const head = await client.getBlockNumber({ cacheTime: 0 });
+  const head = await n.client.getBlockNumber({ cacheTime: 0 });
   for (const r of rows) {
     // Revalidar contra la cadena (protege contra reorganizaciones)
-    const receipt = await client.getTransactionReceipt({ hash: r.tx_hash as Hash }).catch(() => null);
+    const receipt = await n.client.getTransactionReceipt({ hash: r.tx_hash as Hash }).catch(() => null);
     if (!receipt || receipt.status !== 'success') continue;
     const confs = Number(head - receipt.blockNumber + 1n);
-    if (confs < config.CONFIRMATIONS) {
+    if (confs < n.confirmations) {
       await pool.query('UPDATE deposits SET confirmations = $2, block_number = $3 WHERE id = $1', [r.id, confs, receipt.blockNumber.toString()]);
       continue;
     }
     await tx(async (c) => {
       const { rows: [d] } = await c.query(`SELECT * FROM deposits WHERE id = $1 AND status = 'pending' FOR UPDATE`, [r.id]);
       if (!d) return;
+      // Multi-red: si el cliente no tiene el activo habilitado para recibir, el depósito queda en revisión de tesorería
+      if ((await assetStatus(c, d.client_id, d.asset_id)) !== 'enabled') {
+        await c.query(`UPDATE deposits SET status = 'held', confirmations = $2, held_reason = $3 WHERE id = $1`,
+          [d.id, confs, 'activo no habilitado para el cliente']);
+        log.warn({ deposit: d.id, asset: d.asset_id }, 'depósito en revisión: activo no habilitado para el cliente');
+        return;
+      }
       const acc = await openClientAccount(c, d.client_id, d.asset_id);
       const e = await postEntryIn(c, {
         kind: 'deposit', description: `Depósito on-chain ${d.tx_hash}#${d.log_index}`, external_ref: d.tx_hash,
@@ -495,19 +513,45 @@ async function creditConfirmedDeposits(log: Logger) {
   }
 }
 
+/**
+ * Depósito en revisión (activo no habilitado al acreditarse): el tesorero lo acredita al cliente.
+ * Habilitar el activo para depósitos futuros es una decisión aparte (client_assets).
+ */
+export async function releaseHeldDeposit(id: string, by: string) {
+  await tx(async (c) => {
+    const { rows: [d] } = await c.query(`SELECT * FROM deposits WHERE id = $1 FOR UPDATE`, [id]);
+    if (!d) throw new LedgerError(404, 'Depósito no encontrado', 'not_found');
+    if (d.status !== 'held') throw new LedgerError(409, `El depósito no está en revisión (estado: ${d.status})`, 'not_held');
+    const acc = await openClientAccount(c, d.client_id, d.asset_id);
+    const e = await postEntryIn(c, {
+      kind: 'deposit', description: `Depósito on-chain ${d.tx_hash}#${d.log_index} (liberado por tesorería)`, external_ref: d.tx_hash,
+      idempotency_key: `deposit:${d.network}:${d.tx_hash}:${d.log_index}`, metadata: { deposit_id: d.id, from: d.from_address, released_by: by },
+      postings: [
+        { account: `system:${d.asset_id}:custody`, direction: 'debit', amount: d.amount },
+        { account: acc.id, direction: 'credit', amount: d.amount },
+      ],
+    });
+    await c.query(`UPDATE deposits SET status = 'credited', entry_id = $2, credited_at = now(), released_by = $3, released_at = now() WHERE id = $1`,
+      [id, e.id, by]);
+  });
+  const { rows: [d] } = await pool.query('SELECT * FROM deposits WHERE id = $1', [id]);
+  return d;
+}
+
 // ═════════════ TESORERÍA ═════════════
 
-export async function hotWalletStatus() {
+export async function hotWalletStatus(n: Net = primaryNet) {
   const signer = getSigner();
   if (!signer) return { configured: false };
   const address = signer.address();
+  const client = n.client;
   const { rows: assets } = await pool.query(
     `SELECT a.id, a.kind, a.contract_address, acc.balance AS ledger_custody
        FROM assets a JOIN accounts acc ON acc.code = 'system:' || a.id || ':custody'
-      WHERE a.network = $1 AND a.active AND a.kind IN ('native','erc20') ORDER BY a.id`, [config.ALCHEMY_NETWORK]);
+      WHERE a.network = $1 AND a.active AND a.kind IN ('native','erc20') ORDER BY a.id`, [n.id]);
   // Wallets controladas por la plataforma: hot + direcciones de depósito derivadas
   const { rows: deps } = await pool.query(
-    `SELECT address FROM wallets WHERE network = $1 AND purpose = 'deposit' AND derivation_index IS NOT NULL`, [config.ALCHEMY_NETWORK]);
+    `SELECT address FROM wallets WHERE network = $1 AND purpose = 'deposit' AND derivation_index IS NOT NULL`, [n.id]);
   const read = (a: { kind: string; contract_address: string | null }, addr: Address) => a.kind === 'native'
     ? client.getBalance({ address: addr })
     : client.readContract({ address: a.contract_address as Address, abi: erc20Abi, functionName: 'balanceOf', args: [addr] });
@@ -524,18 +568,21 @@ export async function hotWalletStatus() {
       balances.push({ asset_id: a.id, onchain_total: null, ledger_custody: a.ledger_custody, difference: null, error: 'contrato no responde en esta red' });
     }
   }
-  return { configured: true, signer: signer.kind, address, network: config.ALCHEMY_NETWORK, deposit_addresses: deps.length, balances,
+  return { configured: true, signer: signer.kind, address, network: n.id, deposit_addresses: deps.length, balances,
     note: 'difference = on-chain (hot + depósitos) − custodia en libro. > 0: fondos sin acreditar aún; < 0: alerta' };
 }
 
 export async function ensureHotWalletRegistered() {
   const signer = getSigner();
   if (!signer) return;
-  await pool.query(
-    `INSERT INTO wallets (chain, network, address, purpose, custody_ref, label)
-     VALUES ('ethereum', $1, $2, 'master_hot', $3, 'Hot wallet (firma de retiros)') ON CONFLICT (network, address) DO NOTHING`,
-    [config.ALCHEMY_NETWORK, lower(signer.address()), signer.kind],
-  );
+  // La misma hot wallet firma en todas las redes EVM encendidas: se registra en cada una
+  for (const n of networks) {
+    await pool.query(
+      `INSERT INTO wallets (chain, network, address, purpose, custody_ref, label)
+       VALUES ('ethereum', $1, $2, 'master_hot', $3, 'Hot wallet (firma de retiros)') ON CONFLICT (network, address) DO NOTHING`,
+      [n.id, lower(signer.address()), signer.kind],
+    );
+  }
 }
 
 // ═════════════ WORKER ═════════════
@@ -552,15 +599,27 @@ export async function workerTick(log: Logger) {
     const { rows: [l] } = await c.query('SELECT pg_try_advisory_lock(856003) AS ok');
     if (!l.ok) return { skipped: 'otra réplica tiene el candado' };
     try {
-      await signReserved(log);
-      await broadcastSigned(log);
-      await confirmBroadcast(log);
-      await bumpStuck(log);
-      await creditConfirmedDeposits(log);
-      await registerPendingAddresses(log);
-      await sweepStep(log);
+      // Una red a la vez; una red caída o con error no detiene a las demás
+      const out: Record<string, string> = {};
+      for (const n of activeNetworks()) {
+        try {
+          await signReserved(n, log);
+          await broadcastSigned(n, log);
+          await confirmBroadcast(n, log);
+          await bumpStuck(n, log);
+          await creditConfirmedDeposits(n, log);
+          await registerPendingAddresses(n, log);
+          await sweepStep(n, log);
+          n.error = null;
+          out[n.id] = 'ok';
+        } catch (e) {
+          n.error = (e as Error).message.split('\n')[0].slice(0, 200);
+          out[n.id] = `error: ${n.error}`;
+          log.error({ network: n.id, err: n.error }, 'ciclo del worker con error en esta red');
+        }
+      }
       await expirePending(); // fase 4: aceptaciones de obligaciones fuera de plazo
-      return { ok: true };
+      return { ok: true, networks: out };
     } finally {
       await c.query('SELECT pg_advisory_unlock(856003)');
     }

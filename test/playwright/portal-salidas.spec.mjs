@@ -81,7 +81,7 @@ test('lista blanca: pide el operador, aprueba otro con 2FA y queda en espera', a
   await portalLogin(page, opr);
   await page.getByRole('link', { name: 'Lista blanca' }).click();
   await page.getByRole('button', { name: 'Agregar dirección' }).click();
-  await page.getByLabel('Dirección (red Ethereum)').fill(DEST);
+  await page.getByLabel(/^Dirección \(red /).fill(DEST);
   await page.getByLabel('Etiqueta (opcional)').fill('Proveedor PW');
   await page.getByRole('button', { name: 'Solicitar alta' }).click();
   const row = page.locator(`[data-wl="${DEST}"]`);

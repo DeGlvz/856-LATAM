@@ -1,7 +1,7 @@
 // Reemplazo de transacciones atascadas ("gas bump"): se vuelve a firmar el MISMO nonce con comisiones más altas.
 // Todos los intentos quedan en tx_attempts; la confirmación acepta el recibo de cualquiera de ellos.
 import { keccak256, parseTransaction, type Address, type Hash, type Hex, type TransactionReceipt } from 'viem';
-import { client } from '../chain.js';
+import { net, type Net } from './networks.js';
 import { config } from '../config.js';
 import { pool, type Tx } from '../db.js';
 import { LedgerError } from '../ledger/service.js';
@@ -21,16 +21,17 @@ const feesOf = (raw: string) => {
 };
 
 /** Registra el primer envío (se llama al firmar). Idempotente. */
-export async function recordOriginal(c: Tx | typeof pool, kind: TxKind, refId: string, from: string, nonce: number | string, raw: string) {
+export async function recordOriginal(c: Tx | typeof pool, kind: TxKind, refId: string, from: string, nonce: number | string, raw: string, network: string) {
   const { maxFee, prio } = feesOf(raw);
   await c.query(
-    `INSERT INTO tx_attempts (kind, ref_id, from_address, nonce, tx_hash, raw_tx, max_fee_per_gas, max_priority_fee_per_gas, reason)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'original') ON CONFLICT (tx_hash) DO NOTHING`,
-    [kind, refId, from, nonce, keccak256(raw as Hex), raw, maxFee.toString(), prio.toString()]);
+    `INSERT INTO tx_attempts (kind, ref_id, from_address, nonce, tx_hash, raw_tx, max_fee_per_gas, max_priority_fee_per_gas, reason, network)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'original',$9) ON CONFLICT (tx_hash) DO NOTHING`,
+    [kind, refId, from, nonce, keccak256(raw as Hex), raw, maxFee.toString(), prio.toString(), network]);
 }
 
 /** Recibo del hash vigente o, si no lo hay, de cualquier intento anterior con el mismo nonce. */
-export async function findReceipt(kind: TxKind, refId: string, current: string): Promise<{ receipt: TransactionReceipt; hash: string } | null> {
+export async function findReceipt(n: Net, kind: TxKind, refId: string, current: string): Promise<{ receipt: TransactionReceipt; hash: string } | null> {
+  const client = n.client;
   const r = await client.getTransactionReceipt({ hash: current as Hash }).catch(() => null);
   if (r) return { receipt: r, hash: current };
   const { rows } = await pool.query(
@@ -64,6 +65,8 @@ export async function bumpLocked(kind: TxKind, id: string, opts: { manual?: stri
   const { rows: [row] } = await pool.query(`SELECT * FROM ${table} WHERE id = $1`, [id]);
   if (!row) throw new LedgerError(404, 'No encontrado', 'not_found');
   if (row.status !== 'broadcast') throw new LedgerError(409, `Solo se acelera lo enviado y no confirmado (estado: ${row.status})`, 'not_broadcast');
+  const n = net(row.network);
+  const client = n.client;
   const latest = await client.getTransactionCount({ address: row.from_address as Address, blockTag: 'latest' });
   if (latest > Number(row.nonce)) {
     throw new LedgerError(409, 'Ya se minó una transacción con ese nonce; se confirmará en el siguiente ciclo', 'already_mined');
@@ -77,8 +80,8 @@ export async function bumpLocked(kind: TxKind, id: string, opts: { manual?: stri
   const newPrio = up(prio) > est.maxPriorityFeePerGas ? up(prio) : est.maxPriorityFeePerGas;
   let newMax = up(maxFee) > est.maxFeePerGas ? up(maxFee) : est.maxFeePerGas;
   if (newMax < newPrio) newMax = newPrio;
-  if (newMax > config.GAS_BUMP_MAX_FEE_WEI) {
-    const msg = `Gas bump detenido: la comisión necesaria (${newMax} wei) supera el tope GAS_BUMP_MAX_FEE_WEI (${config.GAS_BUMP_MAX_FEE_WEI})`;
+  if (newMax > n.maxFeeWei) {
+    const msg = `Gas bump detenido: la comisión necesaria (${newMax} wei) supera el tope de ${n.label} (${n.maxFeeWei})`;
     await pool.query(`UPDATE ${table} SET last_error = $2, updated_at = now() WHERE id = $1`, [id, msg]);
     throw new LedgerError(422, msg, 'gas_cap');
   }
@@ -91,11 +94,11 @@ export async function bumpLocked(kind: TxKind, id: string, opts: { manual?: stri
   const hash = keccak256(raw);
 
   // Primero se registra el intento (si el proceso cae tras enviar, la confirmación igual lo encuentra)
-  await recordOriginal(pool, kind, id, row.from_address, row.nonce, row.raw_tx);
+  await recordOriginal(pool, kind, id, row.from_address, row.nonce, row.raw_tx, n.id);
   const { rows: [att] } = await pool.query(
-    `INSERT INTO tx_attempts (kind, ref_id, from_address, nonce, tx_hash, raw_tx, max_fee_per_gas, max_priority_fee_per_gas, reason, requested_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
-    [kind, id, row.from_address, row.nonce, hash, raw, newMax.toString(), newPrio.toString(), opts.manual ? 'manual' : 'bump', opts.manual ?? null]);
+    `INSERT INTO tx_attempts (kind, ref_id, from_address, nonce, tx_hash, raw_tx, max_fee_per_gas, max_priority_fee_per_gas, reason, requested_by, network)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+    [kind, id, row.from_address, row.nonce, hash, raw, newMax.toString(), newPrio.toString(), opts.manual ? 'manual' : 'bump', opts.manual ?? null, n.id]);
 
   try {
     await client.sendRawTransaction({ serializedTransaction: raw });
@@ -117,13 +120,13 @@ export async function bumpLocked(kind: TxKind, id: string, opts: { manual?: stri
 }
 
 /** Paso del worker: acelera lo enviado que lleva más de GAS_BUMP_AFTER_SEC sin minarse. */
-export async function bumpStuck(log: Log) {
+export async function bumpStuck(n: Net, log: Log) {
   if (!config.GAS_BUMP_ENABLED) return;
   for (const kind of ['withdrawal', 'sweep'] as const) {
     const { rows } = await pool.query(
-      `SELECT id FROM ${TABLE[kind]} WHERE status = 'broadcast' AND bumps < $1
+      `SELECT id FROM ${TABLE[kind]} WHERE status = 'broadcast' AND network = $3 AND bumps < $1
           AND COALESCE(broadcast_at, updated_at) < now() - make_interval(secs => $2)
-        ORDER BY nonce`, [config.GAS_BUMP_MAX_ATTEMPTS, config.GAS_BUMP_AFTER_SEC]);
+        ORDER BY nonce`, [config.GAS_BUMP_MAX_ATTEMPTS, config.GAS_BUMP_AFTER_SEC, n.id]);
     for (const r of rows) {
       try { await bumpLocked(kind, r.id, { log }); } catch (e) {
         const err = e as LedgerError;
