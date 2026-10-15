@@ -7,6 +7,7 @@ import { pool, type Tx } from '../db.js';
 import { HttpError } from '../idempotency.js';
 import { decodeCursor, page } from '../pagination.js';
 import { getOrCreateDepositAddress } from '../ledger/deposit-addresses.js';
+import { obligationNotices } from './obligations.js';
 
 const IN_FLIGHT = ['reserved', 'signed', 'broadcast']; // retiros aún no finales
 const TX_HASH_RE = /^0x[0-9a-f]{64}$/;
@@ -331,5 +332,6 @@ export async function notices(clientId: string, user?: { totp_enabled: boolean }
   if (user && !user.totp_enabled) {
     out.push({ code: 'totp_disabled', severity: 'warning', message: 'Active la verificación en dos pasos (2FA) en su usuario' });
   }
+  out.push(...(await obligationNotices(clientId)));
   return { notices: out };
 }
