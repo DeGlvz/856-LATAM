@@ -13,6 +13,7 @@ import m011 from './011_portal_identidad.js';
 import m012 from './012_consola_operadores.js';
 import m013 from './013_portal_salidas.js';
 import m014 from './014_portal_obligaciones.js';
+import m015 from './015_multired.js';
 
 // Migraciones embebidas en el build (no hay archivos .sql que copiar al contenedor).
 // Nunca editar una ya aplicada: agregar una nueva.
@@ -31,6 +32,7 @@ const migrations: [string, string][] = [
   ['012_consola_operadores', m012],
   ['013_portal_salidas', m013],
   ['014_portal_obligaciones', m014],
+  ['015_multired', m015],
 ];
 
 export async function migrate(pool: Pool, log: (msg: string) => void = console.log) {
