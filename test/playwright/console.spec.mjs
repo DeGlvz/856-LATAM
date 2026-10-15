@@ -65,7 +65,7 @@ test('login: credenciales incorrectas muestran error y las correctas abren el ta
   await page.getByRole('button', { name: 'Entrar' }).click();
   await expect(page.getByRole('alert')).toContainText('Credenciales inválidas');
   await login(page, BOOT_EMAIL, BOOT_PASS);
-  await expect(page.getByRole('link', { name: /Aprobaciones/ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /^Aprobaciones/ })).toBeVisible();
 });
 
 test('2FA: alta con QR y clave, y login en dos pasos', async ({ page }) => {
@@ -106,7 +106,7 @@ test('retiro: el solicitante no puede aprobar; el segundo tesorero aprueba con 2
   // El solicitante no aprueba lo suyo: 403 (queda «Denegado» en la bitácora, lo usa la prueba de auditoría)
   expect((await consolePost(p1, `/withdrawals/${wd.id}/approve`, { code: '000000' })).status()).toBe(403);
 
-  await p1.getByRole('link', { name: /Aprobaciones/ }).click();
+  await p1.getByRole('link', { name: /^Aprobaciones/ }).click();
   const card1 = p1.locator('div.rounded-lg.border', { hasText: `PW Retiro ${R}` });
   await expect(card1).toContainText('Usted lo solicitó');
   await p1.goto('/console/movimientos');
@@ -114,8 +114,8 @@ test('retiro: el solicitante no puede aprobar; el segundo tesorero aprueba con 2
 
   const p2 = await (await browser.newContext()).newPage();
   await login(p2, T2, PW, () => otp.next());
-  await expect(p2.getByRole('link', { name: /Aprobaciones/ })).toContainText(/\d/); // contador de pendientes
-  await p2.getByRole('link', { name: /Aprobaciones/ }).click();
+  await expect(p2.getByRole('link', { name: /^Aprobaciones/ })).toContainText(/\d/); // contador de pendientes
+  await p2.getByRole('link', { name: /^Aprobaciones/ }).click();
   const card2 = p2.locator('div.rounded-lg.border', { hasText: `PW Retiro ${R}` });
   await card2.getByLabel('Código 2FA para aprobar el retiro').fill(otp.wrong());
   await card2.getByRole('button', { name: 'Aprobar retiro' }).click();
