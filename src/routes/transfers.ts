@@ -9,6 +9,8 @@ import { listSweeps } from '../ledger/sweeps.js';
 import { clientStatus } from '../ledger/clients.js';
 import { assertApprover, decider, requester } from '../ledger/approvals.js';
 import { bumpNow, listAttempts } from '../chain/replace.js';
+import { net, networks, netView } from '../chain/networks.js';
+import { stepUp } from '../auth/operator-admin.js';
 
 const amount = z.string().regex(/^[1-9]\d{0,77}$/, 'entero positivo en unidades base');
 const uuid = z.string().uuid();
@@ -85,20 +87,20 @@ export async function transferRoutes(app: FastifyInstance) {
 
   // Depósitos: reportar un hash (o vía webhook de Alchemy); se acreditan al llegar a N confirmaciones
   app.post('/deposits/report', async (req, reply) => {
-    const { tx_hash } = parse(z.object({ tx_hash: z.string() }), req.body);
-    return reply.code(202).send(await T.detectDeposits(tx_hash, 'api'));
+    const { tx_hash, network } = parse(z.object({ tx_hash: z.string(), network: z.string().max(40).optional() }), req.body);
+    return reply.code(202).send(await T.detectDeposits(tx_hash, 'api', network));
   });
   app.get('/deposits', async (req) => {
-    const q = parse(ListQuery.extend({ status: z.enum(['pending', 'credited', 'orphaned']).optional() }), req.query);
+    const q = parse(ListQuery.extend({ status: z.enum(['pending', 'held', 'credited', 'orphaned']).optional() }), req.query);
     const r = await T.listDeposits(q);
     return { deposits: r.items, next_cursor: r.next_cursor };
   });
 
   // Dirección de depósito propia del cliente (derivada HD, registrada en el webhook)
   app.post<{ Params: { id: string } }>('/clients/:id/deposit-address', async (req, reply) => {
-    const { rotate } = parse(z.object({ rotate: z.boolean().optional() }), req.body ?? {});
+    const { rotate, network } = parse(z.object({ rotate: z.boolean().optional(), network: z.string().max(40).optional() }), req.body ?? {});
     if ((await clientStatus(parse(uuid, req.params.id))) === 'closed') throw new LedgerError(409, 'Cliente cerrado', 'client_closed');
-    return reply.code(201).send(await getOrCreateDepositAddress(parse(uuid, req.params.id), rotate ?? false));
+    return reply.code(201).send(await getOrCreateDepositAddress(parse(uuid, req.params.id), rotate ?? false, network));
   });
   app.get('/sweeps', async (req) => {
     const q = parse(z.object({
@@ -111,6 +113,18 @@ export async function transferRoutes(app: FastifyInstance) {
   });
 
   // Tesorería y operación
-  app.get('/treasury/hot-wallet', async () => T.hotWalletStatus());
+  app.get('/treasury/hot-wallet', async (req) => {
+    const { network } = parse(z.object({ network: z.string().max(40).optional() }), req.query);
+    return T.hotWalletStatus(network ? net(network) : undefined);
+  });
+  // Multi-red: redes encendidas (sin URL ni llaves)
+  app.get('/networks', async () => ({ networks: networks.map(netView) }));
+
+  // Depósito en revisión (activo no habilitado): tesorería lo acredita con 2FA
+  app.post<{ Params: { id: string } }>('/deposits/:id/release', async (req) => {
+    const p = req.principal;
+    if (p?.kind === 'operator') await stepUp(p.operator, parse(z.object({ code: z.string().regex(/^\d{6}$/) }), req.body ?? {}).code);
+    return T.releaseHeldDeposit(parse(uuid, req.params.id), p?.kind === 'operator' ? p.operator.email : 'api');
+  });
   app.post('/worker/tick', async (req) => T.workerTick(req.log));
 }

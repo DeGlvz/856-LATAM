@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { client } from '../chain.js';
+import { explorerOf, networks, netView, type Net } from '../chain/networks.js';
 import { getSigner } from '../chain/signer.js';
 import { config } from '../config.js';
 import { pool } from '../db.js';
@@ -24,15 +25,34 @@ const EXPLORERS: Record<string, string> = {
   'base-mainnet': 'https://basescan.org', 'polygon-mainnet': 'https://polygonscan.com', 'arb-mainnet': 'https://arbiscan.io',
 };
 
-// La conciliación consulta la cadena por cada dirección de depósito: se cachea unos segundos para no castigar el RPC
-let hotCache: { at: number; value: Promise<Awaited<ReturnType<typeof hotWalletStatus>>> } | null = null;
-function cachedHotWallet() {
-  if (!hotCache || Date.now() - hotCache.at > 10_000) {
-    const value = hotWalletStatus();
-    hotCache = { at: Date.now(), value };
-    value.catch(() => { hotCache = null; });
+// La conciliación consulta la cadena por cada dirección de depósito: se cachea unos segundos por red para no castigar el RPC
+const hotCache = new Map<string, { at: number; value: Promise<Awaited<ReturnType<typeof hotWalletStatus>>> }>();
+function cachedHotWallet(n: Net = networks[0]) {
+  const c = hotCache.get(n.id);
+  if (!c || Date.now() - c.at > 10_000) {
+    const value = hotWalletStatus(n);
+    hotCache.set(n.id, { at: Date.now(), value });
+    value.catch(() => { hotCache.delete(n.id); });
+    return value;
   }
-  return hotCache.value;
+  return c.value;
+}
+
+/** Estado de una red para el tablero: salud, bloque, gas de la hot wallet y conciliación. */
+async function networkStatus(n: Net, assets: { id: string; kind: string; network: string; decimals: number }[]) {
+  const [block, hot] = await Promise.all([settle(n.client.getBlockNumber()), settle(cachedHotWallet(n))]);
+  const h = hot.ok ? hot.value : null;
+  const native = assets.find((a) => a.kind === 'native' && a.network === n.id);
+  const nb = h && 'balances' in h ? h.balances?.find((b) => b.asset_id === native?.id) : undefined;
+  const gasWei = nb && 'hot_wallet' in nb ? nb.hot_wallet ?? null : null;
+  return {
+    ...netView(n),
+    status: !n.healthy ? 'disabled' : block.ok ? 'ok' : 'down',
+    block: block.ok ? block.value.toString() : null, error: n.error ?? (block.ok ? null : block.error),
+    gas: { asset_id: native?.id ?? null, decimals: native?.decimals ?? 18, balance_wei: gasWei, threshold_wei: n.gasLowWei.toString(),
+      low: gasWei == null ? null : BigInt(gasWei) < n.gasLowWei },
+    reconciliation: h && h.configured ? { status: 'ok', balances: h.balances } : { status: hot.ok ? 'not_configured' : 'error', balances: [] },
+  };
 }
 
 const settle = async <T>(p: Promise<T>): Promise<{ ok: true; value: T } | { ok: false; error: string }> =>
@@ -47,7 +67,7 @@ export async function consoleRoutes(app: FastifyInstance) {
     ]);
 
     const q = async <T>(sql: string, params: unknown[] = []) => (await pool.query(sql, params)).rows as T[];
-    const [assets, inflight, byStatus, depPending, sweepsOpen, clients, approvals] = db.ok ? await Promise.all([
+    const [assets, inflight, byStatus, depPending, sweepsOpen, clients, approvals, mr] = db.ok ? await Promise.all([
       q<{ id: string; symbol: string; decimals: number; kind: string; network: string }>(
         'SELECT id, symbol, decimals, kind, network FROM assets WHERE active ORDER BY id'),
       q(`SELECT w.id, w.client_id, c.name AS client_name, w.asset_id, w.amount, w.status, w.to_address, w.tx_hash, w.nonce,
@@ -66,7 +86,11 @@ export async function consoleRoutes(app: FastifyInstance) {
                                           (SELECT count(*) FROM obligations WHERE status = 'pending_acceptance' AND accept_due_at > now()) AS op,
                                           (SELECT count(*) FROM obligations WHERE status = 'pending_acceptance' AND accept_due_at > now()
                                               AND accept_due_at <= now() + interval '24 hours') AS oe`),
-    ]) : [[], [], [], [{ n: '0' }], [{ n: '0' }], [], [{ w: '0', r: '0' }]];
+      q<{ held: string; req: string }>(`SELECT (SELECT count(*) FROM deposits WHERE status = 'held') AS held,
+                                               (SELECT count(*) FROM client_asset_requests WHERE status = 'pending') AS req`),
+    ]) : [[], [], [], [{ n: '0' }], [{ n: '0' }], [], [{ w: '0', r: '0' }], [{ held: '0', req: '0' }]];
+    // Multi-red: estado por red (la primera es la principal; sus campos se repiten arriba por compatibilidad)
+    const nets = await Promise.all(networks.map((n) => networkStatus(n, assets)));
 
     const h = hot.ok ? hot.value : null;
     const native = assets.find((a) => a.kind === 'native' && a.network === config.ALCHEMY_NETWORK);
@@ -87,7 +111,8 @@ export async function consoleRoutes(app: FastifyInstance) {
         confirmations: config.CONFIRMATIONS,
         signer: signer?.kind ?? null,
       },
-      explorer: EXPLORERS[config.ALCHEMY_NETWORK] ?? null,
+      explorer: explorerOf(config.ALCHEMY_NETWORK) ?? EXPLORERS[config.ALCHEMY_NETWORK] ?? null,
+      networks: nets,
       assets,
       reconciliation: h && h.configured
         ? { status: 'ok', address: h.address, deposit_addresses: h.deposit_addresses, balances: h.balances, note: h.note }
@@ -107,7 +132,9 @@ export async function consoleRoutes(app: FastifyInstance) {
       sweeps_open: Number(sweepsOpen[0]?.n ?? 0),
       clients_by_status: Object.fromEntries(clients.map((r) => [r.status, Number(r.n)])),
       approvals_pending: { withdrawals: Number(approvals[0]?.w ?? 0), netting_runs: Number(approvals[0]?.r ?? 0),
-        exits_overdue: Number(approvals[0]?.o ?? 0) },
+        exits_overdue: Number(approvals[0]?.o ?? 0),
+        // Multi-red: depósitos en revisión (activo no habilitado) y solicitudes de habilitación de activos
+        deposits_held: Number(mr?.[0]?.held ?? 0), asset_requests: Number(mr?.[0]?.req ?? 0) },
       // Fase 4: obligaciones que esperan la aceptación del deudor (informativo: la consola no acepta por el cliente)
       obligations_pending: { total: Number(approvals[0]?.op ?? 0), expiring_24h: Number(approvals[0]?.oe ?? 0) },
       dual_approval: config.DUAL_APPROVAL,

@@ -29,7 +29,7 @@ export async function portalExitRoutes(app: FastifyInstance) {
   // ── Lista blanca ──
   app.get('/whitelist', async (req) => X.listWhitelist(req.portal!.clientId, req.portal!.kind === 'client_user' ? req.portal!.user.id : undefined));
   app.post('/whitelist', async (req, reply) => {
-    const b = parse(z.object({ address: z.string().min(10).max(80), label: z.string().trim().min(1).max(80).optional() }), req.body);
+    const b = parse(z.object({ address: z.string().min(10).max(80), label: z.string().trim().min(1).max(80).optional(), network: z.string().min(3).max(40).optional() }), req.body);
     return reply.code(201).send(await X.requestWhitelist(userOf(req), b));
   });
   app.post<{ Params: { id: string } }>('/whitelist/:id/approve', async (req) => {
