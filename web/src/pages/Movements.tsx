@@ -8,7 +8,7 @@ import {
 } from '@/lib/api';
 import { ago, shortHex } from '@/lib/amount';
 import { useAuth } from '@/lib/auth';
-import { useAssets, useConsoleOriginates } from '@/lib/hooks';
+import { useAssets, useConsoleOriginates, useNetworks } from '@/lib/hooks';
 import { Amount, ErrorBox, Field, fmtDate } from '@/components/common';
 import { EntryDialog } from '@/components/EntryDialog';
 import { NewWithdrawalDialog, WD_STATUS, WdBadge, WithdrawalDialog } from '@/components/WithdrawalDialogs';
@@ -24,7 +24,8 @@ import { Tabs } from '@/components/ui/tabs';
 
 type Tab = 'retiros' | 'depositos' | 'barridos';
 const DEP_STATUS: Record<DepositStatus, { label: string; variant: 'warning' | 'success' | 'destructive' }> = {
-  pending: { label: 'Pendiente', variant: 'warning' }, credited: { label: 'Acreditado', variant: 'success' }, orphaned: { label: 'Huérfano', variant: 'destructive' },
+  pending: { label: 'Pendiente', variant: 'warning' }, held: { label: 'En revisión', variant: 'warning' },
+  credited: { label: 'Acreditado', variant: 'success' }, orphaned: { label: 'Huérfano', variant: 'destructive' },
 };
 const SW_STATUS: Record<SweepStatus, { label: string; variant: 'warning' | 'default' | 'success' | 'destructive' }> = {
   signed: { label: 'Firmado', variant: 'warning' }, broadcast: { label: 'Enviado', variant: 'default' }, confirmed: { label: 'Confirmado', variant: 'success' }, failed: { label: 'Fallido', variant: 'destructive' },
@@ -169,6 +170,7 @@ function WithdrawalsTable({ clientId, status, explorer, onOpen }: { clientId: st
 
 function DepositsTable({ clientId, status, explorer }: { clientId: string | null; status: DepositStatus | ''; explorer: string }) {
   const { byId } = useAssets();
+  const nets = useNetworks();
   const [entryId, setEntryId] = useState<string | null>(null);
   const q = useList<DepositRow>('deposits', '/deposits', { client_id: clientId ?? undefined, status: status || undefined }, 'deposits');
   const rows = q.data?.pages.flatMap((p) => p.items) ?? [];
@@ -178,17 +180,18 @@ function DepositsTable({ clientId, status, explorer }: { clientId: string | null
       <Table>
         <TableHeader><TableRow>
           <TableHead>Estado</TableHead><TableHead>Cliente</TableHead><TableHead className="text-right">Monto</TableHead>
-          <TableHead>Tx</TableHead><TableHead>Origen</TableHead><TableHead className="text-right">Conf.</TableHead><TableHead className="text-right">Detectado</TableHead>
+          <TableHead>Red</TableHead><TableHead>Tx</TableHead><TableHead>Origen</TableHead><TableHead className="text-right">Conf.</TableHead><TableHead className="text-right">Detectado</TableHead>
         </TableRow></TableHeader>
         <TableBody>
-          {q.isPending && <TableRow><TableCell colSpan={7}><Skeleton className="h-6" /></TableCell></TableRow>}
-          {!q.isPending && rows.length === 0 && <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Sin depósitos</TableCell></TableRow>}
+          {q.isPending && <TableRow><TableCell colSpan={8}><Skeleton className="h-6" /></TableCell></TableRow>}
+          {!q.isPending && rows.length === 0 && <TableRow><TableCell colSpan={8} className="py-8 text-center text-muted-foreground">Sin depósitos</TableCell></TableRow>}
           {rows.map((d) => (
             <TableRow key={d.id} className={d.entry_id ? 'cursor-pointer' : undefined} onClick={() => d.entry_id && setEntryId(d.entry_id)}>
               <TableCell><Badge variant={DEP_STATUS[d.status].variant}>{DEP_STATUS[d.status].label}</Badge></TableCell>
               <TableCell><Link to={`/clientes/${d.client_id}`} onClick={(e) => e.stopPropagation()} className="block max-w-48 truncate font-medium hover:underline">{d.client_name}</Link></TableCell>
               <TableCell className="text-right"><Amount v={d.amount} asset={byId(d.asset_id)} /></TableCell>
-              <TableCell><TxLink explorer={explorer} hash={d.tx_hash} /></TableCell>
+              <TableCell className="text-xs">{d.network ? nets.label(d.network) : '—'}</TableCell>
+              <TableCell><TxLink explorer={d.network ? nets.explorer(d.network) : explorer} hash={d.tx_hash} /></TableCell>
               <TableCell><Badge variant="outline">{d.source === 'webhook' ? 'Webhook' : 'Reporte'}</Badge></TableCell>
               <TableCell className="num text-right">{d.confirmations}</TableCell>
               <TableCell className="num text-right text-muted-foreground" title={fmtDate(d.created_at)}>{ago(d.created_at)}</TableCell>

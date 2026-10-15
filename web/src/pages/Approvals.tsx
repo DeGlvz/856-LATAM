@@ -15,6 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { DualThresholds } from '@/components/DualThresholds';
+import { AssetRequestsCard, HeldDepositsCard } from '@/components/AssetApprovals';
 
 const POLICY = { off: 'desactivada', console: 'lo solicitado desde la consola', all: 'todo (consola y API)' } as const;
 
@@ -147,6 +148,8 @@ export function Approvals() {
         </Card>
       )}
 
+      {can('tesorero') && <AssetRequestsCard />}
+      {can('tesorero') && <HeldDepositsCard />}
       {can('tesorero') && <DualThresholds />}
 
       <WithdrawalDialog id={wdId} explorer={explorer} onClose={() => setWdId(null)} />

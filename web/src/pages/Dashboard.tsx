@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import {
-  Activity, AlertTriangle, Info, CheckCircle2, Database, ExternalLink, Fuel, RefreshCw, Scale, Send, Users, XCircle,
+  Activity, AlertTriangle, Info, Network, CheckCircle2, Database, ExternalLink, Fuel, RefreshCw, Scale, Send, Users, XCircle,
 } from 'lucide-react';
-import { api, type Asset, type InflightWithdrawal, type PortalAlert, type ReconBalance, type Summary } from '@/lib/api';
+import { api, type Asset, type InflightWithdrawal, type NetworkStatus, type PortalAlert, type ReconBalance, type Summary } from '@/lib/api';
 import { WdBadge } from '@/components/WithdrawalDialogs';
 import { ago, exactUnits, formatUnits, shortHex, toBig } from '@/lib/amount';
 import { Badge } from '@/components/ui/badge';
@@ -31,7 +31,7 @@ export function Dashboard() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Tablero</h1>
           <p className="text-sm text-muted-foreground">
-            {s ? <>Red <span className="font-mono">{s.health.chain.network}</span> · actualizado {new Date(s.generated_at).toLocaleTimeString('es-MX')}</> : 'Cargando estado…'}
+            {s ? <>{(s.networks?.length ?? 0) > 1 ? <>{s.networks!.filter((n) => n.status === 'ok').length} de {s.networks!.length} redes operando</> : <>Red <span className="font-mono">{s.health.chain.network}</span></>} · actualizado {new Date(s.generated_at).toLocaleTimeString('es-MX')}</> : 'Cargando estado…'}
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => q.refetch()} disabled={q.isFetching}>
@@ -70,6 +70,8 @@ export function Dashboard() {
         </> : [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-36 rounded-xl" />)}
       </div>
 
+      {s && (s.networks?.length ?? 0) > 1 && <NetworksTable nets={s.networks!} />}
+
       <PortalAlertsCard />
 
       {s ? <ReconTable s={s} /> : <Skeleton className="h-48 rounded-xl" />}
@@ -84,6 +86,60 @@ export function Dashboard() {
         </div>
       )}
     </div>
+  );
+}
+
+// ───────────── Multi-red: una fila por red ─────────────
+const NET_STATUS: Record<NetworkStatus['status'], { label: string; variant: 'success' | 'destructive' | 'secondary' }> = {
+  ok: { label: 'Operando', variant: 'success' }, down: { label: 'Sin respuesta', variant: 'destructive' }, disabled: { label: 'Apagada', variant: 'secondary' },
+};
+function NetworksTable({ nets }: { nets: NetworkStatus[] }) {
+  return (
+    <Card data-section="networks">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Network className="size-4" />Redes</CardTitle>
+        <CardDescription>Salud, gas de la hot wallet y conciliación de cada red encendida. Una red caída no detiene a las demás.</CardDescription>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        <Table>
+          <TableHeader><TableRow>
+            <TableHead>Red</TableHead><TableHead>Estado</TableHead><TableHead className="text-right">Bloque</TableHead>
+            <TableHead className="text-right">Gas</TableHead><TableHead>Conciliación</TableHead><TableHead className="text-right">Confirmaciones</TableHead>
+          </TableRow></TableHeader>
+          <TableBody>
+            {nets.map((n) => {
+              const st = NET_STATUS[n.status];
+              const bad = n.reconciliation.balances.filter((b) => b.difference == null || toBig(b.difference) !== 0n).length;
+              const recOk = n.reconciliation.status === 'ok' && bad === 0;
+              return (
+                <TableRow key={n.id} data-network={n.id}>
+                  <TableCell>
+                    <div className="font-medium">{n.label}{n.primary && <Badge variant="outline" className="ml-2">Principal</Badge>}</div>
+                    <div className="font-mono text-xs text-muted-foreground">{n.id}{n.chain_id ? ` · ${n.chain_id}` : ''}</div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={st.variant}>{st.label}</Badge>
+                    {n.error && <div className="mt-1 max-w-56 truncate text-xs text-destructive" title={n.error}>{n.error}</div>}
+                    {!n.webhook && n.status !== 'disabled' && <div className="mt-1 text-xs text-muted-foreground">Sin webhook</div>}
+                  </TableCell>
+                  <TableCell className="num text-right">{n.block ?? '—'}</TableCell>
+                  <TableCell className="text-right">
+                    {n.gas.balance_wei == null ? '—' : <span className={cn('num', n.gas.low && 'font-semibold text-destructive')}>{formatUnits(n.gas.balance_wei, n.gas.decimals)}</span>}
+                    {n.gas.low && <Badge variant="destructive" className="ml-2"><AlertTriangle />Bajo</Badge>}
+                  </TableCell>
+                  <TableCell>
+                    {n.status === 'disabled' ? '—' : <span className={cn('inline-flex items-center gap-1 text-sm', recOk ? 'text-success' : 'text-destructive')}>
+                      {recOk ? <CheckCircle2 className="size-4" /> : <AlertTriangle className="size-4" />}{n.reconciliation.status !== 'ok' ? 'Sin datos' : recOk ? 'Cuadra' : `${bad} con diferencia`}
+                    </span>}
+                  </TableCell>
+                  <TableCell className="num text-right">{n.confirmations}</TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
   );
 }
 
