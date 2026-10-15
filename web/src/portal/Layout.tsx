@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { EnvBadge } from '@/components/EnvBanner';
 import { NavLink, Outlet } from 'react-router';
 import { ArrowDownToLine, ArrowUpFromLine, FileText, ListChecks, Network, Home as HomeIcon, KeyRound, Landmark, LogOut, Menu, ShieldCheck, Users as UsersIcon, X, Wallet } from 'lucide-react';
 import { usePortal } from './auth';
@@ -57,6 +58,7 @@ export function PortalLayout() {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b bg-background/90 px-4 backdrop-blur">
           <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setOpen(!open)} aria-label="Menú">{open ? <X /> : <Menu />}</Button>
+          <EnvBadge />
           <div className="flex-1" />
           {me && (
             <div className="flex items-center gap-3">
