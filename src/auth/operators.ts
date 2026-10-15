@@ -190,6 +190,9 @@ const TESORERO = new Set([
   'POST /v1/operators/:id/totp/reset', 'POST /v1/withdrawals/:id/bump', 'POST /v1/sweeps/:id/bump',
   'POST /v1/clients/:id/portal-invite', 'PATCH /v1/assets/:id',
   'POST /v1/operators/invites', 'POST /v1/operators/invites/:id/revoke', 'PATCH /v1/operators/:id',
+  // Multi-red: activos habilitados por cliente y depósitos en revisión
+  'PUT /v1/clients/:id/assets/:assetId', 'POST /v1/asset-requests/:id/approve', 'POST /v1/asset-requests/:id/reject',
+  'POST /v1/deposits/:id/release',
 ]);
 // Consultas restringidas: la bitácora (IPs, intentos) y la lista de operadores solo para tesorería
 const GET_TESORERO = new Set(['GET /v1/audit', 'GET /v1/audit/actions', 'GET /v1/operators', 'GET /v1/operators/invites']);
