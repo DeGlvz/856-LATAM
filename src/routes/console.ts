@@ -59,10 +59,13 @@ export async function consoleRoutes(app: FastifyInstance) {
       q<{ n: string }>(`SELECT count(*) AS n FROM deposits WHERE status = 'pending'`),
       q<{ n: string }>(`SELECT count(*) AS n FROM sweeps WHERE status IN ('signed','broadcast')`),
       q<{ status: string; n: string }>('SELECT status, count(*) AS n FROM clients GROUP BY status'),
-      q<{ w: string; r: string; o: string }>(`SELECT (SELECT count(*) FROM withdrawals WHERE status = 'reserved' AND approval_status = 'pending') AS w,
+      q<{ w: string; r: string; o: string; op: string; oe: string }>(`SELECT (SELECT count(*) FROM withdrawals WHERE status = 'reserved' AND approval_status = 'pending') AS w,
                                           (SELECT count(*) FROM netting_runs WHERE status = 'pending_approval') AS r,
                                           (SELECT count(*) FROM withdrawals WHERE status = 'reserved' AND approval_status = 'pending'
-                                              AND validation_due_at < now()) AS o`),
+                                              AND validation_due_at < now()) AS o,
+                                          (SELECT count(*) FROM obligations WHERE status = 'pending_acceptance' AND accept_due_at > now()) AS op,
+                                          (SELECT count(*) FROM obligations WHERE status = 'pending_acceptance' AND accept_due_at > now()
+                                              AND accept_due_at <= now() + interval '24 hours') AS oe`),
     ]) : [[], [], [], [{ n: '0' }], [{ n: '0' }], [], [{ w: '0', r: '0' }]];
 
     const h = hot.ok ? hot.value : null;
@@ -105,6 +108,8 @@ export async function consoleRoutes(app: FastifyInstance) {
       clients_by_status: Object.fromEntries(clients.map((r) => [r.status, Number(r.n)])),
       approvals_pending: { withdrawals: Number(approvals[0]?.w ?? 0), netting_runs: Number(approvals[0]?.r ?? 0),
         exits_overdue: Number(approvals[0]?.o ?? 0) },
+      // Fase 4: obligaciones que esperan la aceptación del deudor (informativo: la consola no acepta por el cliente)
+      obligations_pending: { total: Number(approvals[0]?.op ?? 0), expiring_24h: Number(approvals[0]?.oe ?? 0) },
       dual_approval: config.DUAL_APPROVAL,
       origin_rule: config.ORIGIN_RULE,
     };
