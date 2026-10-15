@@ -333,6 +333,35 @@ Variables nuevas: `WHITELIST_COOLDOWN_HOURS` (24), `EXIT_SIMULATION_TTL_MIN` (30
 
 Pruebas: `ORIGIN_RULE=enforce` + `node test/portal-fase3.e2e.mjs` (63 verificaciones: regla de origen, lista blanca, simulación, autorización y ejecución en cadena, umbral del cliente, dos tesoreros, `scope_changed`, rechazo, cancelación, fila alterada en la base, llaves, aislamiento, tiempo objetivo y bitácora) y `npx playwright test portal-salidas.spec.mjs` (5 recorridos: lista blanca, salida en cuatro pasos, aprobación interna, autorización y rechazo en la consola, permiso de la llave).
 
+### Portal de clientes — fase 4: obligaciones y compensación
+**El acreedor registra, el deudor acepta.** Solo las obligaciones aceptadas (`open`) entran a compensación. Con `ORIGIN_RULE=enforce` la consola y las `API_KEYS` globales ya no registran obligaciones de clientes (`403 origin_not_client`): conservan la consulta, la cancelación con motivo y las corridas sobre lo ya aceptado.
+
+- **Código de contraparte** por cliente (`856-XXXX-XXXX`, aleatorio, en Inicio y en Obligaciones). El acreedor identifica al deudor con ese código; la consulta es exacta y devuelve solo el nombre (no hay búsqueda ni lista, no se pueden enumerar clientes).
+- **Estados:** `pending_acceptance` → `open` (aceptada) | `rejected` (con motivo) | `expired` (sin respuesta en `OBLIGATION_ACCEPT_TTL_HOURS`, 72 h); después `settled` o `cancelled`. Las obligaciones existentes y las registradas por la consola con la regla apagada nacen `open`.
+- **Aceptar:** usuario Operador+ o llave Ed25519 con permiso `trade`. Si el monto alcanza el umbral de aprobación interna del deudor (fase 3), solo un Aprobador o Administrador con 2FA puede aceptarla (`403 approval_required`, `422 bad_code`). El acreedor no acepta lo suyo (`403 not_debtor`).
+- **Cancelar:** el acreedor, con motivo, mientras esté pendiente o abierta y fuera de una corrida en curso (`409 in_pending_run`).
+- **Duplicados:** misma referencia, misma contraparte y mismo activo con una obligación pendiente o abierta → `409 duplicate_obligation`.
+- **Carga CSV** (columnas `contraparte, activo, monto, referencia, vencimiento`; coma o punto y coma; BOM de Excel): primero se valida sin registrar y se devuelve el reporte por fila y campo; al confirmar se registran todas las filas válidas en una sola transacción o ninguna (`409 import_row_failed`). Máximo `OBLIGATION_IMPORT_MAX_ROWS` (5 000).
+- **Compensación (vista del cliente):** posición en la próxima corrida por activo (por cobrar, por pagar, neto, ahorro estimado y faltante de saldo), calculada como la consola pero devolviendo solo lo propio; historial de corridas donde participó con su renglón del asiento (abono o cargo) y sus obligaciones.
+- **Avisos:** el portal avisa las obligaciones por aceptar (y las que vencen en < 24 h); el Tablero de la consola, las que vencen en < 24 h.
+- El worker vence las aceptaciones fuera de plazo; cada lectura o decisión del portal también lo hace.
+
+| Método y ruta (`/v1/portal`) | Quién | Uso |
+|---|---|---|
+| `GET /counterparty` · `GET /counterparties/:code` | lectura | Código propio · confirmar contraparte (30/min) |
+| `GET /obligations?role&status&asset_id` · `GET /obligations/:id` | lectura | Lista (con `to_accept`) y detalle |
+| `POST /obligations` `{counterparty_code, asset_id, amount, external_ref?, due_at?}` | operador+ o llave `trade` | Registrar por cobrar |
+| `POST /obligations/:id/accept` `{code?}` · `/reject` `{reason}` | deudor: operador+ (aprobador+ con 2FA arriba del umbral) o llave `trade` | Aceptar o rechazar |
+| `POST /obligations/:id/cancel` `{reason}` | acreedor: operador+ o llave `trade` | Cancelar |
+| `POST /obligations/import` `{filename?, csv}` · `/import/:id/commit` · `/import/:id/discard` | operador+ o llave `trade` | Carga masiva |
+| `GET /netting/positions?asset_id` · `GET /netting/runs` · `GET /netting/runs/:id` | lectura | Posición e historial propios |
+
+Migración `014_portal_obligaciones` (idempotente): `clients.counterparty_code` (función `gen_counterparty_code()`); estados nuevos de `obligations` con origen, aceptación, rechazo, vencimiento e `import_id`; tabla `obligation_imports`.
+
+Variables nuevas: `OBLIGATION_ACCEPT_TTL_HOURS` (72), `OBLIGATION_IMPORT_MAX_ROWS` (5000).
+
+Pruebas: `ORIGIN_RULE=enforce` + `node test/portal-fase4.e2e.mjs` (68 verificaciones: códigos, alta, duplicados, aislamiento, aceptación, umbral con 2FA, rechazo, cancelación, vencimiento, regla de origen, llaves `trade`/`read`/`withdraw`, CSV con errores por fila y confirmación atómica, posiciones, corrida con asiento, bitácora y migración re-ejecutable) y `npx playwright test portal-obligaciones.spec.mjs` (5 recorridos).
+
 Pendiente: TRON/BTC/LTC.
 
 Pruebas: `bash test/smoke.sh` (libro), `bash test/netting.sh` (compensación), `node test/console-fase4.e2e.mjs` (consola de compensación), `node test/transfers.e2e.mjs` y `node test/deposits-sweep.e2e.mjs` (on-chain, contra cadena local Hardhat/Anvil).
