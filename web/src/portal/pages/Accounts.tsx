@@ -2,9 +2,10 @@ import { useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router';
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Download, FileText, Loader2 } from 'lucide-react';
-import { ApiError, downloadPortal, papi, type BalanceRow, type EntriesPage, type Line, type Statement } from '../api';
+import { ApiError, downloadPortal, netLabel, papi, type BalanceRow, type EntriesPage, type Line, type Statement } from '../api';
 import { Money, RefCell, fmtUtc, lastMonths } from '../money';
 import { ErrorBox, Field, fmtDate } from '@/components/common';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -32,7 +33,7 @@ export function Accounts() {
               <TableBody>
                 {q.data.balances.map((b) => (
                   <TableRow key={b.asset_id}>
-                    <TableCell><div className="font-medium">{b.symbol}</div><div className="font-mono text-xs text-muted-foreground">{b.asset_id}</div></TableCell>
+                    <TableCell><div className="font-medium">{b.symbol}{b.asset_status === 'exit_only' && <Badge variant="secondary" className="ml-2" data-testid="exit-only">Solo salida</Badge>}</div><div className="text-xs text-muted-foreground">{netLabel(b.network)} · <span className="font-mono">{b.asset_id}</span></div></TableCell>
                     <TableCell className="text-right"><Money v={b.available} decimals={b.decimals} /></TableCell>
                     <TableCell className="text-right"><Money v={b.reserved} decimals={b.decimals} /></TableCell>
                     <TableCell className="text-right font-medium"><Money v={b.total} decimals={b.decimals} /></TableCell>
@@ -88,7 +89,7 @@ export function AccountDetail() {
       <div>
         <Link to="/cuentas" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:underline"><ArrowLeft className="size-4" />Cuentas</Link>
         <h1 className="mt-1 text-xl font-semibold tracking-tight">{a ? `${a.symbol}` : asset}</h1>
-        {a && first && <p className="text-sm text-muted-foreground">Saldo disponible: <Money v={first.balance} decimals={a.decimals} symbol={a.symbol} className="text-foreground" /> · <span className="font-mono text-xs">{a.network}</span></p>}
+        {a && first && <p className="text-sm text-muted-foreground">Saldo disponible: <Money v={first.balance} decimals={a.decimals} symbol={a.symbol} className="text-foreground" /> · <span className="text-xs">{netLabel(a.network)}</span></p>}
       </div>
       <ErrorBox error={notFound ? null : q.error} />
 

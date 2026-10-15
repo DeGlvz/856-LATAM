@@ -1,11 +1,12 @@
 import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowRight, KeyRound, ShieldCheck, Users } from 'lucide-react';
-import { papi, ROLE_HELP, ROLE_LABEL, type ActivityLine, type BalanceRow, type Notice } from '../api';
+import { netLabel, papi, ROLE_HELP, ROLE_LABEL, type ActivityLine, type BalanceRow, type Notice } from '../api';
 import { usePortal } from '../auth';
 import { Money, NoticesBand } from '../money';
 import { CounterpartyCode } from './Obligations';
 import { ErrorBox, StatusBadge, fmtDate } from '@/components/common';
+import { Badge } from '@/components/ui/badge';
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -41,7 +42,7 @@ export function Home() {
           {rows.map((b) => (
             <Card key={b.asset_id} data-asset={b.asset_id}>
               <CardHeader>
-                <CardDescription>{b.symbol} · <span className="font-mono text-xs">{b.network}</span></CardDescription>
+                <CardDescription>{b.symbol} · <span className="text-xs">{netLabel(b.network)}</span>{b.asset_status === 'exit_only' && <Badge variant="secondary" className="ml-2">Solo salida</Badge>}</CardDescription>
                 <CardTitle className="text-2xl"><Money v={b.available} decimals={b.decimals} symbol={b.symbol} /></CardTitle>
                 <CardAction><Link to={`/cuentas/${b.asset_id}`} className="inline-flex items-center gap-1 text-sm underline">Movimientos<ArrowRight className="size-3.5" /></Link></CardAction>
               </CardHeader>
