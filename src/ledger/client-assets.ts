@@ -3,9 +3,11 @@
 //   exit_only → solo puede retirar o compensar lo que tiene; no recibe más (baja ordenada de un activo con saldo)
 //   (sin fila) → no habilitado: no opera; un depósito que llegue queda "held" para que tesorería decida
 // Lo administra el Tesorero con 2FA; el Ejecutivo solo lo solicita. Es configuración del contrato, no originación.
-import { config } from '../config.js';
+import { defaultClientNetworks } from '../config.js';
 import { csv, findNet, isEnabled, KNOWN, primaryNet } from '../chain/networks.js';
 import { pool, tx, type Tx } from '../db.js';
+
+const sweepMinOf = (assetId: string) => process.env[`SWEEP_MIN_${assetId.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`]?.trim() || null;
 import { HttpError } from '../idempotency.js';
 import { decodeCursor, page } from '../pagination.js';
 
@@ -36,7 +38,7 @@ export async function enableDefaults(c: Tx, clientId: string, explicit: string[]
   await c.query(
     `INSERT INTO client_assets (client_id, asset_id, status, updated_by)
      SELECT $1, id, 'enabled', $3 FROM assets WHERE active AND (network = ANY($2) OR id = ANY($4))
-     ON CONFLICT DO NOTHING`, [clientId, csv(config.DEFAULT_CLIENT_NETWORKS), by, explicit]);
+     ON CONFLICT DO NOTHING`, [clientId, csv(defaultClientNetworks), by, explicit]);
 }
 
 /** Vista para la consola: todos los activos activos con su estado para el cliente, saldo y red encendida. */
@@ -62,7 +64,9 @@ export async function myAssets(clientId: string) {
       WHERE ca.client_id = $1 AND s.active ORDER BY s.network, s.kind DESC, s.symbol`, [clientId]);
   // La red principal primero (es la que se usa cuando no se indica red)
   const out = rows.map((r) => ({ ...r, network_label: findNet(r.network)?.label ?? KNOWN[r.network]?.label ?? r.network,
-    network_enabled: isEnabled(r.network), network_primary: r.network === primaryNet.id }));
+    network_enabled: isEnabled(r.network), network_primary: r.network === primaryNet.id,
+    // Fase M1: depósito mínimo recomendado (umbral de barrido) si está configurado; null = sin mínimo
+    sweep_min: sweepMinOf(r.asset_id) }));
   return { assets: out.sort((x, y) => Number(y.network_primary) - Number(x.network_primary)) };
 }
 
