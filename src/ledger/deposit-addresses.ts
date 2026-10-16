@@ -7,7 +7,7 @@ import { LedgerError } from './service.js';
 type Log = { info: (o: object, m: string) => void; warn: (o: object, m: string) => void };
 
 /** Registra direcciones en el webhook Address Activity de Alchemy de ESA red (Notify API). */
-async function registerOnWebhook(n: Net, addresses: string[]): Promise<boolean> {
+export async function registerOnWebhook(n: Net, addresses: string[]): Promise<boolean> {
   if (!addresses.length || !n.webhookId || !config.ALCHEMY_NOTIFY_TOKEN) return false;
   const res = await fetch(config.ALCHEMY_NOTIFY_URL, {
     method: 'PATCH',
@@ -81,7 +81,7 @@ export async function getOrCreateDepositAddress(clientId: string, rotate = false
 export async function registerPendingAddresses(n: Net, log: Log) {
   if (!n.webhookId || !config.ALCHEMY_NOTIFY_TOKEN) return;
   const { rows } = await pool.query(
-    `SELECT id, address FROM wallets WHERE purpose = 'deposit' AND derivation_index IS NOT NULL
+    `SELECT id, address FROM wallets WHERE purpose IN ('deposit','fiat_treasury') AND derivation_index IS NOT NULL
        AND NOT webhook_registered AND active AND network = $1 LIMIT 100`, [n.id]);
   if (!rows.length) return;
   try {

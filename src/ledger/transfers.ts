@@ -15,6 +15,7 @@ import { sweepStep } from './sweeps.js';
 import { bumpNow, bumpStuck, findReceipt, listAttempts, recordOriginal } from '../chain/replace.js';
 import { decodeCursor, page } from '../pagination.js';
 import { expirePending } from '../portal/obligations.js';
+import { fiatTick, kickPoll } from '../fiat/service.js';
 
 const MAX_ATTEMPTS = 5;
 const lower = (a: string) => a.toLowerCase();
@@ -467,6 +468,14 @@ export async function detectDeposits(txHash: string, source: 'api' | 'webhook' =
     if (w && value > 0n && !platform.has(lower(from))) found.push({ log_index: lg.logIndex, wallet: w, asset_id: asset.id, from: lower(from), amount: value });
   }
 
+  // Fase F1: EURe que llega a la tesorería fiat no es depósito de cliente; solo adelanta la conciliación del proveedor
+  const { rows: fiatW } = await pool.query(`SELECT address FROM wallets WHERE network = $1 AND purpose = 'fiat_treasury'`, [netId]);
+  if (fiatW.length) {
+    const fiatSet = new Set(fiatW.map((w) => w.address as string));
+    const toTreasury = receipt.logs.some((lg) => lg.topics[0] === TRANSFER_TOPIC && lg.topics[2] && fiatSet.has(lower(`0x${lg.topics[2].slice(26)}`)));
+    if (toTreasury) kickPoll();
+  }
+
   for (const d of found) {
     await pool.query(
       `INSERT INTO deposits (tx_hash, log_index, wallet_id, client_id, asset_id, from_address, amount, block_number, source, network)
@@ -567,9 +576,9 @@ export async function hotWalletStatus(n: Net = primaryNet) {
     `SELECT a.id, a.kind, a.contract_address, acc.balance AS ledger_custody
        FROM assets a JOIN accounts acc ON acc.code = 'system:' || a.id || ':custody'
       WHERE a.network = $1 AND a.active AND a.kind IN ('native','erc20') ORDER BY a.id`, [n.id]);
-  // Wallets controladas por la plataforma: hot + direcciones de depósito derivadas
+  // Wallets controladas por la plataforma: hot + direcciones de depósito derivadas (+ tesorería fiat, fase F1)
   const { rows: deps } = await pool.query(
-    `SELECT address FROM wallets WHERE network = $1 AND purpose = 'deposit' AND derivation_index IS NOT NULL`, [n.id]);
+    `SELECT address FROM wallets WHERE network = $1 AND purpose IN ('deposit','fiat_treasury') AND derivation_index IS NOT NULL`, [n.id]);
   const read = (a: { kind: string; contract_address: string | null }, addr: Address) => a.kind === 'native'
     ? client.getBalance({ address: addr })
     : client.readContract({ address: a.contract_address as Address, abi: erc20Abi, functionName: 'balanceOf', args: [addr] });
@@ -637,7 +646,9 @@ export async function workerTick(log: Logger) {
         }
       }
       await expirePending(); // fase 4: aceptaciones de obligaciones fuera de plazo
-      return { ok: true, networks: out };
+      // Fase F1: sondeo y conciliación del proveedor de fiat (respeta FIAT_POLL_INTERVAL_MS; un error no detiene lo demás)
+      const fiat = await fiatTick(log).catch((e) => ({ error: (e as Error).message }));
+      return { ok: true, networks: out, fiat };
     } finally {
       await c.query('SELECT pg_advisory_unlock(856003)');
     }
