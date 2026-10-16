@@ -165,7 +165,7 @@ async function confirmSweeps(n: Net, log: Log) {
       log.info({ sweep: r.id, status: receipt.status }, 'barrido liquidado');
     } catch (e) {
       const code = (e as { code?: string }).code;
-      const msg = code === '23514' ? 'Custodia nativa insuficiente en libro para registrar gas de barrido' : (e as Error).message.split('\n')[0];
+      const msg = code === '23514' ? 'Custodia nativa insuficiente en libro para registrar gas de barrido: registre el fondeo de gas (Tablero → Registrar fondeo de gas)' : (e as Error).message.split('\n')[0];
       await pool.query(`UPDATE sweeps SET last_error = $2, updated_at = now() WHERE id = $1`, [r.id, msg.slice(0, 500)]);
       log.error({ sweep: r.id, err: msg }, 'no se pudo liquidar barrido');
     }

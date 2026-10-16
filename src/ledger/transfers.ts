@@ -414,7 +414,7 @@ async function confirmBroadcast(n: Net, log: Logger) {
     } catch (e) {
       const code = (e as { code?: string }).code;
       const msg = code === '23514'
-        ? 'Custodia insuficiente para registrar el movimiento/gas: registre el fondeo de la hot wallet (asiento adjustment custody/equity)'
+        ? 'Custodia insuficiente para registrar el movimiento/gas: registre el fondeo de gas de la hot wallet (Tablero → Registrar fondeo de gas)'
         : (e as Error).message.split('\n')[0].slice(0, 500);
       await pool.query('UPDATE withdrawals SET last_error = $2, confirmations = $3, updated_at = now() WHERE id = $1', [r.id, msg, confs]);
       log.error({ withdrawal: r.id, err: msg }, 'no se pudo liquidar el retiro');
