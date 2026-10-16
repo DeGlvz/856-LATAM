@@ -1,3 +1,4 @@
+import { gasLedgerStatus } from '../ledger/gas-funding.js';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { client } from '../chain.js';
@@ -39,18 +40,23 @@ function cachedHotWallet(n: Net = networks[0]) {
 }
 
 /** Estado de una red para el tablero: salud, bloque, gas de la hot wallet y conciliación. */
-async function networkStatus(n: Net, assets: { id: string; kind: string; network: string; decimals: number }[]) {
+async function networkStatus(n: Net, assets: { id: string; kind: string; network: string; decimals: number }[], gl: Awaited<ReturnType<typeof gasLedgerStatus>>) {
   const [block, hot] = await Promise.all([settle(n.client.getBlockNumber()), settle(cachedHotWallet(n))]);
   const h = hot.ok ? hot.value : null;
   const native = assets.find((a) => a.kind === 'native' && a.network === n.id);
   const nb = h && 'balances' in h ? h.balances?.find((b) => b.asset_id === native?.id) : undefined;
   const gasWei = nb && 'hot_wallet' in nb ? nb.hot_wallet ?? null : null;
+  const g = gl[n.id];
   return {
     ...netView(n),
     status: !n.healthy ? 'disabled' : block.ok ? 'ok' : 'down',
     block: block.ok ? block.value.toString() : null, error: n.error ?? (block.ok ? null : block.error),
     gas: { asset_id: native?.id ?? null, decimals: native?.decimals ?? 18, balance_wei: gasWei, threshold_wei: n.gasLowWei.toString(),
-      low: gasWei == null ? null : BigInt(gasWei) < n.gasLowWei },
+      low: gasWei == null ? null : BigInt(gasWei) < n.gasLowWei,
+      // Registro de gas: lo que hay en la hot wallet y el libro no tiene como custodia = fondeo sin registrar
+      ledger_custody: g?.ledger_custody ?? null,
+      unregistered_wei: gasWei != null && g ? (BigInt(gasWei) > BigInt(g.ledger_custody) ? (BigInt(gasWei) - BigInt(g.ledger_custody)).toString() : '0') : null,
+      stuck_sweeps: g?.stuck_sweeps ?? 0, stuck_withdrawals: g?.stuck_withdrawals ?? 0 },
     reconciliation: h && h.configured ? { status: 'ok', balances: h.balances } : { status: hot.ok ? 'not_configured' : 'error', balances: [] },
   };
 }
@@ -90,7 +96,8 @@ export async function consoleRoutes(app: FastifyInstance) {
                                                (SELECT count(*) FROM client_asset_requests WHERE status = 'pending') AS req`),
     ]) : [[], [], [], [{ n: '0' }], [{ n: '0' }], [], [{ w: '0', r: '0' }], [{ held: '0', req: '0' }]];
     // Multi-red: estado por red (la primera es la principal; sus campos se repiten arriba por compatibilidad)
-    const nets = await Promise.all(networks.map((n) => networkStatus(n, assets)));
+    const gl = db.ok ? await gasLedgerStatus() : {};
+    const nets = await Promise.all(networks.map((n) => networkStatus(n, assets, gl)));
 
     const h = hot.ok ? hot.value : null;
     const native = assets.find((a) => a.kind === 'native' && a.network === config.ALCHEMY_NETWORK);
