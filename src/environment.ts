@@ -4,6 +4,9 @@ import { config, isProduction } from './config.js';
 import { pool } from './db.js';
 import { envOfNetwork, KNOWN, networkIds } from './chain/networks.js';
 
+/** Red de la tesorería fiat (FIAT_CHAIN=base): Base mainnet en production, Base Sepolia en sandbox. */
+export const fiatNetworkId = () => (isProduction ? `${config.FIAT_CHAIN}-mainnet` : `${config.FIAT_CHAIN}-sepolia`);
+
 /** Errores de configuración (sin consultar la base). Devuelve la lista; vacía = válida. */
 export function configErrors(): string[] {
   const errs: string[] = [];
@@ -20,6 +23,14 @@ export function configErrors(): string[] {
     if (k.startsWith('SWEEP_MIN_') && k !== 'SWEEP_MIN_NATIVE_WEI' && v?.trim() && !/^\d+$/.test(v.trim())) {
       errs.push(`${k} debe ser un entero en unidades base del activo`);
     }
+  }
+  // Fase F1: fiat
+  if (config.FIAT_MODE !== 'treasury') errs.push('FIAT_MODE=per_client está declarado pero no implementado: use treasury');
+  if (!isProduction && config.FIAT_LIVE_ENABLED) errs.push('En sandbox el fiat solo usa el proveedor simulado: FIAT_LIVE_ENABLED debe ser false');
+  if (isProduction && config.FIAT_LIVE_ENABLED) {
+    if (!config.MONERIUM_CLIENT_ID || !config.MONERIUM_CLIENT_SECRET) errs.push('FIAT_LIVE_ENABLED=true exige MONERIUM_CLIENT_ID y MONERIUM_CLIENT_SECRET');
+    if (config.MONERIUM_ENV !== 'production') errs.push('En production MONERIUM_ENV debe ser production');
+    if (!networkIds().includes(fiatNetworkId())) errs.push(`FIAT_LIVE_ENABLED=true exige la red ${fiatNetworkId()} encendida (NETWORKS)`);
   }
   if (isProduction) {
     if (config.ORIGIN_RULE !== 'enforce') errs.push('En production ORIGIN_RULE=enforce es obligatorio (solo el cliente origina operaciones)');

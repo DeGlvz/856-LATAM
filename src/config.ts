@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { z } from 'zod';
 
+const blank = (v: unknown) => (typeof v === 'string' && !v.trim() ? undefined : v);
 const Env = z.object({
   PORT: z.coerce.number().default(8080),
   HOST: z.string().default('0.0.0.0'),
@@ -81,6 +82,18 @@ const Env = z.object({
   DEFAULT_CLIENT_NETWORKS: z.string().optional(),
   // Fase M1: ambiente del despliegue. production = solo redes main; sandbox = solo redes de prueba (para clientes).
   ENVIRONMENT: z.enum(['production', 'sandbox']).default('sandbox'),
+  // Fase F1: entrada SEPA → EURe con Monerium (modo tesorería única). Credenciales de la app Private (client credentials).
+  MONERIUM_ENV: z.enum(['production', 'sandbox']).default('production'),
+  MONERIUM_CLIENT_ID: z.preprocess(blank, z.string().optional()),
+  MONERIUM_CLIENT_SECRET: z.preprocess(blank, z.string().optional()),
+  // Secreto (whsec_…) de la suscripción de webhooks de Monerium; sin él el webhook solo dispara un sondeo
+  MONERIUM_WEBHOOK_SECRET: z.preprocess(blank, z.string().optional()),
+  FIAT_MODE: z.enum(['treasury', 'per_client']).default('treasury'),
+  FIAT_CHAIN: z.enum(['base']).default('base'),
+  // Interruptor: false = ninguna llamada sale a Monerium (se usa el proveedor simulado solo fuera de production)
+  FIAT_LIVE_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  FIAT_POLL_INTERVAL_MS: z.coerce.number().int().min(5_000).default(60_000),
+  FIAT_INTENT_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(7),
 });
 
 export const config = Env.parse(process.env);

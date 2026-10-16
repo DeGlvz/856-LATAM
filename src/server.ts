@@ -23,6 +23,7 @@ import { pool } from './db.js';
 import { migrate } from './migrations/index.js';
 import { ensureAllSystemAccounts } from './ledger/service.js';
 import { clientAssetRoutes } from './routes/client-assets.js';
+import { fiatConsoleRoutes } from './routes/fiat.js';
 import { verifyNetworks } from './chain/networks.js';
 import { ensureCatalog } from './chain/catalog.js';
 import { assertTreasuryAtBoot, configErrors, foreignNetworks, SETUP_ALLOWED, setupRequired } from './environment.js';
@@ -142,6 +143,7 @@ await app.register(async (v1) => {
   await v1.register(nettingRoutes);
   await v1.register(transferRoutes);
   await v1.register(clientAssetRoutes);
+  await v1.register(fiatConsoleRoutes);
 }, { prefix: '/v1' });
 
 // Portal de clientes: autenticación propia y aislada (no hereda los hooks de /v1)
