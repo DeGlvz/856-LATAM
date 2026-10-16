@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { EnvBadge } from '@/components/EnvBanner';
 import { NavLink, Outlet } from 'react-router';
-import { ArrowDownToLine, ArrowUpFromLine, FileText, ListChecks, Network, Home as HomeIcon, KeyRound, Landmark, LogOut, Menu, ShieldCheck, Users as UsersIcon, X, Wallet } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpFromLine, Euro, ReceiptText, FileText, ListChecks, Network, Home as HomeIcon, KeyRound, Landmark, LogOut, Menu, ShieldCheck, Users as UsersIcon, X, Wallet } from 'lucide-react';
 import { usePortal } from './auth';
 import { ROLE_LABEL } from './api';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,8 @@ const NAV = [
   { to: '/', label: 'Inicio', icon: HomeIcon },
   { to: '/cuentas', label: 'Cuentas', icon: Landmark },
   { to: '/depositos', label: 'Depósitos', icon: ArrowDownToLine },
+  { to: '/euros', label: 'Recibir euros', icon: Euro },
+  { to: '/avisos', label: 'Avisos de pago', icon: ReceiptText },
   { to: '/salidas', label: 'Salidas', icon: ArrowUpFromLine },
   { to: '/lista-blanca', label: 'Lista blanca', icon: ListChecks },
   { to: '/obligaciones', label: 'Obligaciones', icon: FileText },

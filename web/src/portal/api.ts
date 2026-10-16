@@ -80,6 +80,9 @@ export const NETS: Record<string, { label: string; explorer: string; native?: st
   'opt-sepolia': { label: 'OP Sepolia', explorer: 'https://sepolia-optimism.etherscan.io' },
   'avax-fuji': { label: 'Avalanche Fuji', explorer: 'https://testnet.snowtrace.io', native: 'AVAX' },
   'eth-mainnet': { label: 'Ethereum', explorer: 'https://etherscan.io' },
+  'base-mainnet': { label: 'Base', explorer: 'https://basescan.org' },
+  'arb-mainnet': { label: 'Arbitrum One', explorer: 'https://arbiscan.io' },
+  'bnb-mainnet': { label: 'BNB Smart Chain', explorer: 'https://bscscan.com', native: 'BNB' },
 };
 export const explorerFor = (network: string, fromServer?: string | null) => fromServer ?? NETS[network]?.explorer ?? 'https://sepolia.etherscan.io';
 export const netLabel = (network: string) => NETS[network]?.label ?? network;
@@ -172,3 +175,28 @@ export const OB_STATE: Record<ObStatus, { t: string; v: 'warning' | 'success' | 
   pending_acceptance: { t: 'Por aceptar', v: 'warning' }, open: { t: 'Aceptada', v: 'secondary' }, settled: { t: 'Liquidada', v: 'success' },
   cancelled: { t: 'Cancelada', v: 'outline' }, rejected: { t: 'Rechazada', v: 'destructive' }, expired: { t: 'Vencida', v: 'outline' },
 };
+
+// ── Fase F1: recibir euros (SEPA → EURe) ──
+export interface FiatInstructions {
+  currency: 'EUR'; method: 'SEPA'; iban: string; bic: string | null; beneficiary: string | null; asset_id: string; network: string;
+  intent_ttl_days: number; counterparty_code: string | null; steps: string[];
+}
+export type IntentStatus = 'open' | 'matched' | 'expired' | 'cancelled';
+export interface PaymentIntent {
+  id: string; reference: string; expected_amount: string; expected_amount_eur: string; currency: 'EUR'; expected_date: string | null; note: string | null;
+  expires_at: string; status: IntentStatus; origin_kind: 'client_user' | 'client_key' | 'delegate'; created_by: string; created_at: string; cancelled_at: string | null;
+}
+export interface FiatDepositRow {
+  id: string; amount_eur: string; amount_cents: string; asset_id: string; reference: string | null; payer_name: string | null; network: string; tx_hash: string | null;
+  status: 'reconciled' | 'released' | 'rejected'; status_label: string; reason: string | null; received_at: string; reconciled_at: string | null; released_at: string | null; intent_reference: string | null;
+}
+export const INTENT_STATE: Record<IntentStatus, { t: string; v: 'warning' | 'success' | 'secondary' | 'outline' }> = {
+  open: { t: 'Abierto', v: 'warning' }, matched: { t: 'Recibido', v: 'success' }, expired: { t: 'Vencido', v: 'secondary' }, cancelled: { t: 'Cancelado', v: 'outline' },
+};
+/** "1250.5" → "1,250.50 €" (sin pasar por float). */
+export const fmtEur = (s: string) => {
+  const [i, d = ''] = s.split('.');
+  return `${i.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${d.padEnd(2, '0').slice(0, 2)} €`;
+};
+/** IBAN en grupos de 4 para leerlo y dictarlo. */
+export const fmtIban = (iban: string) => iban.replace(/\s/g, '').replace(/(.{4})/g, '$1 ').trim();

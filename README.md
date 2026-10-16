@@ -463,6 +463,57 @@ Variables nuevas: `ENVIRONMENT`, `HD_MNEMONIC`, `SWEEP_MIN_<ACTIVO>` (y las de A
 
 Pruebas: `node test/m1.e2e.mjs` (47 verificaciones: reglas de arranque de ambos ambientes, modo de alta, catálogo y decimales 6 vs 18 con conversión exacta, transferencia interna 422, un solo tesorero vs dos, mínimo de barrido; ver cabecera para variables) y `npx playwright test m1.spec.mjs`.
 
+### Fase F1 — entrada SEPA → EURe con Monerium (tesorería única)
+El cliente transfiere euros por SEPA y recibe saldo en **EURe** (1 EURe = 1 €) en 856. Solo **entrada**; la salida a fiat (redeem) queda para una fase posterior. 856 no toca fiat: lo opera el proveedor regulado.
+
+**Modo tesorería única** (`FIAT_MODE=treasury`): un perfil Monerium y un IBAN ligado a una **dirección HD reservada de 856** en Base (índice propio de la semilla HD, nunca una wallet personal; `wallets.purpose = 'fiat_treasury'`). El modo `per_client` (Whitelabel) está declarado en la interfaz y el arranque lo rechaza mientras no exista.
+
+**Flujo**
+1. El cliente consulta las instrucciones (IBAN, BIC, beneficiario) y crea un **aviso de pago** con el monto (EUR, hasta 2 decimales, sin float) → referencia `856-XXXX-XXXX-NNN` (los 3 dígitos son de control), vigente `FIAT_INTENT_TTL_DAYS` días.
+2. Transfiere por SEPA con la referencia como concepto. El proveedor registra la orden (`received`) y acuña EURe en la dirección de tesorería (`minted`).
+3. **Conciliación automática**: orden `processed` + `Transfer` del contrato EURe hacia la tesorería **por el monto exacto** (céntimos × 10¹⁶), con las confirmaciones de la red → `reconciled`. Asignación: referencia de un aviso abierto del mismo monto; si no, código de contraparte del cliente en el concepto (tolera que el banco quite guiones o espacios); si nada coincide → `review` con el motivo.
+4. Un **tesorero con 2FA** libera (`released`: asiento custodia EURe ↑ / saldo disponible del cliente ↑) o rechaza con motivo (`rejected`). En revisión, asigna el cliente con motivo obligatorio (`match_rule = manual`). **Solo `released` mueve saldo.** El portal muestra «Recibido, pendiente de liberación» desde `reconciled`.
+
+**Fuentes de verdad.** El sondeo de `GET /orders` del proveedor (cada `FIAT_POLL_INTERVAL_MS`, en el worker) y la verificación on-chain. El webhook `POST /v1/webhooks/monerium` (formato Standard Webhooks: HMAC-SHA256 de `id.timestamp.cuerpo` con `MONERIUM_WEBHOOK_SECRET`, ventana de 5 min) y el webhook de Alchemy de Base (la tesorería se agrega al `ALCHEMY_WEBHOOK_ID_BASE_MAINNET` de M1, sin crear otro) **solo adelantan el sondeo**: nunca mueven estado con el cuerpo.
+
+**Salvaguardas**
+- `FIAT_LIVE_ENABLED=false` por defecto: en production el fiat queda **apagado** (503 `fiat_disabled`) y no sale ninguna llamada a Monerium (`provider_calls` en el estado). En sandbox se usa siempre el **proveedor simulado** (`FIAT_LIVE_ENABLED=true` en sandbox → arranque rechazado).
+- Contra Monerium real solo: token (client credentials), ligar dirección (firma de mensaje `I hereby declare that I am the address owner.`, sin gas), pedir y leer IBAN, leer órdenes y tokens. Esta fase **no crea órdenes** ni usa «Create payments».
+- El alta verifica que el contrato EURe que anuncia el proveedor (`GET /tokens`) sea el del catálogo (`EURE-BASE`, verificado en Basescan en M1); si difiere, se detiene.
+- Avisos: solo el cliente (usuario `operator`+ o llave Ed25519 con `trade`), con origen verificable (usuario/llave, IP y firma). Consola o `API_KEYS` globales → `403 origin_not_client`. Acreditar es proceso de sistema (compatible con `ORIGIN_RULE=enforce`).
+- Idempotencia: una fila por orden (`provider + order_id`), un hash por depósito (otra orden con el mismo hash → revisión, sin acuñación propia no se libera) y un asiento por orden (`fiat:<proveedor>:<orden>`).
+- Liberar, rechazar y dar de alta: solo **sesión de tesorero con 2FA** (una `API_KEY` global → `403 session_required`).
+- La tesorería fiat entra al **barrido** hacia la hot wallet como cualquier dirección derivada (respeta `SWEEP_MIN_EURE_BASE`).
+
+| Método y ruta | Quién | Uso |
+|---|---|---|
+| `GET /v1/portal/fiat/instructions` | portal (sesión o llave `read`) | IBAN, BIC, beneficiario, activo y pasos; `409 fiat_not_ready` mientras no hay IBAN |
+| `POST /v1/portal/fiat/payment-intents` | usuario `operator`+ o llave `trade` | `{amount: "1250.50", expected_date?, note?}` → aviso con referencia |
+| `GET /v1/portal/fiat/payment-intents[/:id]` | portal | avisos del cliente (`open`, `matched`, `expired`, `cancelled`) |
+| `POST /v1/portal/fiat/payment-intents/:id/cancel` | usuario `operator`+ o llave `trade` | cancela un aviso abierto |
+| `GET /v1/portal/fiat/deposits` | portal | depósitos conciliados, liberados o rechazados del cliente |
+| `GET /v1/console/fiat/status` | consola | proveedor, cuenta (IBAN, dirección), último sondeo, cola |
+| `POST /v1/console/fiat/setup` | tesorero + 2FA | alta / avance del alta (idempotente) |
+| `POST /v1/console/fiat/poll` | tesorero | sondeo inmediato |
+| `GET /v1/console/fiat/deposits` | consola | bandeja con filtro por estado y cliente |
+| `POST /v1/console/fiat/deposits/:id/release` | tesorero + 2FA | `{code, client_id?, reason?}` (en revisión: cliente y motivo obligatorios) |
+| `POST /v1/console/fiat/deposits/:id/reject` | tesorero + 2FA | `{code, reason}` |
+| `POST /v1/console/fiat/payment-intents` | — | siempre `403 origin_not_client` |
+| `POST /v1/console/fiat/simulate[/:orderId/process]` | tesorero, **solo sandbox** | el proveedor simulado registra una orden (o la marca procesada con su hash) |
+| `POST /v1/webhooks/monerium` | Monerium | aviso firmado; adelanta el sondeo |
+
+Pantallas: **Recibir euros** y **Avisos de pago** en `/portal`; **Depósitos en euros** en `/console` (estado del alta, bandeja, liberar/rechazar con 2FA y, en sandbox, «Simular depósito»).
+
+Migración `016_fiat_entrada`: `fiat_accounts`, `fiat_payment_intents`, `fiat_deposits`, `fiat_sync_state` y el propósito `fiat_treasury` en `wallets`. Montos EUR en céntimos y EURe en unidades base con `CHECK (token_amount = amount_cents × 10¹⁶)`.
+
+Variables nuevas: `FIAT_LIVE_ENABLED`, `MONERIUM_ENV`, `MONERIUM_CLIENT_ID`, `MONERIUM_CLIENT_SECRET`, `MONERIUM_WEBHOOK_SECRET`, `FIAT_MODE`, `FIAT_CHAIN`, `FIAT_POLL_INTERVAL_MS`, `FIAT_INTENT_TTL_DAYS`.
+
+**Puesta en marcha en production** (cuando Monerium apruebe el perfil): pegar `MONERIUM_CLIENT_ID` y `MONERIUM_CLIENT_SECRET` en Railway, `FIAT_LIVE_ENABLED=true`, desplegar; en la consola, «Depósitos en euros» → «Dar de alta» (2FA); repetir hasta que el IBAN quede activo. Opcional: crear en Monerium la suscripción de webhooks hacia `/v1/webhooks/monerium` y pegar su secreto en `MONERIUM_WEBHOOK_SECRET`.
+
+**Riesgos.** Perfil personal de Monerium: piloto solo con fondos propios; clientes reales requieren el perfil corporativo de la empresa. Por confirmar en la primera llamada real: que Monerium acepte la firma de propiedad desde la dirección HD de 856 y el formato exacto del webhook. Los bancos pueden truncar o alterar el concepto SEPA (por eso la tolerancia y la revisión manual). Un depósito rechazado deja sus EURe en custodia sin asignar: la devolución se gestiona fuera de este flujo. URLs de privacidad y términos de la app de Monerium aún en `https://localhost`.
+
+Pruebas: `node test/fiat-f1.e2e.mjs` (73 verificaciones con el proveedor simulado: flujo completo, revisión y asignación manual, contraparte, avisos vencidos/cancelados/monto distinto/dígitos de control, acuñación distinta, idempotencia por orden y por hash, aislamiento, 2FA y roles, webhook firmado, reglas de arranque; ver cabecera) y `npx playwright test fiat.spec.mjs`.
+
 Pruebas: `bash test/smoke.sh` (libro), `bash test/netting.sh` (compensación), `node test/console-fase4.e2e.mjs` (consola de compensación), `node test/transfers.e2e.mjs` y `node test/deposits-sweep.e2e.mjs` (on-chain, contra cadena local Hardhat/Anvil).
 
 ## Local

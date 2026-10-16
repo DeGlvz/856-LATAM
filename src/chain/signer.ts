@@ -10,6 +10,8 @@ export interface Signer {
   readonly kind: string;
   address(): Address;
   signTransaction(tx: TransactionSerializable): Promise<Hex>;
+  /** Firma de mensaje (EIP-191, personal_sign): no es transacción ni cuesta gas. Fase F1: prueba de propiedad ante el proveedor fiat. */
+  signMessage(message: string): Promise<Hex>;
 }
 
 /** Direcciones de depósito por cliente (derivación HD m/44'/60'/0'/0/i). */
@@ -26,6 +28,7 @@ class LocalKeySigner implements Signer {
   constructor(private account: ReturnType<typeof privateKeyToAccount> | ReturnType<typeof hdKeyToAccount> | ReturnType<typeof mnemonicToAccount>) {}
   address() { return this.account.address; }
   signTransaction(tx: TransactionSerializable) { return this.account.signTransaction(tx); }
+  signMessage(message: string) { return this.account.signMessage({ message }); }
 }
 
 class LocalHdKeyring implements DepositKeyring {

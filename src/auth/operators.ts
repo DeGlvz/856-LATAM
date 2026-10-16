@@ -193,6 +193,9 @@ const TESORERO = new Set([
   // Multi-red: activos habilitados por cliente y depósitos en revisión
   'PUT /v1/clients/:id/assets/:assetId', 'POST /v1/asset-requests/:id/approve', 'POST /v1/asset-requests/:id/reject',
   'POST /v1/deposits/:id/release',
+  // Fase F1: entrada de fiat
+  'POST /v1/console/fiat/setup', 'POST /v1/console/fiat/poll', 'POST /v1/console/fiat/deposits/:id/release',
+  'POST /v1/console/fiat/deposits/:id/reject', 'POST /v1/console/fiat/simulate', 'POST /v1/console/fiat/simulate/:orderId/process',
 ]);
 // Consultas restringidas: la bitácora (IPs, intentos) y la lista de operadores solo para tesorería
 const GET_TESORERO = new Set(['GET /v1/audit', 'GET /v1/audit/actions', 'GET /v1/operators', 'GET /v1/operators/invites']);

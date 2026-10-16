@@ -16,6 +16,7 @@ import { Audit } from './pages/Audit';
 import { Security } from './pages/Security';
 import { Operators } from './pages/Operators';
 import { OperatorInvitation } from './pages/OperatorInvitation';
+import { FiatDeposits } from './pages/FiatDeposits';
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { operator, loading } = useAuth();
@@ -44,6 +45,7 @@ export default function App() {
           <Route path="clientes/:id" element={<ClientDetail />} />
           <Route path="cuentas/:ref" element={<Account />} />
           <Route path="movimientos" element={<Movements />} />
+          <Route path="euros" element={<FiatDeposits />} />
           <Route path="compensacion" element={<Netting />} />
           <Route path="aprobaciones" element={<Approvals />} />
           <Route path="auditoria" element={<Audit />} />

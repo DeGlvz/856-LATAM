@@ -13,6 +13,7 @@ import * as P from '../portal/identity.js';
 import { ACCOUNT_KEY_ROUTES, portalAccountRoutes } from './portal-accounts.js';
 import { EXIT_KEY_READ, EXIT_KEY_WRITE, portalExitRoutes } from './portal-exits.js';
 import { OBLIGATION_KEY_READ, OBLIGATION_KEY_WRITE, portalObligationRoutes } from './portal-obligations.js';
+import { FIAT_KEY_READ, FIAT_KEY_WRITE, portalFiatRoutes } from './portal-fiat.js';
 
 const parse = <S extends z.ZodTypeAny>(s: S, v: unknown): z.infer<S> => {
   const r = s.safeParse(v);
@@ -27,9 +28,9 @@ const role = z.enum(['viewer', 'operator', 'approver', 'admin']);
 const PUBLIC = new Set(['/v1/portal/auth/login', '/v1/portal/auth/login/totp', '/v1/portal/invites/lookup', '/v1/portal/invites/accept']);
 // Rutas que aceptan llave de API (fase 1: identidad; fase 2: lectura de saldos y cuentas); el resto exige sesión de usuario
 const KEY_ROUTES = new Set(['GET /v1/portal/me', 'GET /v1/portal/ping', ...ACCOUNT_KEY_ROUTES, ...EXIT_KEY_READ, ...EXIT_KEY_WRITE,
-  ...OBLIGATION_KEY_READ, ...OBLIGATION_KEY_WRITE]);
+  ...OBLIGATION_KEY_READ, ...OBLIGATION_KEY_WRITE, ...FIAT_KEY_READ, ...FIAT_KEY_WRITE]);
 const KEY_WITHDRAW = new Set(EXIT_KEY_WRITE);
-const KEY_TRADE = new Set(OBLIGATION_KEY_WRITE);
+const KEY_TRADE = new Set([...OBLIGATION_KEY_WRITE, ...FIAT_KEY_WRITE]);
 // Rutas permitidas a approver/admin mientras activan su 2FA obligatorio
 const ENROLL_ROUTES = new Set(['GET /v1/portal/me', 'POST /v1/portal/auth/logout', 'POST /v1/portal/auth/totp/setup', 'POST /v1/portal/auth/totp/enable']);
 
@@ -223,4 +224,6 @@ export async function portalRoutes(app: FastifyInstance) {
   // ───────────── Fase 3: lista blanca y salidas ─────────────
   await app.register(portalExitRoutes);
   await app.register(portalObligationRoutes);
+  // ───────────── Fase F1: recibir euros ─────────────
+  await app.register(portalFiatRoutes);
 }

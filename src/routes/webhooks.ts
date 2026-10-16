@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { networks } from '../chain/networks.js';
 import { detectDeposits } from '../ledger/transfers.js';
+import { getFiatProvider } from '../fiat/provider.js';
+import { kickPoll } from '../fiat/service.js';
 
 // Receptor de Alchemy Notify (Address Activity). Multi-red: cada red tiene su webhook y su llave de firma;
 // la red del evento es la de la llave que valida la firma (nunca se confía en el cuerpo para elegirla).
@@ -28,5 +30,17 @@ export async function webhookRoutes(app: FastifyInstance) {
       catch (e) { req.log.warn({ tx: h, network: match.id, err: (e as Error).message }, 'hash del webhook no procesado'); }
     }
     return { ok: true, network: match.id, hashes: hashes.length, deposits: detected };
+  });
+
+  // Fase F1 — Monerium: el aviso solo adelanta el sondeo de órdenes. Nunca mueve estado con el cuerpo:
+  // la orden se vuelve a leer del proveedor y la acuñación se verifica on-chain.
+  app.post('/webhooks/monerium', async (req, reply) => {
+    const p = getFiatProvider();
+    if (!p) return reply.code(503).send({ error: 'Entrada de fiat apagada', code: 'fiat_disabled' });
+    const raw = (req as unknown as { rawBody?: string }).rawBody ?? '';
+    const r = p.parseWebhook(req.headers as Record<string, unknown>, raw); // con secreto: firma inválida → 401
+    req.log.info({ verified: r.verified, orders: r.order_ids.length }, 'Aviso de Monerium recibido');
+    kickPoll();
+    return { ok: true, verified: r.verified };
   });
 }
