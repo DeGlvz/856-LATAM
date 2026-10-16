@@ -15,6 +15,7 @@ import { Whitelist } from './pages/Whitelist';
 import { ExitDetail, Exits } from './pages/Exits';
 import { Obligations } from './pages/Obligations';
 import { Netting } from './pages/Netting';
+import { PaymentIntents, ReceiveEuros } from './pages/Euros';
 
 function RequireSession({ children }: { children: ReactNode }) {
   const { me, loading } = usePortal();
@@ -42,6 +43,8 @@ export default function PortalApp() {
           <Route path="cuentas" element={<Accounts />} />
           <Route path="cuentas/:asset" element={<AccountDetail />} />
           <Route path="depositos" element={<Deposits />} />
+          <Route path="euros" element={<ReceiveEuros />} />
+          <Route path="avisos" element={<PaymentIntents />} />
           <Route path="salidas" element={<Exits />} />
           <Route path="salidas/:id" element={<ExitDetail />} />
           <Route path="lista-blanca" element={<Whitelist />} />
