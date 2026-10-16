@@ -514,6 +514,23 @@ Variables nuevas: `FIAT_LIVE_ENABLED`, `MONERIUM_ENV`, `MONERIUM_CLIENT_ID`, `MO
 
 Pruebas: `node test/fiat-f1.e2e.mjs` (73 verificaciones con el proveedor simulado: flujo completo, revisión y asignación manual, contraparte, avisos vencidos/cancelados/monto distinto/dígitos de control, acuñación distinta, idempotencia por orden y por hash, aislamiento, 2FA y roles, webhook firmado, reglas de arranque; ver cabecera) y `npx playwright test fiat.spec.mjs`.
 
+### Registro de gas en el libro
+Cada fondeo de gas de la hot wallet (moneda nativa enviada desde fuera de la plataforma) debe entrar al libro como **aportación de 856**: cargo `system:<NATIVO>:custody` / abono `system:<NATIVO>:equity`. Sin él, la custodia nativa del libro no alcanza para registrar el gas de barridos y retiros (el asiento dejaría la custodia negativa) y esos movimientos quedan **enviados pero sin liquidar** («Custodia nativa insuficiente…»).
+
+- **Registrar** (tesorero, sesión de consola con 2FA; una `API_KEY` → `403 session_required`): red + hash de la transacción. El servidor verifica en cadena que la transacción fue exitosa y tiene las confirmaciones de la red, que el destino es la hot wallet y lleva moneda nativa, y que el origen **no** es una dirección de la plataforma (hot wallet, depósito, tesorería fiat). **El monto se toma de la cadena.** Idempotente por red + hash (`409 already_registered`). Asiento clase `gas_funding` con el origen y quién registró.
+- **Recuperación automática**: los barridos y retiros detenidos se liquidan solos en el siguiente ciclo del worker.
+- **Tablero**: por red, «Gas sin registrar» (saldo nativo de la hot wallet en cadena mayor que la custodia nativa del libro) y barridos/retiros detenidos, con el botón «Registrar fondeo de gas». La lista está en «Retiros y depósitos → Fondeos de gas».
+
+| Método y ruta | Quién | Uso |
+|---|---|---|
+| `POST /v1/gas-fundings` | tesorero + 2FA | `{network, tx_hash, code}` → asiento de aportación |
+| `GET /v1/gas-fundings?network=` | consola / API | fondeos registrados |
+| `GET /v1/summary` | consola | `networks[].gas` agrega `ledger_custody`, `unregistered_wei`, `stuck_sweeps`, `stuck_withdrawals` |
+
+Sin migración. Devolver gas sobrante a tesorería queda fuera de alcance (se haría como salida normal).
+
+Pruebas: `node test/gas-funding.e2e.mjs` (barrido detenido por falta de custodia nativa y su liquidación automática, validaciones en cadena, idempotencia, roles y 2FA) y `npx playwright test gas.spec.mjs`.
+
 Pruebas: `bash test/smoke.sh` (libro), `bash test/netting.sh` (compensación), `node test/console-fase4.e2e.mjs` (consola de compensación), `node test/transfers.e2e.mjs` y `node test/deposits-sweep.e2e.mjs` (on-chain, contra cadena local Hardhat/Anvil).
 
 ## Local
