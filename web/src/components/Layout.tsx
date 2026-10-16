@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { EnvBadge } from '@/components/EnvBanner';
 import { NavLink, Outlet } from 'react-router';
 import {
-  ArrowLeftRight, Building2, CheckCheck, FileClock, Gauge, KeyRound, LogOut, Menu, Network, ShieldCheck, UsersRound, X,
+  ArrowLeftRight, Building2, Euro, CheckCheck, FileClock, Gauge, KeyRound, LogOut, Menu, Network, ShieldCheck, UsersRound, X,
   ShieldAlert,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
@@ -16,6 +16,7 @@ const NAV = [
   { to: '/', label: 'Tablero', icon: Gauge, phase: 1 },
   { to: '/clientes', label: 'Clientes y cuentas', icon: Building2, phase: 2 },
   { to: '/movimientos', label: 'Retiros y depósitos', icon: ArrowLeftRight, phase: 3 },
+  { to: '/euros', label: 'Depósitos en euros', icon: Euro, phase: 3 },
   { to: '/compensacion', label: 'Compensación', icon: Network, phase: 4 },
   { to: '/aprobaciones', label: 'Aprobaciones', icon: CheckCheck, phase: 5 },
   { to: '/auditoria', label: 'Auditoría', icon: FileClock, phase: 5, tesorero: true },
