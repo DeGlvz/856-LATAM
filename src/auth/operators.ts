@@ -196,6 +196,8 @@ const TESORERO = new Set([
   // Fase F1: entrada de fiat
   'POST /v1/console/fiat/setup', 'POST /v1/console/fiat/poll', 'POST /v1/console/fiat/deposits/:id/release',
   'POST /v1/console/fiat/deposits/:id/reject', 'POST /v1/console/fiat/simulate', 'POST /v1/console/fiat/simulate/:orderId/process',
+  // Registro de gas en el libro
+  'POST /v1/gas-fundings',
 ]);
 // Consultas restringidas: la bitácora (IPs, intentos) y la lista de operadores solo para tesorería
 const GET_TESORERO = new Set(['GET /v1/audit', 'GET /v1/audit/actions', 'GET /v1/operators', 'GET /v1/operators/invites']);

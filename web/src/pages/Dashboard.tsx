@@ -5,6 +5,9 @@ import {
 } from 'lucide-react';
 import { api, type Asset, type InflightWithdrawal, type NetworkStatus, type PortalAlert, type ReconBalance, type Summary } from '@/lib/api';
 import { WdBadge } from '@/components/WithdrawalDialogs';
+import { GasFundingDialog } from '@/components/GasFunding';
+import { useAuth } from '@/lib/auth';
+import { useState } from 'react';
 import { ago, exactUnits, formatUnits, shortHex, toBig } from '@/lib/amount';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -70,6 +73,8 @@ export function Dashboard() {
         </> : [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-36 rounded-xl" />)}
       </div>
 
+      {s && <GasLedgerAlert s={s} />}
+
       {s && (s.networks?.length ?? 0) > 1 && <NetworksTable nets={s.networks!} />}
 
       <PortalAlertsCard />
@@ -86,6 +91,38 @@ export function Dashboard() {
         </div>
       )}
     </div>
+  );
+}
+
+// ───────────── Registro de gas: fondeos de la hot wallet que el libro aún no tiene ─────────────
+function GasLedgerAlert({ s }: { s: Summary }) {
+  const { can } = useAuth();
+  const [open, setOpen] = useState<string | null>(null);
+  const rows = (s.networks ?? []).filter((n) => ((toBig(n.gas.unregistered_wei) ?? 0n) > 0n) || (n.gas.stuck_sweeps ?? 0) > 0 || (n.gas.stuck_withdrawals ?? 0) > 0);
+  if (!rows.length) return null;
+  return (
+    <Card className="border-warning/50 bg-warning/5" data-section="gas-ledger">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Fuel className="size-4" />Gas sin registrar en el libro</CardTitle>
+        <CardDescription>La hot wallet tiene moneda nativa que el libro no reconoce como custodia. Mientras no se registre el fondeo, los barridos y retiros no pueden registrar su gas y quedan sin liquidar.</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-2">
+        {rows.map((n) => {
+          const sym = s.assets.find((a) => a.id === n.gas.asset_id)?.symbol ?? 'ETH';
+          return (
+            <div key={n.id} data-gas-alert={n.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background p-3 text-sm">
+              <div>
+                <span className="font-medium">{n.label}</span>
+                {(toBig(n.gas.unregistered_wei) ?? 0n) > 0n && <span className="ml-2 text-muted-foreground">sin registrar: <b className="num text-foreground">{formatUnits(n.gas.unregistered_wei!, n.gas.decimals, 6)} {sym}</b></span>}
+                {(n.gas.stuck_sweeps ?? 0) + (n.gas.stuck_withdrawals ?? 0) > 0 && <span className="ml-2 text-destructive">{n.gas.stuck_sweeps ?? 0} barridos y {n.gas.stuck_withdrawals ?? 0} retiros detenidos</span>}
+              </div>
+              {can('tesorero') && <Button size="sm" onClick={() => setOpen(n.id)}><Fuel />Registrar fondeo de gas</Button>}
+            </div>
+          );
+        })}
+      </CardContent>
+      <GasFundingDialog open={!!open} network={open ?? undefined} onClose={() => setOpen(null)} />
+    </Card>
   );
 }
 
@@ -126,6 +163,7 @@ function NetworksTable({ nets }: { nets: NetworkStatus[] }) {
                   <TableCell className="text-right">
                     {n.gas.balance_wei == null ? '—' : <span className={cn('num', n.gas.low && 'font-semibold text-destructive')}>{formatUnits(n.gas.balance_wei, n.gas.decimals)}</span>}
                     {n.gas.low && <Badge variant="destructive" className="ml-2"><AlertTriangle />Bajo</Badge>}
+                    {(toBig(n.gas.unregistered_wei) ?? 0n) > 0n && <Badge variant="warning" className="ml-2">Sin registrar</Badge>}
                   </TableCell>
                   <TableCell>
                     {n.status === 'disabled' ? '—' : <span className={cn('inline-flex items-center gap-1 text-sm', recOk ? 'text-success' : 'text-destructive')}>

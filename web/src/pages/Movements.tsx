@@ -11,6 +11,7 @@ import { useAuth } from '@/lib/auth';
 import { useAssets, useConsoleOriginates, useNetworks } from '@/lib/hooks';
 import { Amount, ErrorBox, Field, fmtDate } from '@/components/common';
 import { EntryDialog } from '@/components/EntryDialog';
+import { GasFundingsTable } from '@/components/GasFunding';
 import { NewWithdrawalDialog, WD_STATUS, WdBadge, WithdrawalDialog } from '@/components/WithdrawalDialogs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,7 +23,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs } from '@/components/ui/tabs';
 
-type Tab = 'retiros' | 'depositos' | 'barridos';
+type Tab = 'retiros' | 'depositos' | 'barridos' | 'gas';
 const DEP_STATUS: Record<DepositStatus, { label: string; variant: 'warning' | 'success' | 'destructive' }> = {
   pending: { label: 'Pendiente', variant: 'warning' }, held: { label: 'En revisión', variant: 'warning' },
   credited: { label: 'Acreditado', variant: 'success' }, orphaned: { label: 'Huérfano', variant: 'destructive' },
@@ -85,8 +86,9 @@ export function Movements() {
           { value: 'retiros', label: 'Retiros', count: summary.data?.withdrawals_in_flight.total },
           { value: 'depositos', label: 'Depósitos', count: summary.data?.deposits_pending },
           { value: 'barridos', label: 'Barridos', count: summary.data?.sweeps_open },
+          { value: 'gas', label: 'Fondeos de gas' },
         ]} />
-        {tab !== 'barridos' && (
+        {(tab === 'retiros' || tab === 'depositos') && (
           <Select aria-label="Estado" className="h-9 w-48" value={status} onChange={(e) => set('status', e.target.value || null)}>
             <option value="">Todos los estados</option>
             {Object.entries(tab === 'retiros' ? WD_STATUS : DEP_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
@@ -98,7 +100,7 @@ export function Movements() {
             {Object.entries(SW_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </Select>
         )}
-        {clientId && tab !== 'barridos' && (
+        {clientId && (tab === 'retiros' || tab === 'depositos') && (
           <Badge variant="secondary" className="h-7 gap-1.5 px-2.5 text-sm">
             Cliente: {client.data?.name ?? clientId.slice(0, 8)}
             <button type="button" aria-label="Quitar filtro de cliente" onClick={() => set('client_id', null)}><X className="size-3.5" /></button>
@@ -109,6 +111,7 @@ export function Movements() {
       {tab === 'retiros' && <WithdrawalsTable clientId={clientId} status={status as WithdrawalStatus | ''} explorer={explorer} onOpen={setWdId} />}
       {tab === 'depositos' && <DepositsTable clientId={clientId} status={status as DepositStatus | ''} explorer={explorer} />}
       {tab === 'barridos' && <SweepsTable status={status as SweepStatus | ''} explorer={explorer} />}
+      {tab === 'gas' && <GasFundingsTable />}
 
       <WithdrawalDialog id={wdId} explorer={explorer} onClose={() => setWdId(null)} />
       <NewWithdrawalDialog open={newWd} onOpenChange={setNewWd} presetClientId={clientId} onCreated={(id) => { set('tab', 'retiros'); setWdId(id); }} />

@@ -230,7 +230,8 @@ export function opError(e: unknown): Error | null {
 export interface NetworkInfo { id: string; label: string; primary: boolean; chain_id: number | null; healthy: boolean; error: string | null; confirmations: number; explorer: string | null; webhook: boolean }
 export interface NetworkStatus extends NetworkInfo {
   status: 'ok' | 'down' | 'disabled'; block: string | null;
-  gas: { asset_id: string | null; decimals: number; balance_wei: string | null; threshold_wei: string; low: boolean | null };
+  gas: { asset_id: string | null; decimals: number; balance_wei: string | null; threshold_wei: string; low: boolean | null;
+    ledger_custody?: string | null; unregistered_wei?: string | null; stuck_sweeps?: number; stuck_withdrawals?: number };
   reconciliation: { status: string; balances: ReconBalance[] };
 }
 export type ClientAssetStatus = 'enabled' | 'exit_only' | 'disabled';
