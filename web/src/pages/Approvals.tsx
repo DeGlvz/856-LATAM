@@ -14,7 +14,6 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
-import { DualThresholds } from '@/components/DualThresholds';
 import { AssetRequestsCard, HeldDepositsCard } from '@/components/AssetApprovals';
 
 const POLICY = { off: 'desactivada', console: 'lo solicitado desde la consola', all: 'todo (consola y API)' } as const;
@@ -36,8 +35,8 @@ export function Approvals() {
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Aprobaciones</h1>
         <p className="text-sm text-muted-foreground">
-          Doble aprobación: quien solicita no aprueba{d?.policy.require_2fa ? ', y cada aprobación se confirma con código 2FA' : ''}.
-          {d && <> Aplica a: <b>{POLICY[d.policy.dual_approval]}</b>.</>}
+          Los retiros de clientes requieren una autorización individual de un ejecutivo de cuenta o tesorero distinto{d?.policy.require_2fa ? ', confirmada con código 2FA' : ''}.
+          {d && <> Para corridas de compensación aplica: <b>{POLICY[d.policy.dual_approval]}</b>.</>}
         </p>
       </div>
       {operator && !operator.totp_enabled && d?.policy.require_2fa && (
@@ -69,7 +68,6 @@ export function Approvals() {
                       <Amount v={w.amount} asset={a} exact className="text-base font-semibold" />
                       <Link to={`/clientes/${w.client_id}`} className="font-medium hover:underline">{w.client_name}</Link>
                       {w.client_status !== 'active' && <StatusBadge status={w.client_status} />}
-                      {w.dual_required && <Badge variant="secondary">Dos tesoreros</Badge>}
                       {w.overdue && <Badge variant="warning"><Clock />Vencida</Badge>}
                     </div>
                     <div className="font-mono text-xs text-muted-foreground" title={w.to_address}>→ {w.to_address}{w.wl_label && <span className="font-sans"> · {w.wl_label}</span>}</div>
@@ -84,7 +82,7 @@ export function Approvals() {
                     <div><button type="button" className="text-xs underline" onClick={() => setWdId(w.id)}>Ver detalle</button></div>
                   </div>
                   <ApprovalPanel kind="withdrawal" id={w.id} requestedByOperator={null} requestedBy={w.origin_label} compact exit
-                    dual={w.dual_required ? { firstBy: w.first_approved_by, firstByOperator: w.first_approved_by_operator } : null} />
+                  />
                 </div>
               );
             })}
@@ -112,7 +110,7 @@ export function Approvals() {
                   <div><button type="button" className="text-xs underline" onClick={() => setWdId(w.id)}>Ver detalle</button></div>
                 </div>
                 <ApprovalPanel kind="withdrawal" id={w.id} requestedByOperator={w.requested_by_operator} requestedBy={w.requested_by} compact
-                  dual={w.dual_required ? { firstBy: w.first_approved_by, firstByOperator: w.first_approved_by_operator } : null} />
+                />
               </div>
             ))}
           </CardContent>
@@ -150,7 +148,6 @@ export function Approvals() {
 
       {can('tesorero') && <AssetRequestsCard />}
       {can('tesorero') && <HeldDepositsCard />}
-      {can('tesorero') && <DualThresholds />}
 
       <WithdrawalDialog id={wdId} explorer={explorer} onClose={() => setWdId(null)} />
       <RunDialog id={runId} onClose={() => setRunId(null)} />

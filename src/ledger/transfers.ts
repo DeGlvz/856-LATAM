@@ -42,7 +42,7 @@ export async function requestWithdrawal(i: {
   // Fase 3 del portal: salida originada por el cliente desde una simulación
   exit?: {
     approval_status: 'client_pending' | 'pending'; origin_kind: 'client_user' | 'client_key' | 'delegate'; origin_ref: string;
-    origin_ip?: string; simulation_id: string; scope_hash: string; dual_required: boolean;
+    origin_ip?: string; simulation_id: string; scope_hash: string;
   };
 }, inTx?: Tx) {
   if (!isAddress(i.to_address)) throw new LedgerError(400, 'Dirección destino inválida', 'invalid_address');
@@ -77,13 +77,13 @@ export async function requestWithdrawal(i: {
       const { rows: [w] } = await c.query(
         `INSERT INTO withdrawals (client_id, account_id, asset_id, to_address, amount, status, idempotency_key, metadata,
                                   approval_status, requested_by, requested_by_operator,
-                                  origin_kind, origin_ref, origin_ip, simulation_id, scope_hash, dual_required, validation_due_at, network)
-         VALUES ($1,$2,$3,$4,$5,'reserved',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
-                 CASE WHEN $8 = 'pending' AND $14::uuid IS NOT NULL THEN now() + make_interval(mins => $17) END, $18) RETURNING id`,
+                                    origin_kind, origin_ref, origin_ip, simulation_id, scope_hash, validation_due_at, network)
+         VALUES ($1,$2,$3,$4,$5,'reserved',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
+                   CASE WHEN $8 = 'pending' AND $14::uuid IS NOT NULL THEN now() + make_interval(mins => $16) END, $17) RETURNING id`,
         [i.client_id, acc.id, asset.id, to, i.amount, i.idempotency_key ?? null, i.metadata ?? {},
           x ? x.approval_status : i.needs_approval ? 'pending' : 'not_required', i.requested_by ?? null, i.requested_by_operator ?? null,
           x?.origin_kind ?? (i.requested_by_operator ? 'console' : 'api'), x?.origin_ref ?? null, x?.origin_ip ?? null,
-          x?.simulation_id ?? null, x?.scope_hash ?? null, x?.dual_required ?? false, config.EXIT_VALIDATION_SLA_MIN, asset.network],
+            x?.simulation_id ?? null, x?.scope_hash ?? null, config.EXIT_VALIDATION_SLA_MIN, asset.network],
       );
       // Reserva: el saldo sale de "disponible" y queda "en tránsito" hasta confirmarse
       const e = await postEntryIn(c, {
@@ -117,7 +117,7 @@ export async function getWithdrawal(id: string) {
             w.reserve_entry_id, w.settle_entry_id, w.reversal_entry_id, w.metadata, w.created_at, w.updated_at,
             w.approval_status, w.requested_by, w.requested_by_operator, w.approved_by, w.approved_at, w.rejected_by, w.rejected_reason,
             w.broadcast_at, w.bumps, w.origin_kind, w.origin_ref, w.origin_ip, w.simulation_id, w.scope_hash, w.authorized_hash,
-            w.client_approved_by, w.client_approved_at, w.validation_due_at, w.dual_required, w.approved2_by, w.approved2_at, w.network
+            w.client_approved_by, w.client_approved_at, w.validation_due_at, w.network
        FROM withdrawals w JOIN clients c ON c.id = w.client_id WHERE w.id = $1`, [id]);
   if (!w) throw new LedgerError(404, 'Retiro no encontrado', 'not_found');
   return { ...w, required_confirmations: findNet(w.network)?.confirmations ?? config.CONFIRMATIONS, explorer: findNet(w.network)?.explorer ?? null,
@@ -130,7 +130,7 @@ export async function listWithdrawals(f: { client_id?: string; status?: string; 
   const { rows } = await pool.query(
     `SELECT w.id, w.client_id, c.name AS client_name, w.asset_id, w.to_address, w.amount, w.status, w.tx_hash, w.nonce,
             w.confirmations, w.attempts, w.last_error, w.created_at, w.updated_at, w.approval_status, w.requested_by,
-            w.origin_kind, w.validation_due_at, w.dual_required, w.approved_by, w.network, w.created_at::text AS _ts
+            w.origin_kind, w.validation_due_at, w.approved_by, w.network, w.created_at::text AS _ts
        FROM withdrawals w JOIN clients c ON c.id = w.client_id
       WHERE ($1::uuid IS NULL OR w.client_id = $1) AND ($2::text IS NULL OR w.status = $2) AND ($3::text IS NULL OR w.asset_id = $3)
         AND ($4::timestamptz IS NULL OR (w.created_at, w.id) < ($4::timestamptz, $5::uuid))
@@ -198,13 +198,13 @@ async function authorizationMatches(c: Tx, w: { id: string; client_id: string; a
     amount: w.amount, fee: sim.fee, payable_open: sim.payable_open }) === w.authorized_hash;
 }
 
-/** Tesoreros activos con 2FA (el umbral de dos tesoreros exige al menos dos). */
+/** Tesoreros activos con 2FA (métrica operativa del tablero). */
 export async function treasurersWith2fa(c: Tx | typeof pool) {
   const { rows: [r] } = await c.query(`SELECT count(*)::int AS n FROM operators WHERE role = 'tesorero' AND active AND totp_enabled_at IS NOT NULL`);
   return r.n as number;
 }
 
-// ── Doble aprobación ──
+// ── Aprobación de un ejecutivo de cuenta o tesorero ──
 export async function approveWithdrawal(id: string, by: { email: string; id: string }) {
   await tx(async (c) => {
     const { rows: [w] } = await c.query('SELECT * FROM withdrawals WHERE id = $1 FOR UPDATE', [id]);
@@ -212,35 +212,11 @@ export async function approveWithdrawal(id: string, by: { email: string; id: str
     if (w.status !== 'reserved' || w.approval_status !== 'pending') {
       throw new LedgerError(409, `El retiro no está pendiente de aprobación (estado: ${w.status}/${w.approval_status})`, 'not_pending');
     }
-    if (w.requested_by_operator === by.id) throw new LedgerError(403, 'Doble aprobación: quien solicitó no puede aprobar', 'same_operator');
+    if (w.requested_by_operator === by.id) throw new LedgerError(403, 'Quien solicitó el retiro no puede autorizarlo', 'same_operator');
     const { rows: [cl] } = await c.query('SELECT status FROM clients WHERE id = $1 FOR SHARE', [w.client_id]);
     if (cl.status !== 'active') throw new LedgerError(422, `Cliente no activo (estado: ${cl.status}); rechace el retiro`, 'client_not_active');
     // Salida del portal: lo que se autoriza debe ser exactamente lo simulado (destino aún vigente, mismos montos)
     if (w.simulation_id) await assertScopeUnchanged(c, w);
-    // Fase M1 — modo de un solo tesorero: el umbral de dos tesoreros solo aplica si hay al menos dos activos con 2FA.
-    // Al dar de alta un segundo tesorero vuelve a aplicar sin cambiar código ni configuración.
-    const dual = w.dual_required && (await treasurersWith2fa(c)) >= 2;
-    if (!dual && w.dual_required) {
-      await c.query(
-        `UPDATE withdrawals SET approval_status = 'approved',
-                approved_by = COALESCE(approved_by, $2), approved_by_operator = COALESCE(approved_by_operator, $3), approved_at = COALESCE(approved_at, now()),
-                authorized_hash = scope_hash, metadata = metadata || '{"single_treasurer": true}'::jsonb, updated_at = now() WHERE id = $1`,
-        [id, by.email, by.id]);
-      return;
-    }
-    if (dual && !w.approved_by_operator) {
-      // Primera de dos autorizaciones: queda pendiente del segundo tesorero
-      await c.query(`UPDATE withdrawals SET approved_by = $2, approved_by_operator = $3, approved_at = now(), updated_at = now() WHERE id = $1`,
-        [id, by.email, by.id]);
-      return;
-    }
-    if (dual) {
-      if (w.approved_by_operator === by.id) throw new LedgerError(403, 'Este monto requiere dos tesoreros distintos', 'same_operator');
-      await c.query(
-        `UPDATE withdrawals SET approval_status = 'approved', approved2_by = $2, approved2_by_operator = $3, approved2_at = now(),
-                authorized_hash = scope_hash, updated_at = now() WHERE id = $1`, [id, by.email, by.id]);
-      return;
-    }
     await c.query(
       `UPDATE withdrawals SET approval_status = 'approved', approved_by = $2, approved_by_operator = $3, approved_at = now(),
               authorized_hash = scope_hash, updated_at = now() WHERE id = $1`, [id, by.email, by.id]);
@@ -274,8 +250,9 @@ async function signReserved(n: Net, log: Logger) {
   for (;;) {
     const done = await tx(async (c) => {
       const { rows: [w] } = await c.query(
-        // Solo lo que no requiere aprobación o ya fue aprobado por un segundo tesorero
-        `SELECT * FROM withdrawals WHERE status = 'reserved' AND approval_status IN ('not_required','approved') AND network = $1
+        // Solo instrucciones internas directas o solicitudes ya autorizadas pueden llegar al worker.
+        `SELECT * FROM withdrawals WHERE status = 'reserved'
+          AND (approval_status = 'approved' OR (approval_status = 'not_required' AND origin_kind = 'console')) AND network = $1
           ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1`, [n.id],
       );
       if (!w) return true;

@@ -184,11 +184,11 @@ export function clearSessionCookie(reply: FastifyReply) {
 // ───────────── Permisos por rol ─────────────
 // Lectura: solo consulta. Operador: altas y reportes. Tesorero: todo lo que mueve valor o toca tesorería.
 const TESORERO = new Set([
-  'POST /v1/withdrawals', 'POST /v1/withdrawals/:id/cancel', 'POST /v1/worker/tick',
+  'POST /v1/worker/tick',
   'POST /v1/assets', 'POST /v1/wallets', 'PATCH /v1/wallets/:id', 'POST /v1/entries', 'POST /v1/internal-transfers', 'POST /v1/netting/runs',
-  'POST /v1/withdrawals/:id/approve', 'POST /v1/withdrawals/:id/reject', 'POST /v1/netting/runs/:id/approve', 'POST /v1/netting/runs/:id/reject',
+  'POST /v1/netting/runs/:id/approve', 'POST /v1/netting/runs/:id/reject',
   'POST /v1/operators/:id/totp/reset', 'POST /v1/withdrawals/:id/bump', 'POST /v1/sweeps/:id/bump',
-  'POST /v1/clients/:id/portal-invite', 'PATCH /v1/assets/:id',
+  'POST /v1/clients/:id/portal-invite',
   'POST /v1/operators/invites', 'POST /v1/operators/invites/:id/revoke', 'PATCH /v1/operators/:id',
   // Multi-red: activos habilitados por cliente y depósitos en revisión
   'PUT /v1/clients/:id/assets/:assetId', 'POST /v1/asset-requests/:id/approve', 'POST /v1/asset-requests/:id/reject',

@@ -1,6 +1,6 @@
-// Regla de origen (fase 3 del portal): solo credenciales del cliente originan operaciones que mueven su saldo.
-// Con ORIGIN_RULE=enforce, la consola de 856 y las API_KEYS globales no originan retiros, transferencias internas
-// ni altas de lista blanca de clientes: solo consultan, validan, autorizan o rechazan.
+// Regla de origen (fase 3 del portal): las credenciales del cliente originan operaciones sobre su saldo.
+// Con ORIGIN_RULE=enforce, las API_KEYS globales no originan retiros, transferencias internas ni altas de lista blanca.
+// Los operadores de consola pueden ingresar retiros por instrucción, pero la lista blanca sigue siendo del cliente.
 // Única excepción prevista: el gestor delegado con delegación o mandato vigente (fase 6) — punto de extensión abajo.
 import type { FastifyRequest } from 'fastify';
 import { config } from '../config.js';

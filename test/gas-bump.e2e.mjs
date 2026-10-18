@@ -6,6 +6,7 @@ import pg from 'pg';
 import { createPublicClient, createWalletClient, http, parseEther } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { hardhat } from 'viem/chains';
+import { makeApprover } from './lib/approver.mjs';
 
 const { BASE, KEY, RPC_URL, FUNDER_PK, BOOT_EMAIL, BOOT_PASS, DATABASE_URL } = process.env;
 const pub = createPublicClient({ chain: hardhat, transport: http(RPC_URL) });
@@ -36,6 +37,7 @@ const tes = browser(`${NET}.1`); check('login tesorero', (await tes.login(BOOT_E
 execFileSync('node', ['dist/scripts/create-operator.js', `opg-${R}@ejemplo.mx`, 'ejecutivo'], { input: 'clave-operador-123\n', env: process.env, stdio: ['pipe', 'pipe', 'ignore'] });
 const opr = browser(`${NET}.2`); await opr.login(`opg-${R}@ejemplo.mx`, 'clave-operador-123');
 const tick = () => tes.call('POST', '/v1/worker/tick', {});
+const approver = await makeApprover({ BASE, ip: `${NET}.20`, tag: `gb-${R}` });
 const db = new pg.Client({ connectionString: DATABASE_URL }); await db.connect();
 
 // ── Cliente activo con saldo y destino en lista blanca; hot wallet con gas cuadrado en el libro
@@ -56,6 +58,7 @@ await rpc('evm_setAutomine', [false]);
 try {
   // ═════ 1. Atascado → aceleración manual y automática → se mina el último reemplazo
   const w1 = (await key('POST', '/v1/withdrawals', { client_id: cl.id, asset_id: ETH, to_address: DEST, amount: parseEther('0.1').toString() }, 'w1')).body;
+  await approver.approveWithdrawal(w1.id);
   await tick();
   let d = (await tes.call('GET', `/v1/withdrawals/${w1.id}`)).body;
   check('retiro enviado y sin minar (minado manual)', d.status, 'broadcast');
@@ -86,6 +89,7 @@ try {
 
   // ═════ 2. Se mina un intento ANTERIOR: la confirmación lo encuentra y adopta su hash
   const w2 = (await key('POST', '/v1/withdrawals', { client_id: cl.id, asset_id: ETH, to_address: DEST, amount: parseEther('0.05').toString() }, 'w2')).body;
+  await approver.approveWithdrawal(w2.id);
   await tick();
   const h1 = (await tes.call('GET', `/v1/withdrawals/${w2.id}`)).body.tx_hash;
   await rpc('evm_mine'); // se mina el original…

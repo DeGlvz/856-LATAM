@@ -80,7 +80,7 @@ export function Operators() {
       )}
       {ops.data && tes2fa < 2 && (
         <div className="rounded-md border border-warning/60 bg-warning/10 px-3 py-2 text-sm">
-          Hay <b>{tes2fa}</b> tesorero(s) activo(s) con 2FA. La doble aprobación y la recuperación de accesos necesitan al menos <b>dos</b>.
+          Hay <b>{tes2fa}</b> tesorero(s) activo(s) con 2FA. La doble aprobación de liquidaciones y la recuperación de accesos necesitan al menos <b>dos</b>.
         </div>
       )}
 

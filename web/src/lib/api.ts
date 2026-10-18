@@ -30,7 +30,7 @@ export async function api<T>(path: string, init: RequestInit & { json?: unknown 
 export type Role = 'lectura' | 'ejecutivo' | 'tesorero';
 export interface Operator { id: string; email: string; name: string; role: Role; totp_enabled: boolean }
 
-export interface Asset { id: string; symbol: string; decimals: number; kind: string; network: string; dual_treasurer_threshold?: string | null }
+export interface Asset { id: string; symbol: string; decimals: number; kind: string; network: string }
 export interface ReconBalance {
   asset_id: string; hot_wallet?: string; deposit_addresses?: string; onchain_total: string | null;
   ledger_custody: string; difference: string | null; error?: string;
@@ -178,8 +178,7 @@ export interface PendingWithdrawal {
   requested_by: string | null; requested_by_operator: string | null; created_at: string;
   // Fase 3 (salida originada por el cliente); null en retiros anteriores
   simulation_id: string | null; scope_hash: string | null; origin_kind: string | null; origin_label: string | null;
-  dual_required: boolean; validation_due_at: string | null; overdue: boolean;
-  first_approved_by: string | null; first_approved_by_operator: string | null; first_approved_at: string | null;
+  validation_due_at: string | null; overdue: boolean;
   client_approver: string | null; client_approved_at: string | null; wl_label: string | null; wl_active_from: string | null;
   sim_available: string | null; sim_balance_after: string | null; sim_payable_open: string | null; sim_fee: string | null; simulated_at: string | null;
 }

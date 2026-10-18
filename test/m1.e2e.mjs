@@ -190,29 +190,18 @@ const DEST = '0x' + 'ab'.repeat(20);
 const wl = (await adm.s.call('POST', '/whitelist', { address: DEST })).body;
 await apr.s.call('POST', `/whitelist/${wl.id}/approve`, { code: await apr.otp.next() });
 await db.query(`UPDATE wallets SET active_from = now() - interval '1 minute' WHERE id = $1`, [wl.id]);
-check('tesorero fija umbral de dos tesoreros', (await T1.call('PATCH', `/v1/assets/${ETH}`, { dual_treasurer_threshold: E(0.05), code: await T1.code() })).status, 200);
 const exit = async (amt) => {
   const sim = (await adm.s.call('POST', '/exits/simulate', { asset_id: ETH, whitelist_id: wl.id, amount: amt })).body;
   return (await adm.s.call('POST', '/exits', { simulation_id: sim.id })).body;
 };
 const x1 = await exit(E(0.06));
-check('salida arriba del umbral con un solo tesorero: requiere 1 autorización', x1.authorizations?.required, 1);
+check('salida de cliente requiere una autorización individual', x1.authorizations?.required, 1);
 const a1 = await T1.approveWithdrawal(x1.id);
-check('  …el único tesorero la autoriza con 2FA → aprobada', `${a1.status} ${a1.body.approval_status}`, '200 approved');
-const { rows: [m1] } = await db.query('SELECT metadata FROM withdrawals WHERE id = $1', [x1.id]);
-check('  …queda marcada como autorizada en modo de un solo tesorero', m1.metadata.single_treasurer, true);
-
-const T2 = await makeApprover({ BASE, ip: `${NET}.21`, tag: `m1t2-${R}` });
-check('con dos tesoreros con 2FA el aviso desaparece', (await sumOf(T1)).treasurers?.single, false);
+check('tesorero autoriza con 2FA → aprobada', `${a1.status} ${a1.body.approval_status}`, '200 approved');
 const x2 = await exit(E(0.07));
-const { rows: [w2] } = await db.query('SELECT dual_required FROM withdrawals WHERE id = $1', [x2.id]);
-check('con dos tesoreros el umbral vuelve a aplicar (sin cambiar configuración)', w2.dual_required, true);
 const b1 = await T1.approveWithdrawal(x2.id);
-check('  …primera autorización: sigue pendiente', `${b1.status} ${b1.body.approval_status}`, '200 pending');
-check('  …el mismo tesorero no autoriza dos veces → 403', (await T1.approveWithdrawal(x2.id)).body.code, 'same_operator');
-const b2 = await T2.approveWithdrawal(x2.id);
-check('  …el segundo tesorero distinto la autoriza → aprobada', `${b2.status} ${b2.body.approval_status}`, '200 approved');
-await db.query('UPDATE assets SET dual_treasurer_threshold = NULL WHERE id = $1', [ETH]);
+check('un solo tesorero basta, sin importar el monto', `${b1.status} ${b1.body.approval_status}`, '200 approved');
+check('no se admite otra aprobación → 409', (await T1.approveWithdrawal(x2.id)).status, 409);
 
 // 3c. Mínimo de barrido por activo (SWEEP_MIN_TUSD_M1=500 TUSD en el servidor)
 const pub = createPublicClient({ chain: hardhat, transport: http(RPC_URL) });

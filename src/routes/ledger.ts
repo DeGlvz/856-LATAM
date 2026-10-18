@@ -4,7 +4,6 @@ import { assertConsoleMayOriginate } from '../ledger/origin.js';
 import { idempotent } from '../idempotency.js';
 import * as L from '../ledger/service.js';
 import { pool } from '../db.js';
-import { stepUp } from '../auth/operator-admin.js';
 import { allowedTransitions, assertAddress, clientStatus } from '../ledger/clients.js';
 
 const amount = z.string().regex(/^[1-9]\d{0,77}$/, 'entero positivo en unidades base');
@@ -47,16 +46,6 @@ export async function ledgerRoutes(app: FastifyInstance) {
   // Activos
   app.get('/assets', async () => ({ assets: await L.listAssets() }));
   app.post('/assets', async (req, reply) => reply.code(201).send(await L.createAsset(parse(AssetBody, req.body))));
-  // Umbral (unidades base) a partir del cual una salida requiere DOS tesoreros distintos; null = sin umbral
-  app.patch<{ Params: { id: string } }>('/assets/:id', async (req) => {
-    const b = parse(z.object({ dual_treasurer_threshold: amount.nullable(), code: z.string().regex(/^\d{6}$/).optional() }), req.body);
-    // Desde la consola es un control de tesorería: se confirma con 2FA del tesorero que lo cambia
-    if (req.principal?.kind === 'operator') await stepUp(req.principal.operator, b.code ?? '');
-    const { rows: [a] } = await pool.query('UPDATE assets SET dual_treasurer_threshold = $2 WHERE id = $1 RETURNING *', [req.params.id, b.dual_treasurer_threshold]);
-    if (!a) throw new L.LedgerError(404, 'Activo no encontrado', 'not_found');
-    return a;
-  });
-
   // Clientes y sus cuentas
   app.post('/clients', async (req, reply) =>
     idempotent(req, reply, async () => ({ status: 201, body: await L.createClient(parse(ClientBody, req.body)) })));

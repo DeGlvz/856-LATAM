@@ -30,7 +30,7 @@ export const WD_STATUS: Record<WithdrawalStatus, { label: string; variant: 'seco
 
 const STEPS: WithdrawalStatus[] = ['reserved', 'signed', 'broadcast', 'confirmed'];
 
-/** Estado visible: un retiro reservado que espera la segunda firma se muestra como «Por aprobar». */
+/** Estado visible: un retiro reservado que espera autorización se muestra como «Por aprobar». */
 export function WdBadge({ w }: { w: { status: WithdrawalStatus; approval_status?: string } }) {
   if (w.status === 'reserved' && w.approval_status === 'pending') return <Badge variant="warning">Por aprobar</Badge>;
   if (w.status === 'cancelled' && w.approval_status === 'rejected') return <Badge variant="outline">Rechazado</Badge>;
@@ -157,7 +157,7 @@ export function WithdrawalDialog({ id, explorer, onClose }: { id: string | null;
                 <ApprovalPanel kind="withdrawal" id={w.id} requestedByOperator={w.requested_by_operator} requestedBy={w.requested_by} />
               )}
 
-              {w.status === 'reserved' && w.approval_status !== 'pending' && can('tesorero') && (
+              {w.status === 'reserved' && w.approval_status !== 'pending' && can('ejecutivo') && (
                 <div className="grid gap-2 rounded-md border border-destructive/30 p-3">
                   <p className="text-sm">Aún no se firma: puede cancelarse y el saldo vuelve al cliente.</p>
                   <div className="flex gap-2">
@@ -176,7 +176,7 @@ export function WithdrawalDialog({ id, explorer, onClose }: { id: string | null;
   );
 }
 
-// ───────────── Nuevo retiro (tesorero) ─────────────
+// ───────────── Nueva instrucción de retiro ─────────────
 export function NewWithdrawalDialog({ open, onOpenChange, presetClientId, onCreated }: {
   open: boolean; onOpenChange: (v: boolean) => void; presetClientId?: string | null; onCreated: (id: string) => void;
 }) {
@@ -189,7 +189,6 @@ export function NewWithdrawalDialog({ open, onOpenChange, presetClientId, onCrea
   const [amountText, setAmountText] = useState('');
   const [confirming, setConfirming] = useState(false);
   const [key, setKey] = useState(newIdemKey);
-  const dual = (useQuery({ queryKey: ['summary'], queryFn: () => api<{ dual_approval?: string }>('/summary'), staleTime: 60_000 }).data?.dual_approval ?? 'console') !== 'off';
 
   useEffect(() => {
     if (open) { setClientId(presetClientId ?? null); setSearch(''); setAssetId(''); setDest(''); setAmountText(''); setConfirming(false); setKey(newIdemKey()); }
@@ -231,7 +230,7 @@ export function NewWithdrawalDialog({ open, onOpenChange, presetClientId, onCrea
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Nuevo retiro on-chain</DialogTitle>
-          <DialogDescription>El saldo se reserva al instante; el worker firma, envía y espera las confirmaciones. Solo clientes activos y destinos en su lista blanca.</DialogDescription>
+          <DialogDescription>Por instrucción interna, el saldo se reserva y el retiro pasa directamente al worker. Solo clientes activos y destinos en su lista blanca.</DialogDescription>
         </DialogHeader>
 
         {!clientId ? (
@@ -261,7 +260,7 @@ export function NewWithdrawalDialog({ open, onOpenChange, presetClientId, onCrea
             {confirming ? (
               <div className="grid gap-3 rounded-md border border-warning/60 bg-warning/10 p-4 text-sm">
                 <div className="flex items-center gap-2 font-medium"><AlertTriangle className="size-4" />Confirme el retiro: una vez firmado no se puede revertir.</div>
-                {dual && <p>El saldo se reserva ahora; el retiro queda <b>pendiente de aprobación</b> por un segundo tesorero con 2FA.</p>}
+                <p>Este retiro se registra como instrucción interna y el worker lo ejecutará después de validar saldo, estado del cliente y lista blanca.</p>
                 <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
                   <dt className="text-muted-foreground">Monto</dt><dd className="font-mono">{exactUnits(base, asset.decimals)} {asset.symbol}</dd>
                   <dt className="text-muted-foreground">Unidades base</dt><dd className="font-mono text-xs">{base}</dd>
@@ -305,7 +304,7 @@ export function NewWithdrawalDialog({ open, onOpenChange, presetClientId, onCrea
                 ? <Button type="button" variant="outline" onClick={() => setConfirming(false)}><ArrowLeft />Corregir</Button>
                 : <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>}
               <Button type="submit" disabled={!ready || m.isPending}>
-                {m.isPending ? <Loader2 className="animate-spin" /> : <Send />}{confirming ? (dual ? 'Solicitar retiro' : 'Confirmar retiro') : 'Revisar'}
+                {m.isPending ? <Loader2 className="animate-spin" /> : <Send />}{confirming ? 'Confirmar retiro' : 'Revisar'}
               </Button>
             </DialogFooter>
           </form>

@@ -97,7 +97,7 @@ check('lectura no puede crear cliente → 403', (await lec.post('/v1/clients', {
 const cOp = await opr.post('/v1/clients', { name: `Fondo Op ${R}`, assets: ['ETH-SEPOLIA'] }, 'opc');
 check('operador crea cliente → 201', cOp.status, 201);
 check('idempotencia por operador (repetición)', (await opr.post('/v1/clients', { name: `Fondo Op ${R}`, assets: ['ETH-SEPOLIA'] }, 'opc')).headers.get('idempotent-replayed'), 'true');
-check('operador no puede retirar → 403', (await opr.post('/v1/withdrawals', { client_id: cOp.body.id, asset_id: 'ETH-SEPOLIA', to_address: HOT, amount: '1' }, 'opw')).status, 403);
+check('ejecutivo puede ingresar instrucción pero se valida el estado del cliente', (await opr.post('/v1/withdrawals', { client_id: cOp.body.id, asset_id: 'ETH-SEPOLIA', to_address: HOT, amount: '1' }, 'opw')).body.code, 'client_not_active');
 check('operador no puede ajustar libro → 403', (await opr.post('/v1/entries', { kind: 'adjustment', postings: [] }, 'ope')).status, 403);
 check('contraseña corta rechazada por el script', (() => { try { createOperator(`x-${R}@ejemplo.mx`, 'lectura', 'corta'); return 'creado'; } catch { return 'rechazada'; } })(), 'rechazada');
 
@@ -113,6 +113,7 @@ const DEST = privateKeyToAccount(generatePrivateKey()).address; // única por co
 await key('POST', '/v1/wallets', { client_id: cl.id, chain: 'ethereum', network: 'eth-sepolia', address: DEST, purpose: 'withdrawal_whitelist' });
 const wd = await tes.post('/v1/withdrawals', { client_id: cl.id, asset_id: 'ETH-SEPOLIA', to_address: DEST, amount: '1000000000000000' }, 'wd');
 check('tesorero solicita retiro → 202', wd.status, 202);
+check('instrucción del tesorero no requiere aprobación adicional', wd.body.approval_status, 'not_required');
 s = (await lec.call('GET', '/v1/summary')).body;
 const item = s.withdrawals_in_flight.items.find((w) => w.id === wd.body.id);
 check('retiro en vuelo en el tablero', item?.status, 'reserved');

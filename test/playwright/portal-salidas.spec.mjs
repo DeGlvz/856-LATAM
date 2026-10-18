@@ -179,7 +179,7 @@ test('consola: «Salidas por validar» autoriza una y rechaza otra con motivo; e
   const big = mine.filter({ hasText: '0.005' });
   await expect(small).toContainText(`Salidas Alfa ${R}`);
   await expect(big).toContainText('Usuario approver 3'); // aprobación interna del cliente
-  await expect(page.locator('[data-section="dual-thresholds"]')).toBeVisible();
+  await expect(page.locator('[data-section="dual-thresholds"]')).toHaveCount(0);
   await shot(page, 'consola-salidas');
 
   await small.getByLabel('Código 2FA para aprobar la salida').fill(await tesOtp.next());

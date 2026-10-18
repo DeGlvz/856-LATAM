@@ -1,5 +1,4 @@
-// Segundo tesorero con 2FA para las pruebas que pasan por la doble aprobación (DUAL_APPROVAL=console).
-// Crea el operador, activa su TOTP y expone approve* con un código nuevo en cada llamada.
+// Crea un tesorero de prueba con 2FA y expone aprobaciones con un código nuevo en cada llamada.
 import { execFileSync } from 'node:child_process';
 import { totp } from './totp.mjs';
 
