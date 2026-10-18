@@ -19,15 +19,21 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 type FStatus = 'received' | 'minted' | 'reconciled' | 'released' | 'review' | 'rejected';
+interface FiatAccountRow {
+  id: string; provider: 'monerium' | 'mock' | 'transak' | 'circle'; mode: 'treasury' | 'per_client'; client_id: string | null;
+  client_name: string | null; status: 'pending_link' | 'linked' | 'iban_requested' | 'active' | 'closed';
+  iban: string | null; bic: string | null; beneficiary: string | null; address: string; network: string; provider_state: string | null;
+  updated_at: string;
+}
 interface FiatStatus {
   enabled: boolean; provider: 'monerium' | 'mock' | null; live: boolean; live_switch: boolean; mode: string; network: string;
-  account: null | { id: string; status: 'pending_link' | 'linked' | 'iban_requested' | 'active' | 'closed'; iban: string | null; bic: string | null; beneficiary: string | null; address: string; network: string; provider_state: string | null; updated_at: string };
+  account: FiatAccountRow | null;
   last_poll_at: string | null; last_error: string | null; provider_calls: number; queue: { reconciled: number; review: number; in_flight: number };
 }
 interface FiatDeposit {
   id: string; provider_order_id: string; amount_eur: string; asset_id: string; reference: string | null; payer_iban_masked: string | null; payer_name: string | null;
   network: string; tx_hash: string | null; confirmations: number; client_id: string | null; client_name: string | null; intent_reference: string | null;
-  match_rule: 'intent' | 'counterparty' | 'manual' | null; review_reason: string | null; status: FStatus; released_by: string | null; released_at: string | null;
+  match_rule: 'intent' | 'counterparty' | 'manual' | 'account' | null; review_reason: string | null; status: FStatus; released_by: string | null; released_at: string | null;
   reason: string | null; received_at: string;
 }
 const ST: Record<FStatus, { t: string; v: 'warning' | 'success' | 'destructive' | 'secondary' | 'outline' | 'default' }> = {
@@ -36,7 +42,7 @@ const ST: Record<FStatus, { t: string; v: 'warning' | 'success' | 'destructive' 
   released: { t: 'Liberada', v: 'success' }, rejected: { t: 'Rechazada', v: 'outline' },
 };
 const ACC: Record<string, string> = { pending_link: 'Dirección sin ligar', linked: 'Dirección ligada', iban_requested: 'IBAN solicitado', active: 'Activa', closed: 'Cerrada' };
-const RULE: Record<string, string> = { intent: 'Aviso de pago', counterparty: 'Código de contraparte', manual: 'Asignación manual' };
+const RULE: Record<string, string> = { intent: 'Aviso de pago', counterparty: 'Código de contraparte', manual: 'Asignación manual', account: 'Cuenta del cliente' };
 const EXPL: Record<string, string> = { 'base-mainnet': 'https://basescan.org', 'base-sepolia': 'https://sepolia.basescan.org' };
 const eur = (s: string) => { const [i, d = ''] = s.split('.'); return `${i.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${d.padEnd(2, '0').slice(0, 2)} €`; };
 
@@ -46,19 +52,40 @@ export function FiatDeposits() {
   const qc = useQueryClient();
   const [filter, setFilter] = useState<FStatus | ''>('');
   const [setup, setSetup] = useState(false);
+  const [activateClient, setActivateClient] = useState(false);
+  const [closeAccount, setCloseAccount] = useState<FiatAccountRow | null>(null);
+  const [closeReason, setCloseReason] = useState('');
+  const [selectedClientId, setSelectedClientId] = useState('');
   const [releasing, setReleasing] = useState<FiatDeposit | null>(null);
   const [rejecting, setRejecting] = useState<FiatDeposit | null>(null);
   const [simulating, setSimulating] = useState(false);
   const status = useQuery({ queryKey: ['fiat-status'], queryFn: () => api<FiatStatus>('/console/fiat/status'), refetchInterval: 30_000 });
+  const clients = useQuery({
+    queryKey: ['fiat-eligible-clients'],
+    queryFn: () => api<{ clients: ClientRow[] }>('/clients?status=active&limit=200').then((r) => r.clients),
+    enabled: status.data?.mode === 'per_client' && can('tesorero'),
+  });
+  const accounts = useQuery({
+    queryKey: ['fiat-client-accounts'],
+    queryFn: () => api<{ accounts: FiatAccountRow[] }>('/console/fiat/accounts').then((r) => r.accounts),
+    enabled: status.data?.mode === 'per_client' && can('tesorero'),
+  });
   const list = useQuery({
     queryKey: ['fiat-deposits', filter],
     queryFn: () => api<{ items: FiatDeposit[] }>(`/console/fiat/deposits?limit=100${filter ? `&status=${filter}` : ''}`), refetchInterval: 30_000,
   });
-  const refresh = () => { qc.invalidateQueries({ queryKey: ['fiat-status'] }); qc.invalidateQueries({ queryKey: ['fiat-deposits'] }); };
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['fiat-status'] });
+    qc.invalidateQueries({ queryKey: ['fiat-deposits'] });
+    qc.invalidateQueries({ queryKey: ['fiat-client-accounts'] });
+  };
   const poll = useMutation({ mutationFn: () => api('/console/fiat/poll', { method: 'POST', json: {} }), onSettled: refresh });
   const s = status.data;
   const tes = can('tesorero');
   const sandbox = meta.data?.environment === 'sandbox';
+  const fiatAccounts = accounts.data ?? [];
+  const targetAccount = fiatAccounts.find((a) => a.mode === 'per_client' && a.client_id === selectedClientId && a.status !== 'closed');
+  const targetProvider = sandbox ? 'mock' : 'monerium';
 
   return (
     <div className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)] gap-6">
@@ -68,7 +95,8 @@ export function FiatDeposits() {
           <p className="text-sm text-muted-foreground">SEPA → EURe con proveedor regulado. Se concilian solos; solo un tesorero con 2FA libera saldo al cliente.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {tes && s?.enabled && sandbox && s.account?.status === 'active' && <Button variant="outline" onClick={() => setSimulating(true)}><FlaskConical />Simular depósito</Button>}
+          {tes && s?.enabled && sandbox && (s.mode === 'treasury' ? s.account?.status === 'active' : targetAccount?.status === 'active') &&
+            <Button variant="outline" onClick={() => setSimulating(true)}><FlaskConical />Simular depósito</Button>}
           {tes && s?.enabled && <Button variant="outline" disabled={poll.isPending} onClick={() => poll.mutate()}>{poll.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />}Conciliar ahora</Button>}
         </div>
       </div>
@@ -81,7 +109,7 @@ export function FiatDeposits() {
             {s.account && <Badge variant={s.account.status === 'active' ? 'success' : 'warning'}>{ACC[s.account.status]}</Badge>}</CardTitle></CardHeader>
           <CardContent className="grid gap-3 text-sm">
             {!s.enabled && <p className="text-muted-foreground">La entrada de fiat está apagada en este despliegue (FIAT_LIVE_ENABLED=false). Se enciende cuando el proveedor apruebe el perfil.</p>}
-            {s.enabled && !s.account && (
+            {s.enabled && s.mode === 'treasury' && !s.account && (
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <p className="text-muted-foreground">Sin alta. El alta reserva una dirección HD de 856 en {s.network}, la liga al perfil (firma de propiedad, sin gas) y solicita el IBAN.</p>
                 {tes && <Button onClick={() => setSetup(true)}>Dar de alta</Button>}
@@ -93,6 +121,32 @@ export function FiatDeposits() {
                 <div><div className="text-xs text-muted-foreground">Beneficiario</div><div>{s.account.beneficiary ?? '—'}</div></div>
                 <div><div className="text-xs text-muted-foreground">Dirección de tesorería ({s.account.network})</div><div className="flex items-center gap-1 font-mono text-xs break-all">{s.account.address}<CopyButton value={s.account.address} /></div></div>
                 <div><div className="text-xs text-muted-foreground">Último sondeo</div><div>{s.last_poll_at ? fmtDate(s.last_poll_at) : '—'}{s.last_error && <span className="ml-2 text-destructive">{s.last_error}</span>}</div></div>
+              </div>
+            )}
+            {s.enabled && s.mode === 'per_client' && (
+              <div className="grid gap-3">
+                <p className="text-muted-foreground">Cada cliente activo recibe una dirección y un IBAN aislados. Los depósitos conciliados siguen requiriendo liberación manual del tesorero con 2FA.</p>
+                {tes && <div className="flex flex-wrap items-end gap-2">
+                  <Field label="Cliente elegible" htmlFor="fiat-client">
+                    <Select id="fiat-client" value={selectedClientId} onChange={(e) => setSelectedClientId(e.target.value)}>
+                      <option value="">Seleccione cliente…</option>
+                      {(clients.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </Select>
+                  </Field>
+                  <Button disabled={!selectedClientId} onClick={() => setActivateClient(true)}>Activar cuenta por cliente</Button>
+                </div>}
+                <div className="grid gap-2">
+                  {fiatAccounts.filter((a) => a.mode === 'per_client').map((a) => (
+                    <div key={a.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-sm">
+                      <div className="grid gap-1">
+                        <strong>{a.client_name ?? a.client_id} · {a.provider} · {ACC[a.status]}</strong>
+                        <span className="font-mono text-xs">{a.iban ?? 'IBAN en trámite'} · {a.address}</span>
+                      </div>
+                      {tes && a.status !== 'closed' && <Button size="sm" variant="outline" onClick={() => { setCloseAccount(a); setCloseReason(''); }}>Cerrar localmente</Button>}
+                    </div>
+                  ))}
+                  {!fiatAccounts.some((a) => a.mode === 'per_client') && <p className="text-xs text-muted-foreground">Aún no hay cuentas por cliente.</p>}
+                </div>
               </div>
             )}
             {s.account && s.account.status !== 'active' && tes && <Button variant="outline" className="justify-self-start" onClick={() => setSetup(true)}>Continuar alta / refrescar IBAN</Button>}
@@ -141,9 +195,22 @@ export function FiatDeposits() {
       <StepUpDialog open={setup} title="Alta con el proveedor de fiat" confirmLabel="Dar de alta"
         description="Reserva la dirección HD de tesorería, verifica el contrato EURe del proveedor contra el catálogo, liga la dirección (firma de mensaje, sin gas) y solicita el IBAN. Se puede repetir para refrescar el estado."
         onConfirm={(code) => api('/console/fiat/setup', { method: 'POST', json: { code } }).then(refresh)} onClose={() => setSetup(false)} />
+      <StepUpDialog open={activateClient} title="Activar cuenta fiat del cliente" confirmLabel="Activar"
+        canSubmit={!!selectedClientId}
+        description="El proveedor, cliente e IBAN quedan vinculados a una dirección HD dedicada. La activación requiere cliente activo y no sustituye la liberación manual de depósitos."
+        onConfirm={(code) => api(`/console/fiat/clients/${selectedClientId}/accounts/activate`, { method: 'POST', json: { provider: targetProvider, code } }).then(refresh)}
+        onClose={() => setActivateClient(false)} />
+      <StepUpDialog open={!!closeAccount} title="Cerrar cuenta fiat localmente" confirmLabel="Cerrar cuenta" destructive
+        canSubmit={closeReason.trim().length >= 5}
+        description="Esto deshabilita las instrucciones al cliente y retiene para revisión cualquier orden tardía. No cierra el IBAN con el proveedor; ese cierre debe coordinarse directamente con él."
+        onConfirm={(code) => api(`/console/fiat/accounts/${closeAccount!.id}/close`, { method: 'POST', json: { code, reason: closeReason.trim() } }).then(refresh)}
+        onClose={() => setCloseAccount(null)}>
+        <Field label="Motivo" htmlFor="fiat-close-reason"><Input id="fiat-close-reason" value={closeReason} onChange={(e) => setCloseReason(e.target.value)} maxLength={500} /></Field>
+      </StepUpDialog>
       <ReleaseDialog dep={releasing} onClose={() => setReleasing(null)} onDone={refresh} />
       <RejectDialog dep={rejecting} onClose={() => setRejecting(null)} onDone={refresh} />
-      <SimulateDialog open={simulating} onClose={() => setSimulating(false)} onDone={refresh} />
+      <SimulateDialog open={simulating} clientId={s?.mode === 'per_client' ? selectedClientId : undefined}
+        onClose={() => setSimulating(false)} onDone={refresh} />
     </div>
   );
 }
@@ -192,10 +259,10 @@ function RejectDialog({ dep, onClose, onDone }: { dep: FiatDeposit | null; onClo
 }
 
 /** Solo sandbox: el proveedor simulado registra una transferencia entrante (el hash debe ser una transferencia real de EURe a la tesorería). */
-function SimulateDialog({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
+function SimulateDialog({ open, clientId, onClose, onDone }: { open: boolean; clientId?: string; onClose: () => void; onDone: () => void }) {
   const [amount, setAmount] = useState(''), [memo, setMemo] = useState(''), [payer, setPayer] = useState(''), [hash, setHash] = useState('');
   const m = useMutation({
-    mutationFn: () => api('/console/fiat/simulate', { method: 'POST', json: { amount: amount.trim(), memo: memo.trim() || undefined, payer_name: payer.trim() || undefined, tx_hash: hash.trim() || undefined } }),
+    mutationFn: () => api('/console/fiat/simulate', { method: 'POST', json: { amount: amount.trim(), memo: memo.trim() || undefined, payer_name: payer.trim() || undefined, tx_hash: hash.trim() || undefined, client_id: clientId } }),
     onSuccess: () => { onDone(); onClose(); },
   });
   const valid = /^\d{1,15}(\.\d{1,2})?$/.test(amount.trim()) && (!hash.trim() || /^0x[0-9a-fA-F]{64}$/.test(hash.trim()));
@@ -203,7 +270,7 @@ function SimulateDialog({ open, onClose, onDone }: { open: boolean; onClose: () 
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent>
         <DialogHeader><DialogTitle>Simular depósito SEPA (sandbox)</DialogTitle>
-          <DialogDescription>El proveedor simulado registra la orden. Sin hash queda «recibida»; con el hash de una transferencia de EURe a la tesorería, se verifica y concilia.</DialogDescription></DialogHeader>
+          <DialogDescription>El proveedor simulado registra la orden. Sin hash queda «recibida»; con el hash de una transferencia de EURe a la dirección de la cuenta, se verifica y concilia.</DialogDescription></DialogHeader>
         <form className="grid gap-3" onSubmit={(e: FormEvent) => { e.preventDefault(); if (valid) m.mutate(); }}>
           <Field label="Monto (EUR)" htmlFor="fs-amount"><Input id="fs-amount" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="100.00" /></Field>
           <Field label="Concepto" htmlFor="fs-memo" hint="Referencia del aviso o código de contraparte."><Input id="fs-memo" value={memo} onChange={(e) => setMemo(e.target.value)} /></Field>

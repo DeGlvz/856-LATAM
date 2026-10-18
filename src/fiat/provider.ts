@@ -1,5 +1,4 @@
-// Fase F1 — frontera con el proveedor de fiat. El resto del sistema solo conoce FiatProvider:
-// cambiar de proveedor (o pasar a modo per_client / Whitelabel) = otra implementación, sin tocar conciliación ni libro.
+// Fase F1 — frontera de estrategia para ingress fiat. El flujo de cuenta/cliente es independiente del proveedor.
 //
 // Implementaciones:
 //   • MoneriumProvider: API v2 de Monerium (Accept: application/vnd.monerium.api-v2+json), OAuth client credentials.
@@ -11,6 +10,8 @@ import { verifyMessage, type Address, type Hex } from 'viem';
 import { config, isProduction } from '../config.js';
 import type { Signer } from '../chain/signer.js';
 import { HttpError } from '../idempotency.js';
+import type { FiatIngressPort } from './ports.js';
+import type { FiatProviderId } from './domain.js';
 
 export const LINK_MESSAGE = 'I hereby declare that I am the address owner.';
 
@@ -35,23 +36,8 @@ export interface FiatOrder {
 export interface FiatIban { iban: string; bic: string | null; name: string | null; state: string; address: string; chain: string }
 export interface FiatToken { symbol: string; chain: string; address: string; decimals: number }
 
-export interface FiatProvider {
-  readonly name: 'monerium' | 'mock';
-  /** true solo si las llamadas salen al proveedor real. */
-  readonly live: boolean;
-  /** Nombre de la cadena según el proveedor (Base: 'base' en producción, 'basesepolia' en su sandbox). */
-  chainName(): string;
-  token(): Promise<string>;
-  profileId(): Promise<string | null>;
-  /** Liga la dirección al perfil firmando el mensaje fijo de propiedad (firma de mensaje, sin gas). */
-  linkAddress(i: { address: string; signer: Signer }): Promise<{ state: string }>;
-  requestIban(i: { address: string }): Promise<void>;
-  getIban(address: string): Promise<FiatIban | null>;
-  /** Órdenes de la dirección (entrada y salida); el llamador filtra por kind/fecha. */
-  listOrders(address: string, since?: Date): Promise<FiatOrder[]>;
-  tokens(): Promise<FiatToken[]>;
-  /** Verifica (si el proveedor documenta firma) y extrae solo pistas; el estado se confirma por sondeo. */
-  parseWebhook(headers: Record<string, unknown>, rawBody: string): { verified: boolean; order_ids: string[] };
+export interface FiatProvider extends FiatIngressPort {
+  readonly name: FiatProviderId;
 }
 
 // ═════════════ Monerium ═════════════
@@ -141,7 +127,7 @@ export class MoneriumProvider implements FiatProvider {
   /**
    * Webhooks de Monerium (formato Standard Webhooks): HMAC-SHA256 de `${webhook-id}.${webhook-timestamp}.${cuerpo}`
    * con el secreto whsec_…; encabezado webhook-signature = "v1,<base64>" (puede traer varias). Sin secreto configurado
-   * el aviso no se verifica: solo dispara un sondeo (el cuerpo nunca mueve estado).
+   * devuelve verified=false; la ruta rechaza el evento y el sondeo periódico continúa normalmente.
    */
   parseWebhook(headers: Record<string, unknown>, rawBody: string) {
     return parseStandardWebhook(headers, rawBody, config.MONERIUM_WEBHOOK_SECRET);
@@ -246,8 +232,16 @@ let current: FiatProvider | null | undefined;
  * production + FIAT_LIVE_ENABLED=true → Monerium; production sin el interruptor → fiat apagado (null);
  * sandbox → siempre el simulado (src/environment.ts rechaza FIAT_LIVE_ENABLED=true en sandbox).
  */
-export function getFiatProvider(): FiatProvider | null {
-  if (current === undefined) current = isProduction ? (config.FIAT_LIVE_ENABLED ? new MoneriumProvider() : null) : new MockFiatProvider();
-  return current;
+export function getFiatProvider(providerId?: string): FiatProvider | null {
+  if (providerId && providerId !== 'monerium' && providerId !== 'mock') {
+    throw new HttpError(501, `El proveedor ${providerId} tiene una estrategia definida pero aún no está soportado`, 'provider_not_supported');
+  }
+  if (isProduction) {
+    if (!config.FIAT_LIVE_ENABLED) return null;
+    if (providerId && providerId !== 'monerium') throw new HttpError(409, 'En production solo está configurado Monerium', 'provider_not_configured');
+    return current ?? (current = new MoneriumProvider());
+  }
+  if (providerId && providerId !== 'mock') throw new HttpError(409, 'En sandbox solo está configurado el proveedor simulado', 'provider_not_configured');
+  return current ?? (current = new MockFiatProvider());
 }
 export const mockProvider = () => { const p = getFiatProvider(); return p instanceof MockFiatProvider ? p : null; };

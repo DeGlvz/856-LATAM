@@ -45,7 +45,7 @@ export async function sweepStep(n: Net, log: Log) {
     `SELECT id, contract_address FROM assets WHERE network = $1 AND kind = 'erc20' AND active ORDER BY id`, [network]);
   const { rows: wallets } = await pool.query(
     `SELECT w.id, w.address, w.derivation_index FROM wallets w
-      WHERE w.network = $1 AND w.purpose IN ('deposit','fiat_treasury') AND w.derivation_index IS NOT NULL AND w.active
+      WHERE w.network = $1 AND w.purpose IN ('deposit','fiat_treasury','fiat_client') AND w.derivation_index IS NOT NULL AND w.active
         AND NOT EXISTS (SELECT 1 FROM sweeps s WHERE s.wallet_id = w.id AND s.status IN ('signed','broadcast'))
       ORDER BY w.derivation_index`, [network]);
   if (!wallets.length) return;

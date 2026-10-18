@@ -53,7 +53,7 @@ export async function registerGasFunding(network: string, txHash: string, by: st
   if (txn.value <= 0n) throw new HttpError(422, 'La transacción no envía moneda nativa', 'no_native_value');
   const from = lower(txn.from);
   const { rows: [own] } = await pool.query(
-    `SELECT purpose FROM wallets WHERE network = $1 AND address = $2 AND purpose IN ('master_hot','master_cold','deposit','fiat_treasury') LIMIT 1`,
+    `SELECT purpose FROM wallets WHERE network = $1 AND address = $2 AND purpose IN ('master_hot','master_cold','deposit','fiat_treasury','fiat_client') LIMIT 1`,
     [n.id, from]);
   if (from === hotAddr || own) {
     throw new HttpError(422, 'El origen es una dirección de la plataforma: es un movimiento interno, no un fondeo', 'internal_transfer');

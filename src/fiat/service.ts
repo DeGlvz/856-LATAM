@@ -6,7 +6,6 @@
 //  tesorero: libera con 2FA (released → asiento custodia / cliente) o rechaza con motivo (rejected)
 // Solo «released» mueve saldo disponible. Acreditar es proceso de sistema (compatible con ORIGIN_RULE=enforce).
 import { createHash, randomInt } from 'node:crypto';
-import { decodeEventLog, erc20Abi, type Address, type Hash } from 'viem';
 import { config } from '../config.js';
 import { pool, tx, type Tx } from '../db.js';
 import { HttpError } from '../idempotency.js';
@@ -19,10 +18,13 @@ import { decodeCursor, page } from '../pagination.js';
 import { tradeOrigin } from '../portal/obligations.js';
 import type { PortalPrincipal } from '../portal/identity.js';
 import { getFiatProvider, mockProvider, providerCalls, type FiatOrder, type FiatProvider } from './provider.js';
+import { fiatIdempotencyKey, toFiatTransactionStatus } from './domain.js';
+import type { CryptoCustodyPort } from './ports.js';
+import { EvmFiatCustodyAdapter } from './evm-custody.js';
 
 type Log = { info: (o: object, m: string) => void; warn: (o: object, m: string) => void; error: (o: object, m: string) => void };
-const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 const CENT_TO_TOKEN = 10n ** 16n; // EURe tiene 18 decimales; el EUR, 2
+const fiatCustody: CryptoCustodyPort = new EvmFiatCustodyAdapter();
 const INTENT_ES: Record<string, string> = { matched: 'ya usado por otro depósito', expired: 'vencido', cancelled: 'cancelado por el cliente' };
 
 // ═════════════ Montos (sin float) ═════════════
@@ -77,27 +79,64 @@ async function currentAccount(c: Tx | typeof pool = pool, lock = false) {
   const p = getFiatProvider();
   if (!p) return null;
   const { rows: [a] } = await c.query(
-    `SELECT * FROM fiat_accounts WHERE provider = $1 AND mode = 'treasury' AND status <> 'closed' ${lock ? 'FOR UPDATE' : ''}`, [p.name]);
+    `SELECT * FROM fiat_accounts WHERE provider = $1 AND mode = 'treasury' AND network = $2 AND status <> 'closed'
+      ${lock ? 'FOR UPDATE' : ''}`, [p.name, fiatNetworkId()]);
+  return a ?? null;
+}
+async function clientAccount(clientId: string, c: Tx | typeof pool = pool, lock = false) {
+  const p = getFiatProvider();
+  if (!p) return null;
+  const { rows: [a] } = await c.query(
+    `SELECT * FROM fiat_accounts WHERE provider = $1 AND mode = 'per_client' AND client_id = $2
+      AND network = $3 AND status <> 'closed' ${lock ? 'FOR UPDATE' : ''}`, [p.name, clientId, fiatNetworkId()]);
   return a ?? null;
 }
 const accountView = (a: Record<string, unknown> | null) => a && {
-  id: a.id, provider: a.provider, mode: a.mode, status: a.status, iban: a.iban, bic: a.bic, beneficiary: a.beneficiary,
+  id: a.id, provider: a.provider, mode: a.mode, client_id: a.client_id, status: a.status, iban: a.iban, bic: a.bic, beneficiary: a.beneficiary,
   network: a.network, address: a.address, provider_state: a.provider_state, created_at: a.created_at, updated_at: a.updated_at,
 };
 
 // ═════════════ Consola: estado y alta ═════════════
 export async function status() {
   const p = getFiatProvider();
-  const acc = await currentAccount();
+  const acc = config.FIAT_MODE === 'treasury' ? await currentAccount() : null;
   const { rows: [s] } = p ? await pool.query('SELECT last_poll_at, last_error FROM fiat_sync_state WHERE provider = $1', [p.name]) : { rows: [] };
   const { rows: [q] } = await pool.query(
     `SELECT count(*) FILTER (WHERE status = 'reconciled')::int AS reconciled, count(*) FILTER (WHERE status = 'review')::int AS review,
-            count(*) FILTER (WHERE status IN ('received','minted'))::int AS in_flight FROM fiat_deposits`);
+            count(*) FILTER (WHERE status IN ('received','minted'))::int AS in_flight FROM fiat_deposits WHERE network = $1`,
+    [fiatNetworkId()]);
   return {
     enabled: !!p, provider: p?.name ?? null, live: p?.live ?? false, live_switch: config.FIAT_LIVE_ENABLED, mode: config.FIAT_MODE,
     network: fiatNetworkId(), account: accountView(acc), last_poll_at: s?.last_poll_at ?? null, last_error: s?.last_error ?? null,
     provider_calls: providerCalls(), queue: q,
   };
+}
+
+export async function listAccountsConsole() {
+  const { rows } = await pool.query(
+    `SELECT a.id, a.provider, a.mode, a.client_id, c.name AS client_name, a.status, a.iban, a.bic, a.beneficiary,
+            a.network, a.address, a.provider_state, a.created_at, a.updated_at
+       FROM fiat_accounts a LEFT JOIN clients c ON c.id = a.client_id
+      ORDER BY a.created_at DESC, a.id`);
+  return rows;
+}
+
+export async function closeClientAccount(id: string, by: string, reason: string) {
+  return tx(async (c) => {
+    const { rows: [a] } = await c.query(
+      `SELECT * FROM fiat_accounts WHERE id = $1 AND mode = 'per_client' FOR UPDATE`, [id]);
+    if (!a) throw new HttpError(404, 'Cuenta fiat por cliente no encontrada', 'not_found');
+    if (a.status === 'closed') return accountView(a);
+    const { rows: [open] } = await c.query(
+      `SELECT count(*)::int AS n FROM fiat_deposits
+        WHERE fiat_account_id = $1 AND status IN ('received','minted','reconciled','review')`, [id]);
+    if (open.n) throw new HttpError(409, `No se puede cerrar: hay ${open.n} depósitos sin resolver`, 'fiat_account_has_open_deposits');
+    await c.query(
+      `UPDATE fiat_payment_intents SET status = 'cancelled', cancelled_by = $2, cancelled_at = now(), updated_at = now()
+        WHERE fiat_account_id = $1 AND status = 'open'`, [id, by]);
+    await c.query(`UPDATE fiat_accounts SET status = 'closed', provider_state = 'closed_locally', updated_at = now() WHERE id = $1`, [id]);
+    return accountView({ ...a, status: 'closed', provider_state: 'closed_locally' });
+  });
 }
 
 /**
@@ -108,7 +147,21 @@ export async function status() {
  *  4. registra la dirección en el webhook Address Activity de Alchemy de esa red (el de M1; no se crea otro)
  */
 export async function setup(by: string, log?: Log) {
-  const p = provider();
+  if (config.FIAT_MODE !== 'treasury') throw new HttpError(409, 'En modo per_client active una cuenta desde el cliente objetivo', 'fiat_mode_mismatch');
+  return provisionAccount({ mode: 'treasury', clientId: null, providerId: provider().name, by, log });
+}
+
+export async function activateClientAccount(clientId: string, providerId: string, by: string, log?: Log) {
+  if (config.FIAT_MODE !== 'per_client') throw new HttpError(409, 'La activación por cliente requiere FIAT_MODE=per_client', 'fiat_mode_mismatch');
+  const result = await provisionAccount({ mode: 'per_client', clientId, providerId, by, log });
+  return result.account;
+}
+
+async function provisionAccount(input: {
+  mode: 'treasury' | 'per_client'; clientId: string | null; providerId: string; by: string; log?: Log;
+}) {
+  const p = getFiatProvider(input.providerId);
+  if (!p) throw new HttpError(503, 'Entrada de fiat apagada en este despliegue', 'fiat_disabled');
   const n = fiatNet();
   const asset = await fiatAsset();
   const keyring = getDepositKeyring();
@@ -125,18 +178,31 @@ export async function setup(by: string, log?: Log) {
 
   // 1. cuenta y dirección reservada
   let acc = await tx(async (c) => {
-    await c.query('SELECT pg_advisory_xact_lock(856016)');
-    const cur = await currentAccount(c, true);
+    await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`fiat_account:${input.mode}:${input.clientId ?? p.name}`]);
+    if (input.clientId) {
+      const { rows: [cl] } = await c.query('SELECT status FROM clients WHERE id = $1 FOR UPDATE', [input.clientId]);
+      if (!cl) throw new HttpError(404, 'Cliente no encontrado', 'not_found');
+      if (cl.status !== 'active') throw new HttpError(409, 'Solo se puede activar fiat para clientes activos', 'client_not_eligible');
+      const { rows: [other] } = await c.query(
+        `SELECT provider FROM fiat_accounts WHERE client_id = $1 AND mode = 'per_client' AND network = $3
+          AND status <> 'closed' AND provider <> $2 LIMIT 1`, [input.clientId, p.name, n.id]);
+      if (other) throw new HttpError(409, `Cierre la cuenta ${other.provider} antes de cambiar el proveedor`, 'provider_change_requires_close');
+    }
+    const cur = input.clientId
+      ? await clientAccount(input.clientId, c, true)
+      : await currentAccount(c, true);
     if (cur) return cur;
     const i = (await c.query(`SELECT nextval('deposit_address_index')::int AS i`)).rows[0].i as number;
     const address = keyring.derive(i).address().toLowerCase();
     const { rows: [w] } = await c.query(
-      `INSERT INTO wallets (chain, network, address, purpose, custody_ref, derivation_path, derivation_index, label)
-       VALUES ('ethereum',$1,$2,'fiat_treasury',$3,$4,$5,'Tesorería fiat (EURe)') RETURNING id`,
-      [n.id, address, `${keyring.kind}:${i}`, `m/44'/60'/0'/0/${i}`, i]);
+      `INSERT INTO wallets (client_id, chain, network, address, purpose, custody_ref, derivation_path, derivation_index, label)
+       VALUES ($1,'ethereum',$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      [input.clientId, n.id, address, input.clientId ? 'fiat_client' : 'fiat_treasury',
+        `${keyring.kind}:${i}`, `m/44'/60'/0'/0/${i}`, i, input.clientId ? `Cuenta fiat cliente ${input.clientId}` : 'Tesorería fiat (EURe)']);
     const { rows: [a] } = await c.query(
-      `INSERT INTO fiat_accounts (provider, mode, network, address, derivation_index, wallet_id, created_by)
-       VALUES ($1,'treasury',$2,$3,$4,$5,$6) RETURNING *`, [p.name, n.id, address, i, w.id, by]);
+      `INSERT INTO fiat_accounts (provider, mode, client_id, network, address, derivation_index, wallet_id, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [p.name, input.mode, input.clientId, n.id, address, i, w.id, input.by]);
     return a;
   });
 
@@ -145,7 +211,7 @@ export async function setup(by: string, log?: Log) {
     const r = await p.linkAddress({ address: acc.address, signer: keyring.derive(acc.derivation_index) });
     acc = (await pool.query(`UPDATE fiat_accounts SET status = 'linked', profile_id = $2, provider_state = $3, updated_at = now() WHERE id = $1 RETURNING *`,
       [acc.id, await p.profileId(), `address:${r.state}`])).rows[0];
-    log?.info({ address: acc.address, state: r.state }, 'fiat: dirección ligada al perfil del proveedor');
+    input.log?.info({ address: acc.address, state: r.state }, 'fiat: dirección ligada al perfil del proveedor');
   }
   if (acc.status === 'linked') {
     const existing = await p.getIban(acc.address);
@@ -158,9 +224,11 @@ export async function setup(by: string, log?: Log) {
   const { rows: [w] } = await pool.query('SELECT id, webhook_registered FROM wallets WHERE id = $1', [acc.wallet_id]);
   if (w && !w.webhook_registered) {
     try { if (await registerOnWebhook(n, [acc.address])) await pool.query('UPDATE wallets SET webhook_registered = true WHERE id = $1', [w.id]); }
-    catch (e) { log?.warn({ err: (e as Error).message }, 'fiat: dirección no registrada aún en el webhook (el worker reintenta)'); }
+    catch (e) { input.log?.warn({ err: (e as Error).message }, 'fiat: dirección no registrada aún en el webhook (el worker reintenta)'); }
   }
-  return status();
+  if (input.mode === 'treasury') return status();
+  const { rows: [s] } = await pool.query('SELECT last_poll_at, last_error FROM fiat_sync_state WHERE provider = $1', [p.name]);
+  return { account: accountView(acc), last_poll_at: s?.last_poll_at ?? null, last_error: s?.last_error ?? null };
 }
 
 async function refreshIban(p: FiatProvider, acc: Record<string, any>) {
@@ -175,9 +243,13 @@ async function refreshIban(p: FiatProvider, acc: Record<string, any>) {
 }
 
 // ═════════════ Portal: instrucciones y avisos ═════════════
-async function readyAccount() {
+async function readyAccount(clientId: string) {
   provider();
-  const acc = await currentAccount();
+  if (config.FIAT_MODE === 'per_client') {
+    const { rows: [cl] } = await pool.query('SELECT status FROM clients WHERE id = $1', [clientId]);
+    if (cl?.status !== 'active') throw new HttpError(409, 'Solo clientes activos pueden recibir euros', 'client_not_eligible');
+  }
+  const acc = config.FIAT_MODE === 'per_client' ? await clientAccount(clientId) : await currentAccount();
   if (!acc || acc.status !== 'active' || !acc.iban) {
     throw new HttpError(409, 'La recepción de euros aún no está disponible (IBAN en trámite con el proveedor)', 'fiat_not_ready');
   }
@@ -185,7 +257,7 @@ async function readyAccount() {
 }
 
 export async function instructions(clientId: string) {
-  const acc = await readyAccount();
+  const acc = await readyAccount(clientId);
   const asset = await fiatAsset();
   const { rows: [cl] } = await pool.query('SELECT counterparty_code FROM clients WHERE id = $1', [clientId]);
   return {
@@ -199,13 +271,18 @@ export async function instructions(clientId: string) {
   };
 }
 
-const INTENT_COLS = `i.id, i.reference, i.expected_amount::text AS expected_amount, i.currency, i.expected_date, i.note, i.expires_at,
+const INTENT_COLS = `i.id, i.fiat_account_id, i.provider, i.reference, i.expected_amount::text AS expected_amount, i.currency, i.expected_date, i.note, i.expires_at,
   i.status, i.origin_kind, i.origin_ref, i.created_by, i.matched_deposit_id, i.cancelled_by, i.cancelled_at, i.created_at, i.created_at::text AS _ts`;
 const intentView = (r: Record<string, any>) => ({ ...r, expected_amount_eur: centsToEur(r.expected_amount) });
+const intentAccountScope = config.FIAT_MODE === 'per_client'
+  ? `EXISTS (SELECT 1 FROM fiat_accounts a WHERE a.id = i.fiat_account_id AND a.mode = 'per_client'
+       AND a.client_id = i.client_id AND a.provider = i.provider AND a.network = '${fiatNetworkId()}')`
+  : `EXISTS (SELECT 1 FROM fiat_accounts a
+       WHERE a.id = i.fiat_account_id AND a.mode = 'treasury' AND a.provider = i.provider AND a.network = '${fiatNetworkId()}')`;
 
 export async function createIntent(p: PortalPrincipal, b: { amount: string; expected_date?: string; note?: string }, meta: { ip: string; signature?: string }) {
   const origin = tradeOrigin(p); // usuario operator+ o llave Ed25519 con permiso trade
-  await readyAccount();
+  const acc = await readyAccount(p.clientId);
   const cents = eurToCents(b.amount);
   if (cents == null) throw new HttpError(400, 'Monto inválido: euros con hasta 2 decimales (p. ej. "1250.50")', 'invalid_amount');
   const { rows: [cl] } = await pool.query('SELECT status FROM clients WHERE id = $1', [p.clientId]);
@@ -213,11 +290,11 @@ export async function createIntent(p: PortalPrincipal, b: { amount: string; expe
   for (let i = 0; ; i++) {
     try {
       const { rows: [r] } = await pool.query(
-        `INSERT INTO fiat_payment_intents (client_id, reference, expected_amount, expected_date, note, expires_at,
+        `INSERT INTO fiat_payment_intents (client_id, fiat_account_id, provider, reference, expected_amount, expected_date, note, expires_at,
             origin_kind, origin_ref, origin_ip, origin_signature, created_by)
-         VALUES ($1,$2,$3,$4,$5, now() + make_interval(days => $6), $7,$8,$9,$10,$11)
+         VALUES ($1,$2,$3,$4,$5,$6,$7, now() + make_interval(days => $8), $9,$10,$11,$12,$13)
          RETURNING id`,
-        [p.clientId, newReference(), cents.toString(), b.expected_date ?? null, b.note ?? null, config.FIAT_INTENT_TTL_DAYS,
+        [p.clientId, acc.id, acc.provider, newReference(), cents.toString(), b.expected_date ?? null, b.note ?? null, config.FIAT_INTENT_TTL_DAYS,
           origin.kind, origin.ref, meta.ip, origin.kind === 'client_key' ? meta.signature ?? null : null, origin.actor]);
       return getIntent(p.clientId, r.id);
     } catch (e) {
@@ -229,7 +306,9 @@ export async function createIntent(p: PortalPrincipal, b: { amount: string; expe
 
 export async function getIntent(clientId: string, id: string) {
   await expireIntents();
-  const { rows: [r] } = await pool.query(`SELECT ${INTENT_COLS} FROM fiat_payment_intents i WHERE i.id = $1 AND i.client_id = $2`, [id, clientId]);
+  const { rows: [r] } = await pool.query(
+    `SELECT ${INTENT_COLS} FROM fiat_payment_intents i WHERE i.id = $1 AND i.client_id = $2 AND ${intentAccountScope}`,
+    [id, clientId]);
   if (!r) throw new HttpError(404, 'Aviso no encontrado', 'not_found');
   const { _ts, ...rest } = r;
   return intentView(rest);
@@ -239,7 +318,8 @@ export async function listIntents(clientId: string, f: { status?: string; limit:
   await expireIntents();
   const cur = decodeCursor(f.cursor);
   const { rows } = await pool.query(
-    `SELECT ${INTENT_COLS} FROM fiat_payment_intents i WHERE i.client_id = $1 AND ($2::text IS NULL OR i.status = $2)
+    `SELECT ${INTENT_COLS} FROM fiat_payment_intents i WHERE i.client_id = $1 AND ${intentAccountScope}
+        AND ($2::text IS NULL OR i.status = $2)
         AND ($3::timestamptz IS NULL OR (i.created_at, i.id) < ($3::timestamptz, $4::uuid))
       ORDER BY i.created_at DESC, i.id DESC LIMIT $5`,
     [clientId, f.status ?? null, cur?.[0] ?? null, cur?.[1] ?? null, f.limit + 1]);
@@ -250,10 +330,12 @@ export async function listIntents(clientId: string, f: { status?: string; limit:
 export async function cancelIntent(p: PortalPrincipal, id: string) {
   const origin = tradeOrigin(p);
   const { rows: [r] } = await pool.query(
-    `UPDATE fiat_payment_intents SET status = 'cancelled', cancelled_by = $3, cancelled_at = now(), updated_at = now()
-      WHERE id = $1 AND client_id = $2 AND status = 'open' RETURNING id`, [id, p.clientId, origin.actor]);
+    `UPDATE fiat_payment_intents i SET status = 'cancelled', cancelled_by = $3, cancelled_at = now(), updated_at = now()
+      WHERE i.id = $1 AND i.client_id = $2 AND i.status = 'open' AND ${intentAccountScope} RETURNING i.id`,
+    [id, p.clientId, origin.actor]);
   if (!r) {
-    const { rows: [x] } = await pool.query('SELECT status FROM fiat_payment_intents WHERE id = $1 AND client_id = $2', [id, p.clientId]);
+    const { rows: [x] } = await pool.query(
+      `SELECT status FROM fiat_payment_intents i WHERE i.id = $1 AND i.client_id = $2 AND ${intentAccountScope}`, [id, p.clientId]);
     if (!x) throw new HttpError(404, 'Aviso no encontrado', 'not_found');
     throw new HttpError(409, `El aviso no está abierto (estado: ${x.status})`, 'intent_not_open');
   }
@@ -265,20 +347,24 @@ export async function expireIntents(c: Tx | typeof pool = pool) {
 }
 
 // ═════════════ Depósitos: vistas ═════════════
-const DEP_COLS = `d.id, d.provider, d.provider_order_id, d.amount_cents::text AS amount_cents, d.token_amount::text AS token_amount, d.asset_id,
+const DEP_COLS = `d.id, d.fiat_account_id, d.provider, d.provider_order_id, d.amount_cents::text AS amount_cents, d.token_amount::text AS token_amount, d.asset_id,
   d.currency, d.reference, d.payer_iban_masked, d.payer_name, d.network, d.tx_hash, d.confirmations, d.client_id, d.intent_id, d.match_rule,
   d.review_reason, d.entry_id, d.status, d.released_by, d.released_at, d.reason, d.provider_state, d.received_at, d.minted_at,
   d.reconciled_at, d.updated_at, d.received_at::text AS _ts, c.name AS client_name, i.reference AS intent_reference`;
-const depView = (r: Record<string, any>) => ({ ...r, amount_eur: centsToEur(r.amount_cents) });
+const depView = (r: Record<string, any>) => ({
+  ...r, amount_eur: centsToEur(r.amount_cents), domain_status: toFiatTransactionStatus(r.status),
+});
 
 export async function listDepositsConsole(f: { status?: string; client_id?: string; limit: number; cursor?: string }) {
   const cur = decodeCursor(f.cursor);
   const { rows } = await pool.query(
-    `SELECT ${DEP_COLS} FROM fiat_deposits d LEFT JOIN clients c ON c.id = d.client_id LEFT JOIN fiat_payment_intents i ON i.id = d.intent_id
-      WHERE ($1::text IS NULL OR d.status = $1) AND ($2::uuid IS NULL OR d.client_id = $2)
-        AND ($3::timestamptz IS NULL OR (d.received_at, d.id) < ($3::timestamptz, $4::uuid))
-      ORDER BY d.received_at DESC, d.id DESC LIMIT $5`,
-    [f.status ?? null, f.client_id ?? null, cur?.[0] ?? null, cur?.[1] ?? null, f.limit + 1]);
+    `SELECT ${DEP_COLS} FROM fiat_deposits d JOIN fiat_accounts fa ON fa.id = d.fiat_account_id
+      LEFT JOIN clients c ON c.id = d.client_id LEFT JOIN fiat_payment_intents i ON i.id = d.intent_id
+      WHERE ($1::text IS NULL OR d.status = $1) AND ($2::uuid IS NULL OR d.client_id = $2) AND d.network = $3
+        AND (fa.mode = 'treasury' OR (fa.provider = d.provider AND fa.client_id = d.client_id))
+        AND ($4::timestamptz IS NULL OR (d.received_at, d.id) < ($4::timestamptz, $5::uuid))
+      ORDER BY d.received_at DESC, d.id DESC LIMIT $6`,
+    [f.status ?? null, f.client_id ?? null, fiatNetworkId(), cur?.[0] ?? null, cur?.[1] ?? null, f.limit + 1]);
   const pg = page(rows, f.limit);
   return { ...pg, items: pg.items.map(depView) };
 }
@@ -290,11 +376,13 @@ export async function listDepositsPortal(clientId: string, f: { limit: number; c
     `SELECT d.id, d.amount_cents::text AS amount_cents, d.token_amount::text AS token_amount, d.asset_id, d.currency, d.reference,
             d.payer_name, d.network, d.tx_hash, d.status, d.reason, d.received_at, d.reconciled_at, d.released_at,
             i.reference AS intent_reference, d.received_at::text AS _ts
-       FROM fiat_deposits d LEFT JOIN fiat_payment_intents i ON i.id = d.intent_id
-      WHERE d.client_id = $1 AND d.status IN ('reconciled','released','rejected')
-        AND ($2::timestamptz IS NULL OR (d.received_at, d.id) < ($2::timestamptz, $3::uuid))
-      ORDER BY d.received_at DESC, d.id DESC LIMIT $4`,
-    [clientId, cur?.[0] ?? null, cur?.[1] ?? null, f.limit + 1]);
+       FROM fiat_deposits d JOIN fiat_accounts a ON a.id = d.fiat_account_id
+       LEFT JOIN fiat_payment_intents i ON i.id = d.intent_id
+      WHERE d.client_id = $1 AND d.network = $2 AND d.status IN ('reconciled','released','rejected')
+        AND (a.mode = 'treasury' OR (a.mode = 'per_client' AND a.client_id = d.client_id AND a.provider = d.provider))
+        AND ($3::timestamptz IS NULL OR (d.received_at, d.id) < ($3::timestamptz, $4::uuid))
+      ORDER BY d.received_at DESC, d.id DESC LIMIT $5`,
+    [clientId, fiatNetworkId(), cur?.[0] ?? null, cur?.[1] ?? null, f.limit + 1]);
   const pg = page(rows, f.limit);
   const label: Record<string, string> = { reconciled: 'Recibido, pendiente de liberación', released: 'Acreditado', rejected: 'Rechazado' };
   return { ...pg, items: pg.items.map((r: Record<string, any>) => ({ ...r, amount_eur: centsToEur(r.amount_cents), status_label: label[r.status] })) };
@@ -302,7 +390,10 @@ export async function listDepositsPortal(clientId: string, f: { limit: number; c
 
 async function getDeposit(c: Tx | typeof pool, id: string) {
   const { rows: [r] } = await c.query(
-    `SELECT ${DEP_COLS} FROM fiat_deposits d LEFT JOIN clients c ON c.id = d.client_id LEFT JOIN fiat_payment_intents i ON i.id = d.intent_id WHERE d.id = $1`, [id]);
+    `SELECT ${DEP_COLS} FROM fiat_deposits d JOIN fiat_accounts a ON a.id = d.fiat_account_id
+      LEFT JOIN clients c ON c.id = d.client_id LEFT JOIN fiat_payment_intents i ON i.id = d.intent_id
+      WHERE d.id = $1 AND d.network = $2 AND a.provider = d.provider
+        AND (a.mode = 'treasury' OR a.client_id = d.client_id)`, [id, fiatNetworkId()]);
   if (!r) throw new HttpError(404, 'Depósito fiat no encontrado', 'not_found');
   const { _ts, ...rest } = r;
   return depView(rest);
@@ -311,25 +402,36 @@ async function getDeposit(c: Tx | typeof pool, id: string) {
 // ═════════════ Consola: liberar / rechazar (tesorero con 2FA; la ruta valida rol y código) ═════════════
 export async function release(id: string, by: string, b: { client_id?: string; reason?: string }) {
   await tx(async (c) => {
-    const { rows: [d] } = await c.query('SELECT * FROM fiat_deposits WHERE id = $1 FOR UPDATE', [id]);
+    const { rows: [d] } = await c.query(
+      `SELECT d.*, a.mode AS account_mode, a.client_id AS account_client_id
+         FROM fiat_deposits d JOIN fiat_accounts a ON a.id = d.fiat_account_id
+        WHERE d.id = $1 AND d.network = $2 FOR UPDATE OF d`, [id, fiatNetworkId()]);
     if (!d) throw new HttpError(404, 'Depósito fiat no encontrado', 'not_found');
     if (d.status !== 'reconciled' && d.status !== 'review') {
       throw new HttpError(409, `Solo se libera un depósito conciliado o en revisión (estado: ${d.status})`, 'not_releasable');
     }
     if (d.status === 'review' && !d.tx_hash) throw new HttpError(409, 'El depósito no tiene acuñación verificada on-chain: no se puede liberar', 'not_minted');
+    const perClient = d.account_mode === 'per_client';
+    if (perClient && b.client_id && b.client_id !== d.client_id) {
+      throw new HttpError(403, 'Un depósito per_client solo puede liberarse al cliente enlazado a su cuenta/proveedor', 'fiat_ownership_mismatch');
+    }
     const manual = d.status === 'review' || (b.client_id && b.client_id !== d.client_id);
-    const clientId = manual ? b.client_id : d.client_id;
+    const clientId = perClient ? d.client_id : manual ? b.client_id : d.client_id;
     if (!clientId) throw new HttpError(422, 'Asigne el cliente (client_id) para liberar un depósito en revisión', 'client_required');
     if (manual && (!b.reason || b.reason.trim().length < 5)) throw new HttpError(422, 'La asignación manual exige motivo (mín. 5 caracteres)', 'reason_required');
     const { rows: [cl] } = await c.query('SELECT status FROM clients WHERE id = $1', [clientId]);
     if (!cl) throw new HttpError(404, 'Cliente no encontrado', 'not_found');
     if (cl.status === 'closed') throw new HttpError(409, 'El cliente está cerrado', 'client_closed');
+    if (perClient && cl.status !== 'active') throw new HttpError(409, 'El cliente per_client ya no es elegible para recibir saldo', 'client_not_eligible');
     const acc = await openClientAccount(c, clientId, d.asset_id);
     // Mismo cargo que un depósito on-chain: la custodia (EURe en la dirección de tesorería) sube, la deuda con el cliente sube
     const e = await postEntryIn(c, {
       kind: 'deposit', description: `Depósito SEPA → EURe (orden ${d.provider_order_id})`, external_ref: d.tx_hash,
-      idempotency_key: `fiat:${d.provider}:${d.provider_order_id}`,
-      metadata: { fiat_deposit_id: d.id, released_by: by, match_rule: manual ? 'manual' : d.match_rule, amount_eur: centsToEur(d.amount_cents) },
+      idempotency_key: perClient
+        ? `fiat:${d.provider}:${d.provider_order_id}:${clientId}`
+        : `fiat:${d.provider}:${d.provider_order_id}`,
+      metadata: { fiat_deposit_id: d.id, released_by: by, client_id: clientId,
+        provider: d.provider, match_rule: manual ? (perClient ? 'account' : 'manual') : d.match_rule, amount_eur: centsToEur(d.amount_cents) },
       postings: [
         { account: `system:${d.asset_id}:custody`, direction: 'debit', amount: d.token_amount },
         { account: acc.id, direction: 'credit', amount: d.token_amount },
@@ -338,7 +440,7 @@ export async function release(id: string, by: string, b: { client_id?: string; r
     await c.query(
       `UPDATE fiat_deposits SET status = 'released', client_id = $2, entry_id = $3, released_by = $4, released_at = now(),
               match_rule = $5, reason = COALESCE($6, reason), updated_at = now() WHERE id = $1`,
-      [id, clientId, e.id, by, manual ? 'manual' : d.match_rule, manual ? b.reason!.trim() : null]);
+      [id, clientId, e.id, by, manual ? (perClient ? 'account' : 'manual') : d.match_rule, manual ? b.reason!.trim() : null]);
   });
   return getDeposit(pool, id);
 }
@@ -346,9 +448,10 @@ export async function release(id: string, by: string, b: { client_id?: string; r
 export async function reject(id: string, by: string, reason: string) {
   const { rows: [r] } = await pool.query(
     `UPDATE fiat_deposits SET status = 'rejected', reason = $3, released_by = $2, released_at = now(), updated_at = now()
-      WHERE id = $1 AND status IN ('received','minted','reconciled','review') RETURNING id`, [id, by, reason.trim()]);
+      WHERE id = $1 AND network = $4 AND status IN ('received','minted','reconciled','review') RETURNING id`,
+    [id, by, reason.trim(), fiatNetworkId()]);
   if (!r) {
-    const { rows: [x] } = await pool.query('SELECT status FROM fiat_deposits WHERE id = $1', [id]);
+    const { rows: [x] } = await pool.query('SELECT status FROM fiat_deposits WHERE id = $1 AND network = $2', [id, fiatNetworkId()]);
     if (!x) throw new HttpError(404, 'Depósito fiat no encontrado', 'not_found');
     throw new HttpError(409, `El depósito ya está cerrado (estado: ${x.status})`, 'not_rejectable');
   }
@@ -362,6 +465,34 @@ let kick = false;
 /** Webhook (Monerium o Alchemy hacia la tesorería): adelanta el siguiente sondeo. Nunca mueve estado por sí solo. */
 export const kickPoll = () => { kick = true; };
 
+export async function acceptWebhook(providerId: string | undefined, headers: Record<string, unknown>, rawBody: string) {
+  if (!rawBody) throw new HttpError(400, 'Se requiere el cuerpo crudo firmado del webhook', 'webhook_body_required');
+  try { JSON.parse(rawBody); } catch { throw new HttpError(400, 'El cuerpo del webhook no es JSON válido', 'invalid_webhook_body'); }
+  const p = providerId ? getFiatProvider(providerId) : getFiatProvider();
+  if (!p) throw new HttpError(503, 'Entrada de fiat apagada', 'fiat_disabled');
+  const parsed = p.parseWebhook(headers, rawBody);
+  if (!parsed.verified) throw new HttpError(503, 'Webhook no aceptado: configure el secreto de firma del proveedor', 'webhook_not_configured');
+  const eventId = String(headers['webhook-id'] ?? '').trim();
+  if (!eventId || eventId.length > 200) throw new HttpError(400, 'Identificador de evento del proveedor inválido', 'invalid_webhook_id');
+  const payloadSha256 = createHash('sha256').update(rawBody).digest('hex');
+  const stored = await tx(async (c) => {
+    const { rows: [created] } = await c.query(
+      `INSERT INTO fiat_webhook_events (provider, external_event_id, payload_sha256, order_ids, verified)
+       VALUES ($1,$2,$3,$4,true) ON CONFLICT (provider, external_event_id) DO NOTHING RETURNING id`,
+      [p.name, eventId, payloadSha256, JSON.stringify(parsed.order_ids)]);
+    if (created) return { duplicate: false };
+    const { rows: [existing] } = await c.query(
+      `SELECT payload_sha256 FROM fiat_webhook_events WHERE provider = $1 AND external_event_id = $2 FOR UPDATE`,
+      [p.name, eventId]);
+    if (existing?.payload_sha256 !== payloadSha256) {
+      throw new HttpError(409, 'El proveedor reutilizó un identificador de webhook con otro contenido', 'webhook_id_collision');
+    }
+    return { duplicate: true };
+  });
+  kickPoll();
+  return { ok: true, verified: true, duplicate: stored.duplicate };
+}
+
 /** Un ciclo: refresca el IBAN, sondea órdenes, verifica acuñaciones on-chain y concilia. Idempotente. */
 export async function fiatTick(log: Log, force = false) {
   const p = getFiatProvider();
@@ -370,19 +501,26 @@ export async function fiatTick(log: Log, force = false) {
   if (!n?.healthy) return { skipped: `red ${fiatNetworkId()} fuera de servicio` };
   if (!force && !kick && Date.now() - lastPoll < config.FIAT_POLL_INTERVAL_MS) return { skipped: 'intervalo' };
   kick = false; lastPoll = Date.now();
-  let acc = await currentAccount();
-  if (!acc) return { skipped: 'sin cuenta fiat (alta pendiente en la consola)' };
+  const { rows: accounts } = await pool.query(
+    `SELECT * FROM fiat_accounts WHERE provider = $1 AND mode = $2
+       AND network = $3 AND ($2 = 'per_client' OR status <> 'closed') ORDER BY created_at, id`, [p.name, config.FIAT_MODE, n.id]);
+  if (!accounts.length) return { skipped: 'sin cuentas fiat (alta pendiente en la consola)' };
   const out = { orders: 0, minted: 0, reconciled: 0, review: 0 };
   try {
-    acc = await refreshIban(p, acc);
     await expireIntents();
     const asset = await fiatAsset();
-    for (const o of await p.listOrders(acc.address)) {
-      if (o.kind !== 'issue') continue; // esta fase solo entrada
-      out.orders++;
-      await upsertOrder(acc, asset.id, n.id, o, log);
+    for (let acc of accounts) {
+      if (acc.status !== 'closed') acc = await refreshIban(p, acc);
+      for (const o of await p.listOrders(acc.address)) {
+        if (o.kind !== 'issue') continue; // esta fase solo entrada
+        if (o.address.toLowerCase() !== String(acc.address).toLowerCase()) {
+          throw new HttpError(502, `Monerium devolvió la orden ${o.id} para una dirección distinta a la cuenta`, 'provider_account_mismatch');
+        }
+        out.orders++;
+        await upsertOrder(acc, asset.id, n.id, o, log);
+      }
+      out.minted += await verifyMints(n, acc, asset, log);
     }
-    out.minted = await verifyMints(n, acc, asset, log);
     const r = await assignReconciled(log);
     out.reconciled = r.reconciled; out.review = r.review;
     await pool.query(`INSERT INTO fiat_sync_state (provider, last_poll_at, last_error) VALUES ($1, now(), NULL)
@@ -406,13 +544,25 @@ async function upsertOrder(acc: Record<string, any>, assetId: string, network: s
     return;
   }
   const hash = o.state === 'processed' ? o.tx_hashes[0] ?? null : null;
+  const clientId = acc.mode === 'per_client' ? String(acc.client_id) : null;
+  const idempotencyKey = fiatIdempotencyKey(acc.provider, o.id, clientId);
+  const closedAccount = acc.status === 'closed';
   await pool.query(
-    `INSERT INTO fiat_deposits (fiat_account_id, provider, provider_order_id, amount_cents, token_amount, asset_id, reference,
-        payer_iban_masked, payer_name, network, provider_state, provider_payload)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (provider, provider_order_id) DO NOTHING`,
-    [acc.id, acc.provider, o.id, cents.toString(), (cents * CENT_TO_TOKEN).toString(), assetId, o.memo, maskIban(o.payer_iban),
-      o.payer_name, network, o.state, raw]);
-  const { rows: [d] } = await pool.query('SELECT id, status, tx_hash, amount_cents FROM fiat_deposits WHERE provider = $1 AND provider_order_id = $2', [acc.provider, o.id]);
+    `INSERT INTO fiat_deposits (fiat_account_id, provider, provider_order_id, idempotency_key, amount_cents, token_amount,
+        asset_id, reference, payer_iban_masked, payer_name, network, provider_state, provider_payload,
+        client_id, status, review_reason, match_rule)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+     ON CONFLICT (fiat_account_id, provider_order_id) DO NOTHING`,
+    [acc.id, acc.provider, o.id, idempotencyKey, cents.toString(), (cents * CENT_TO_TOKEN).toString(), assetId, o.memo,
+      maskIban(o.payer_iban), o.payer_name, network, o.state, raw, clientId,
+      'received', closedAccount ? 'cuenta cerrada localmente; depósito retenido para revisión' : null,
+      acc.mode === 'per_client' ? 'account' : null]);
+  const { rows: [d] } = await pool.query(
+    `SELECT id, status, tx_hash, amount_cents, client_id, fiat_account_id FROM fiat_deposits
+      WHERE fiat_account_id = $1 AND provider_order_id = $2`, [acc.id, o.id]);
+  if (String(d.fiat_account_id) !== String(acc.id) || (clientId && String(d.client_id) !== clientId)) {
+    throw new HttpError(409, 'La orden fiat no coincide con la cuenta y cliente enlazados', 'fiat_ownership_mismatch');
+  }
   if (BigInt(d.amount_cents) !== cents && ['received', 'minted'].includes(d.status)) {
     await toReview(d.id, 'el proveedor cambió el monto de la orden');
     return;
@@ -442,31 +592,21 @@ async function toReview(id: string, why: string) {
 
 /** Acuñación verificada: Transfer del contrato EURe hacia la dirección de tesorería por el monto exacto, con confirmaciones. */
 async function verifyMints(n: Net, acc: Record<string, any>, asset: { id: string; contract_address: string }, log: Log) {
-  const { rows } = await pool.query(`SELECT id, tx_hash, token_amount FROM fiat_deposits WHERE status = 'minted' AND network = $1 ORDER BY received_at`, [n.id]);
+  const { rows } = await pool.query(
+    `SELECT id, tx_hash, token_amount FROM fiat_deposits
+      WHERE status = 'minted' AND network = $1 AND fiat_account_id = $2 ORDER BY received_at`, [n.id, acc.id]);
   if (!rows.length) return 0;
-  const head = await n.client.getBlockNumber({ cacheTime: 0 });
   let done = 0;
   for (const d of rows) {
-    const receipt = await n.client.getTransactionReceipt({ hash: d.tx_hash as Hash }).catch(() => null);
-    if (!receipt) continue; // aún no visible: siguiente ciclo
-    if (receipt.status !== 'success') { await toReview(d.id, 'la transacción de acuñación revirtió'); continue; }
-    let hit: { amount: bigint; log_index: number } | null = null;
-    for (const lg of receipt.logs) {
-      if (lg.address.toLowerCase() !== asset.contract_address.toLowerCase() || lg.topics[0] !== TRANSFER_TOPIC) continue;
-      const ev = decodeEventLog({ abi: erc20Abi, data: lg.data, topics: lg.topics });
-      const { to, value } = ev.args as { to: Address; value: bigint };
-      if (ev.eventName === 'Transfer' && to.toLowerCase() === acc.address) { hit = { amount: value, log_index: lg.logIndex }; break; }
-    }
-    if (!hit) { await toReview(d.id, 'la transacción no transfiere EURe a la dirección de tesorería'); continue; }
-    if (hit.amount !== BigInt(d.token_amount)) {
-      const asEur = (v: bigint) => (v % CENT_TO_TOKEN === 0n ? `${centsToEur(v / CENT_TO_TOKEN)} €` : `${v} unidades base`);
-      await toReview(d.id, `monto acuñado (${asEur(hit.amount)}) distinto al de la orden (${asEur(BigInt(d.token_amount))})`);
-      continue;
-    }
-    const confs = Number(head - receipt.blockNumber + 1n);
+    const result = await fiatCustody.verifyFiatMint({
+      network: n.id, contractAddress: asset.contract_address, destination: acc.address,
+      transactionHash: d.tx_hash, amount: BigInt(d.token_amount),
+    });
+    if (result.reason && result.reason !== 'pending') { await toReview(d.id, result.reason); continue; }
+    if (!result.verified || result.blockNumber === null || result.logIndex === null) continue;
     await pool.query('UPDATE fiat_deposits SET confirmations = $2, block_number = $3, log_index = $4, updated_at = now() WHERE id = $1',
-      [d.id, confs, receipt.blockNumber.toString(), hit.log_index]);
-    if (confs < n.confirmations) continue;
+      [d.id, result.confirmations, result.blockNumber.toString(), result.logIndex]);
+    if (result.confirmations < n.confirmations) continue;
     await pool.query(`UPDATE fiat_deposits SET status = 'reconciled', reconciled_at = now(), updated_at = now() WHERE id = $1 AND status = 'minted'`, [d.id]);
     done++;
     log.info({ fiat_deposit: d.id, tx: d.tx_hash }, 'fiat: acuñación verificada on-chain');
@@ -479,14 +619,47 @@ async function verifyMints(n: Net, acc: Record<string, any>, asset: { id: string
  * si nada coincide (o la referencia es de otro cliente, está vencida o el monto difiere) → revisión de tesorería.
  */
 async function assignReconciled(log: Log) {
-  const { rows } = await pool.query(`SELECT id, reference, amount_cents FROM fiat_deposits WHERE status = 'reconciled' AND client_id IS NULL ORDER BY received_at`);
+  const { rows } = await pool.query(
+    `SELECT d.id, d.fiat_account_id, d.provider, d.client_id, d.intent_id, d.reference, d.amount_cents,
+            a.mode AS account_mode, a.status AS account_status, a.client_id AS account_client_id
+       FROM fiat_deposits d JOIN fiat_accounts a ON a.id = d.fiat_account_id
+      WHERE d.status = 'reconciled' AND d.network = $1
+        AND (d.client_id IS NULL
+          OR (a.mode = 'per_client' AND (a.status = 'closed' OR (d.reference IS NOT NULL AND d.intent_id IS NULL))))
+      ORDER BY d.received_at`, [fiatNetworkId()]);
   let reconciled = 0, review = 0;
   for (const d of rows) {
     const verdict = await tx(async (c) => {
+      if (d.account_mode === 'per_client') {
+        if (String(d.client_id) !== String(d.account_client_id)) return { review: 'la cuenta y el cliente del depósito no coinciden' };
+        if (d.account_status === 'closed') return { review: 'depósito recibido después del cierre local de la cuenta; requiere revisión de tesorería' };
+        const m = parseMemo(d.reference);
+        if (m.reference) {
+          if (!m.reference_valid) return { review: `referencia ${m.reference} con dígitos de control inválidos` };
+          const { rows: [i] } = await c.query(
+            `SELECT * FROM fiat_payment_intents
+              WHERE reference = $1 AND client_id = $2 AND fiat_account_id = $3 AND provider = $4 FOR UPDATE`,
+            [m.reference, d.client_id, d.fiat_account_id, d.provider]);
+          if (!i) return { review: `el aviso ${m.reference} no pertenece a esta cuenta, cliente y proveedor` };
+          if (i.status !== 'open') return { review: `aviso ${m.reference} ${INTENT_ES[i.status as string] ?? i.status}` };
+          if (new Date(i.expires_at) <= new Date()) return { review: `aviso ${m.reference} vencido` };
+          if (BigInt(i.expected_amount) !== BigInt(d.amount_cents)) {
+            return { review: `monto ${centsToEur(d.amount_cents)} distinto al del aviso ${m.reference} (${centsToEur(i.expected_amount)})` };
+          }
+          await c.query(`UPDATE fiat_payment_intents SET status = 'matched', matched_deposit_id = $2, updated_at = now() WHERE id = $1`, [i.id, d.id]);
+          await c.query(`UPDATE fiat_deposits SET intent_id = $2, match_rule = 'intent', updated_at = now() WHERE id = $1`, [d.id, i.id]);
+          return { client: d.client_id };
+        }
+        await c.query(`UPDATE fiat_deposits SET match_rule = 'account', updated_at = now() WHERE id = $1`, [d.id]);
+        return { client: d.client_id };
+      }
       const m = parseMemo(d.reference);
       if (m.reference) {
         if (!m.reference_valid) return { review: `referencia ${m.reference} con dígitos de control inválidos` };
-        const { rows: [i] } = await c.query('SELECT * FROM fiat_payment_intents WHERE reference = $1 FOR UPDATE', [m.reference]);
+        const { rows: [i] } = await c.query(
+          `SELECT * FROM fiat_payment_intents
+            WHERE reference = $1 AND fiat_account_id = $2 AND provider = $3 FOR UPDATE`,
+          [m.reference, d.fiat_account_id, d.provider]);
         if (!i) return { review: `referencia ${m.reference} inexistente` };
         if (i.status !== 'open') return { review: `aviso ${m.reference} ${INTENT_ES[i.status as string] ?? i.status}` };
         if (new Date(i.expires_at) <= new Date()) return { review: `aviso ${m.reference} vencido` };
@@ -515,23 +688,31 @@ async function assignReconciled(log: Log) {
 }
 
 /** Solo fuera de production (proveedor simulado): registra una orden de entrada como si llegara por SEPA. */
-export async function simulateOrder(b: { amount: string; memo?: string; payer_name?: string; payer_iban?: string; tx_hash?: string; state?: 'pending' | 'processed' | 'rejected' }) {
+export async function simulateOrder(b: {
+  amount: string; memo?: string; payer_name?: string; payer_iban?: string; tx_hash?: string;
+  state?: 'pending' | 'processed' | 'rejected'; client_id?: string;
+}) {
   const mock = mockProvider();
   if (!mock) throw new HttpError(403, 'La simulación solo existe con el proveedor simulado (sandbox)', 'simulation_disabled');
-  const acc = await currentAccount();
-  if (!acc) throw new HttpError(409, 'Primero dé de alta la cuenta fiat', 'fiat_not_ready');
+  const acc = config.FIAT_MODE === 'per_client'
+    ? b.client_id ? await clientAccount(b.client_id) : null
+    : await currentAccount();
+  if (!acc) throw new HttpError(409, 'Seleccione un cliente con cuenta fiat activa', 'fiat_not_ready');
   const o = mock.simulateOrder({ address: acc.address, amount: b.amount, memo: b.memo, payer_name: b.payer_name, payer_iban: b.payer_iban,
     tx_hash: b.tx_hash, state: b.state });
   kickPoll();
-  return { order_id: o.id, state: o.state, address: acc.address };
+  return { order_id: o.id, state: o.state, address: acc.address, client_id: acc.client_id ?? null, provider: acc.provider };
 }
 
 /** Simulación: la misma orden pasa a «processed» con su hash de acuñación. */
-export async function simulateProcess(orderId: string, txHash: string) {
+export async function simulateProcess(orderId: string, txHash: string, clientId?: string) {
   const mock = mockProvider();
   if (!mock) throw new HttpError(403, 'La simulación solo existe con el proveedor simulado (sandbox)', 'simulation_disabled');
-  const acc = await currentAccount();
-  const cur = (await mock.listOrders(acc?.address ?? '')).find((o) => o.id === orderId);
+  const acc = config.FIAT_MODE === 'per_client'
+    ? clientId ? await clientAccount(clientId) : null
+    : await currentAccount();
+  if (!acc) throw new HttpError(409, 'Primero dé de alta la cuenta fiat', 'fiat_not_ready');
+  const cur = (await mock.listOrders(acc.address)).find((o) => o.id === orderId);
   if (!cur) throw new HttpError(404, 'Orden simulada no encontrada', 'not_found');
   mock.simulateOrder({ ...cur, id: orderId, tx_hash: txHash, state: 'processed' });
   kickPoll();
