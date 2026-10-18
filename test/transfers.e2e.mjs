@@ -4,6 +4,7 @@
 import { createPublicClient, createWalletClient, http, erc20Abi, parseEther } from 'viem';
 import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts';
 import { hardhat } from 'viem/chains';
+import { makeApprover } from './lib/approver.mjs';
 
 const { BASE, KEY, RPC_URL, TOKEN, FUNDER_PK } = process.env;
 const pub = createPublicClient({ chain: hardhat, transport: http(RPC_URL) });
@@ -19,6 +20,7 @@ const mine = async (n) => { for (let i = 0; i < n; i++) await pub.request({ meth
 const tick = () => api('POST', '/v1/worker/tick');
 const bal = async (ref) => (await api('GET', `/v1/accounts/${ref}`)).body.balance;
 const U = (n) => (BigInt(n) * 10n ** 6n).toString(); // TUSD 6 decimales
+const approver = await makeApprover({ BASE, ip: `10.200.${Math.floor(Math.random() * 250)}.1`, tag: `tr-${R}` });
 
 // 0. Activo de prueba y tesorería
 let TUSD = `TUSD-${R.toUpperCase().slice(0, 6)}`;
@@ -74,9 +76,13 @@ await pub.waitForTransactionReceipt({ hash: await funder.writeContract({ address
 r = await api('POST', '/v1/withdrawals', { client_id: cl.id, asset_id: TUSD, to_address: DEST, amount: U(300) }, 'w1');
 const W1 = r.body.id;
 check('retiro aceptado (202, reserved)', `${r.status}:${r.body.status}`, '202:reserved');
+check('solicitud API requiere autorización', r.body.approval_status, 'pending');
 check('reintento con misma llave → mismo retiro', (await api('POST', '/v1/withdrawals', { client_id: cl.id, asset_id: TUSD, to_address: DEST, amount: U(300) }, 'w1')).body.id, W1);
 check('saldo disponible reservado: 700', await bal(ACC), U(700));
 check('en tránsito: 300', await bal(`system:${TUSD}:withdrawals_pending`), U(300));
+await tick();
+check('worker no firma antes de autorizar', (await api('GET', `/v1/withdrawals/${W1}`)).body.status, 'reserved');
+check('ejecutivo/tesorero autoriza una vez', (await approver.approveWithdrawal(W1)).body.approval_status, 'approved');
 await tick();
 let w = (await api('GET', `/v1/withdrawals/${W1}`)).body;
 check('firmado y enviado', w.status, 'broadcast');
@@ -91,6 +97,7 @@ check('gas registrado como gasto', BigInt(w.gas_cost_wei) > 0n && (await bal('sy
 
 // 6. Retiro nativo ETH
 r = await api('POST', '/v1/withdrawals', { client_id: cl.id, asset_id: 'ETH-SEPOLIA', to_address: DEST, amount: parseEther('0.5').toString() }, 'w2');
+await approver.approveWithdrawal(r.body.id);
 await tick(); await mine(3); await tick();
 check('retiro ETH confirmado', (await api('GET', `/v1/withdrawals/${r.body.id}`)).body.status, 'confirmed');
 check('destino recibió 0.5 ETH', await pub.getBalance({ address: DEST }), parseEther('0.5'));
@@ -100,6 +107,7 @@ const h3 = await funder.writeContract({ address: TOKEN, abi: erc20Abi, functionN
 await pub.waitForTransactionReceipt({ hash: h3 }); await api('POST', '/v1/deposits/report', { tx_hash: h3 }); await mine(3); await tick();
 const before = await bal(ACC);
 r = await api('POST', '/v1/withdrawals', { client_id: cl.id, asset_id: TUSD, to_address: DEST, amount: U(2500) }, 'w3');
+await approver.approveWithdrawal(r.body.id);
 for (let i = 0; i < 5; i++) await tick();
 w = (await api('GET', `/v1/withdrawals/${r.body.id}`)).body;
 check('sin liquidez on-chain → failed tras 5 intentos', `${w.status}:${w.attempts}`, 'failed:5');

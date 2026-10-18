@@ -1,4 +1,4 @@
-// E2E fase 5: 2FA (TOTP), doble aprobación de retiros y corridas, bitácora y restablecimiento de 2FA.
+// E2E fase 5: 2FA (TOTP), autorización individual de retiros, doble aprobación de corridas, bitácora y restablecimiento de 2FA.
 // Uso: BASE KEY RPC_URL FUNDER_PK BOOT_EMAIL BOOT_PASS node test/console-fase5.e2e.mjs
 // API con COOKIE_SECURE=false, WORKER_ENABLED=false, CONFIRMATIONS=1, DUAL_APPROVAL=console, APPROVAL_REQUIRE_2FA=true,
 // TOTP_ENCRYPTION_KEY definida y firmante de prueba contra una cadena LOCAL (Hardhat/Anvil).
@@ -64,7 +64,7 @@ check('  …el reto no se reutiliza', (await t2.call('POST', '/v1/auth/login/tot
 const t2b = browser(`${NET}.5`); lg = await t2b.login(T2, PW2);
 check('mismo código en otro login (replay) → 401', (await t2b.call('POST', '/v1/auth/login/totp', { mfa_token: lg.body.mfa_token, code: c1 })).status, 401);
 
-// ═════ Doble aprobación de retiros ═════
+// ═════ Instrucciones internas directas y autorización de solicitudes API ═════
 const cl = (await opr.call('POST', '/v1/clients', { name: `F5 Cliente ${R}`, assets: [ETH, AS] }, idem('cl'))).body;
 await opr.call('PATCH', `/v1/clients/${cl.id}`, { status: 'active' });
 const DEST = privateKeyToAccount(generatePrivateKey()).address;
@@ -81,36 +81,32 @@ if (gap > 0n) await tes.call('POST', '/v1/entries', { kind: 'adjustment', postin
 const bal = async () => (await tes.call('GET', `/v1/accounts/${accEth}`)).body.balance;
 
 const w1 = (await tes.call('POST', '/v1/withdrawals', { client_id: cl.id, asset_id: ETH, to_address: DEST, amount: '10000000000000000' }, idem('w1'))).body;
-check('retiro desde consola queda pendiente de aprobación', `${w1.status} ${w1.approval_status} ${w1.requested_by}`, `reserved pending ${BOOT_EMAIL.toLowerCase()}`);
+check('instrucción de consola queda lista para ejecución directa', `${w1.status} ${w1.approval_status} ${w1.requested_by}`, `reserved not_required ${BOOT_EMAIL.toLowerCase()}`);
 check('  …saldo reservado al pedirlo', await bal(), '40000000000000000');
-const ap = (await lec.call('GET', '/v1/approvals')).body;
-check('cola de aprobaciones lo muestra', ap.withdrawals.some((w) => w.id === w1.id), true);
-check('tablero cuenta aprobaciones pendientes', (await lec.call('GET', '/v1/summary')).body.approvals_pending.withdrawals >= 1, true);
 await tes.call('POST', '/v1/worker/tick', {});
-check('el worker NO firma un retiro sin aprobar', (await lec.call('GET', `/v1/withdrawals/${w1.id}`)).body.status, 'reserved');
-const self = await tes.call('POST', `/v1/withdrawals/${w1.id}/approve`, { code: '000000' });
-check('quien solicitó no aprueba → 403 same_operator', `${self.status} ${self.body.code}`, '403 same_operator');
-check('operador no aprueba → 403', (await opr.call('POST', `/v1/withdrawals/${w1.id}/approve`, {})).status, 403);
-check('API key no aprueba → 403 operator_only', (await key('POST', `/v1/withdrawals/${w1.id}/approve`, {})).body.code, 'operator_only');
-const noCode = await t2.call('POST', `/v1/withdrawals/${w1.id}/approve`, {});
-check('aprobar sin código 2FA → 400', `${noCode.status} ${noCode.body.code}`, '400 totp_code_required');
-check('aprobar con código incorrecto → 422', (await t2.call('POST', `/v1/withdrawals/${w1.id}/approve`, { code: otp.wrong() })).status, 422);
-const apw = (await t2.call('POST', `/v1/withdrawals/${w1.id}/approve`, { code: await otp.next() })).body;
-check('tesorero 2 aprueba con 2FA', `${apw.approval_status} ${apw.approved_by}`, `approved ${T2}`);
-check('aprobar dos veces → 409', (await t2.call('POST', `/v1/withdrawals/${w1.id}/approve`, { code: await otp.next() })).status, 409);
-await tes.call('POST', '/v1/worker/tick', {});
-check('aprobado: el worker lo firma y envía', ['signed', 'broadcast', 'confirmed'].includes((await lec.call('GET', `/v1/withdrawals/${w1.id}`)).body.status), true);
+check('worker ejecuta instrucción de consola sin aprobación adicional', ['signed', 'broadcast', 'confirmed'].includes((await lec.call('GET', `/v1/withdrawals/${w1.id}`)).body.status), true);
 
-const w2 = (await t2.call('POST', '/v1/withdrawals', { client_id: cl.id, asset_id: ETH, to_address: DEST, amount: '5000000000000000' }, idem('w2'))).body;
+const wk = (await key('POST', '/v1/withdrawals', { client_id: cl.id, asset_id: ETH, to_address: DEST, amount: '1000' }, 'wk')).body;
+check('solicitud de integración requiere autorización', wk.approval_status, 'pending');
+const ap = (await lec.call('GET', '/v1/approvals')).body;
+check('la solicitud de integración aparece en la cola', ap.withdrawals.some((w) => w.id === wk.id), true);
+const noCode = await t2.call('POST', `/v1/withdrawals/${wk.id}/approve`, {});
+check('aprobar sin código 2FA → 400', `${noCode.status} ${noCode.body.code}`, '400 totp_code_required');
+check('aprobar con código incorrecto → 422', (await t2.call('POST', `/v1/withdrawals/${wk.id}/approve`, { code: otp.wrong() })).status, 422);
+const apw = (await t2.call('POST', `/v1/withdrawals/${wk.id}/approve`, { code: await otp.next() })).body;
+check('tesorero autoriza con una sola aprobación', `${apw.approval_status} ${apw.approved_by}`, `approved ${T2}`);
+check('aprobar dos veces → 409', (await t2.call('POST', `/v1/withdrawals/${wk.id}/approve`, { code: await otp.next() })).status, 409);
+await tes.call('POST', '/v1/worker/tick', {});
+check('el worker ejecuta la solicitud API autorizada', ['signed', 'broadcast', 'confirmed'].includes((await lec.call('GET', `/v1/withdrawals/${wk.id}`)).body.status), true);
+
+const balanceBeforeReject = await bal();
+const w2 = (await key('POST', '/v1/withdrawals', { client_id: cl.id, asset_id: ETH, to_address: DEST, amount: '5000000000000000' }, 'w2')).body;
 const noT = await tes.call('POST', `/v1/withdrawals/${w2.id}/approve`, { code: '123456' });
 check('aprobador sin 2FA activo → 403 totp_required', `${noT.status} ${noT.body.code}`, '403 totp_required');
 check('rechazar sin motivo → 400', (await tes.call('POST', `/v1/withdrawals/${w2.id}/reject`, {})).status, 400);
 const rj = (await tes.call('POST', `/v1/withdrawals/${w2.id}/reject`, { reason: 'Destino no confirmado' })).body;
 check('rechazado: cancelado con motivo y autor', `${rj.status} ${rj.approval_status} ${rj.rejected_by} ${rj.rejected_reason}`, `cancelled rejected ${BOOT_EMAIL.toLowerCase()} Destino no confirmado`);
-check('  …saldo devuelto', await bal(), '40000000000000000');
-const wk = (await key('POST', '/v1/withdrawals', { client_id: cl.id, asset_id: ETH, to_address: DEST, amount: '1000' }, 'wk')).body;
-check('retiro por API key (DUAL_APPROVAL=console) no requiere aprobación', wk.approval_status, 'not_required');
-
+check('  …saldo devuelto', await bal(), balanceBeforeReject);
 // ═════ Doble aprobación de corridas ═════
 const mk = async (n) => { const c = (await opr.call('POST', '/v1/clients', { name: `F5 ${n} ${R}`, assets: [AS] }, idem(`c${n}`))).body; await opr.call('PATCH', `/v1/clients/${c.id}`, { status: 'active' }); return c; };
 const [A, B, C] = [await mk('A'), await mk('B'), await mk('C')];
@@ -149,7 +145,7 @@ check('historial filtra por estado', (await lec.call('GET', `/v1/netting/runs?st
 check('lectura no ve la bitácora → 403', (await lec.call('GET', '/v1/audit')).status, 403);
 check('operador no ve la bitácora → 403', (await opr.call('GET', '/v1/audit')).status, 403);
 const au = (await tes.call('GET', `/v1/audit?action=${encodeURIComponent('POST /v1/withdrawals/:id/approve')}&limit=50`)).body;
-check('bitácora: aprobación por tesorero 2', au.entries.some((e) => e.actor === T2 && e.status === 200 && e.target === w1.id), true);
+check('bitácora: aprobación por tesorero 2', au.entries.some((e) => e.actor === T2 && e.status === 200 && e.target === wk.id), true);
 check('bitácora: intento de autoaprobación (403)', au.entries.some((e) => e.actor === BOOT_EMAIL.toLowerCase() && e.status === 403), true);
 const rjAu = (await tes.call('GET', `/v1/audit?target=${w2.id}&limit=50`)).body.entries.find((e) => e.action.endsWith('/reject'));
 check('bitácora guarda el motivo del rechazo', rjAu?.metadata?.reason, 'Destino no confirmado');

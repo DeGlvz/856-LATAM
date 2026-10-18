@@ -91,6 +91,7 @@ check('cada depósito guarda su red', deps.map((d) => `${d.network}:${d.status}`
 
 // ═════ Retiros en ambas redes: nonces independientes por red
 const DEST = `0x${randomBytes(20).toString('hex')}`;
+const withdrawalApprover = await makeApprover({ BASE, ip: `${NET}.20`, tag: `mrwd-${R}` });
 await api('POST', '/v1/wallets', { client_id: cl.id, chain: 'ethereum', network: 'base-sepolia', address: DEST, purpose: 'withdrawal_whitelist' });
 await api('POST', '/v1/wallets', { client_id: cl.id, chain: 'ethereum', network: 'eth-sepolia', address: DEST, purpose: 'withdrawal_whitelist' });
 // Nonce on-chain antes de retirar (re-ejecutable sobre cadenas ya usadas)
@@ -104,6 +105,9 @@ await api('POST', '/v1/entries', { kind: 'adjustment', description: 'fondeo de g
 const wB = await api('POST', '/v1/withdrawals', { client_id: cl.id, asset_id: ETH_B, to_address: DEST, amount: parseEther('0.3').toString() }, 'wB');
 const wA = await api('POST', '/v1/withdrawals', { client_id: cl.id, asset_id: ETH_A, to_address: DEST, amount: parseEther('0.2').toString() }, 'wA');
 check('retiros solicitados en cada red', `${wB.status} ${wB.body.network} ${wA.status} ${wA.body.network}`, '202 base-sepolia 202 eth-sepolia');
+check('ambas solicitudes quedan pendientes de autorización', `${wB.body.approval_status} ${wA.body.approval_status}`, 'pending pending');
+await withdrawalApprover.approveWithdrawal(wB.body.id);
+await withdrawalApprover.approveWithdrawal(wA.body.id);
 await tick();
 const gw = async (id) => (await api('GET', `/v1/withdrawals/${id}`)).body;
 const xB = await gw(wB.body.id), xA = await gw(wA.body.id);

@@ -74,19 +74,20 @@ const apr = await enroll(A.id, 4, 'approver', adm);
 const vwr = await enroll(A.id, 5, 'viewer', adm);
 const admB = await enroll(B.id, 6, 'admin');
 const T1 = await makeApprover({ BASE, ip: `${NET}.20`, tag: `t1-${R}` });
-const T2 = await makeApprover({ BASE, ip: `${NET}.21`, tag: `t2-${R}` });
-await db.query('UPDATE assets SET dual_treasurer_threshold = NULL WHERE id = $1', [ETH]); // estado limpio entre corridas
 const EJ = `ejec-${R}@ejemplo.mx`;
 createOperator(EJ, 'operador'); // nombre anterior del rol: se acepta y se guarda como ejecutivo
 const ej = session(`${NET}.22`, '');
 await ej.call('POST', '/v1/auth/login', { email: EJ, password: 'clave-ejecutivo-123' });
 check('rol renombrado: operador → ejecutivo', (await ej.call('GET', '/v1/auth/me')).body.operator.role, 'ejecutivo');
+const ejSetup = (await ej.call('POST', '/v1/auth/totp/setup', {})).body;
+const ejOtp = totp(ejSetup.secret);
+await ej.call('POST', '/v1/auth/totp/enable', { code: await ejOtp.next() });
 
 // ═════ Regla de origen: la consola y la API global no originan
 const DEST = privateKeyToAccount(generatePrivateKey()).address;
 check('API global no crea retiros → 403 origin_not_client', (await api('POST', '/v1/withdrawals', { client_id: A.id, asset_id: ETH, to_address: DEST, amount: E(0.01) }, 'w0')).body.code, 'origin_not_client');
 check('ni el tesorero (superusuario) da de alta lista blanca de un cliente → 403 origin_not_client', (await T1.call('POST', '/v1/wallets', { client_id: A.id, chain: 'ethereum', network: 'eth-sepolia', address: DEST, purpose: 'withdrawal_whitelist' })).body.code, 'origin_not_client');
-check('ni el tesorero crea retiros de un cliente → 403 origin_not_client', (await T1.call('POST', '/v1/withdrawals', { client_id: A.id, asset_id: ETH, to_address: DEST, amount: E(0.01) })).body.code, 'origin_not_client');
+check('la instrucción de consola supera la regla de origen y conserva lista blanca', (await T1.call('POST', '/v1/withdrawals', { client_id: A.id, asset_id: ETH, to_address: DEST, amount: E(0.01) })).body.code, 'address_not_whitelisted');
 check('API global no hace transferencias internas → 403', (await api('POST', '/v1/internal-transfers', { from: `client:${A.id}:${ETH}:available`, to: `client:${B.id}:${ETH}:available`, amount: '1' }, 'it')).body.code, 'origin_not_client');
 
 // ═════ Lista blanca
@@ -130,9 +131,8 @@ check('solicitud → 201 en validación de 856, origen usuario', `${x1.status} $
 check('  …la misma simulación no se usa dos veces → 409', (await opr.s.call('POST', '/exits', { simulation_id: s1.body.id })).body.code, 'already_submitted');
 const bal = async () => (await vwr.s.call('GET', '/balances')).body.balances.find((b) => b.asset_id === ETH);
 check('saldo reservado al solicitar', `${(await bal()).available} ${(await bal()).reserved}`, `${E(0.9)} ${E(0.1)}`);
-check('ejecutivo no autoriza → 403', (await ej.call('POST', `/v1/withdrawals/${x1.body.id}/approve`, { code: '123456' })).status, 403);
-const a1 = await T1.approveWithdrawal(x1.body.id);
-check('tesorero autoriza con 2FA → aprobada con hash', `${a1.status} ${a1.body.approval_status} ${a1.body.authorized_hash === x1.body.scope_hash}`, '200 approved true');
+const a1 = await ej.call('POST', `/v1/withdrawals/${x1.body.id}/approve`, { code: await ejOtp.next() });
+check('ejecutivo de cuenta autoriza con 2FA → aprobada con hash', `${a1.status} ${a1.body.approval_status} ${a1.body.authorized_hash === x1.body.scope_hash}`, '200 approved true');
 check('  …el cliente ya no puede cancelar → 409', (await opr.s.call('POST', `/exits/${x1.body.id}/cancel`, {})).body.code, 'not_cancellable');
 await tick(); await mine(1); await tick(); await tick();
 const done = (await vwr.s.call('GET', `/exits/${x1.body.id}`)).body;
@@ -151,20 +151,15 @@ check('  …operator no aprueba (rol) → 403', (await opr.s.call('POST', `/exit
 const ca = await adm.s.call('POST', `/exits/${x2.body.id}/approve`, { code: await adm.otp.next() });
 check('  …otro aprobador (admin) la aprueba con 2FA → validación de 856', `${ca.body.state} ${!!ca.body.client_approver}`, 'validation true');
 
-// ═════ Dos tesoreros arriba del umbral de 856
-check('ejecutivo no fija umbral de tesorería → 403', (await ej.call('PATCH', `/v1/assets/${ETH}`, { dual_treasurer_threshold: E(0.05) })).status, 403);
-check('tesorero sin 2FA de confirmación → 422 bad_code', (await T1.call('PATCH', `/v1/assets/${ETH}`, { dual_treasurer_threshold: E(0.05) })).body?.code, 'bad_code');
-check('tesorero fija umbral de dos tesoreros (con 2FA)', (await T1.call('PATCH', `/v1/assets/${ETH}`, { dual_treasurer_threshold: E(0.05), code: await T1.code() })).body.dual_treasurer_threshold, E(0.05));
+// ═════ Aprobación individual de 856, sin umbral de dos tesoreros
 const x3 = await opr.s.call('POST', '/exits', { simulation_id: (await sim(opr.s, wl.body.id, E(0.04))).body.id }); // bajo umbral del cliente
 await adm.s.call('PUT', '/settings/approval-thresholds', { asset_id: ETH, threshold: null, code: await adm.otp.next() });
 const x4 = await opr.s.call('POST', '/exits', { simulation_id: (await sim(opr.s, wl2.body.id, E(0.07))).body.id });
-check('salida arriba del umbral de 856 requiere 2 autorizaciones', x4.body.authorizations.required, 2);
+check('salida de cliente requiere una autorización de 856', x4.body.authorizations.required, 1);
 const d1 = await T1.approveWithdrawal(x4.body.id);
-check('  …primera autorización: sigue pendiente', d1.body.approval_status, 'pending');
-check('  …el mismo tesorero no autoriza dos veces → 403', (await T1.approveWithdrawal(x4.body.id)).body.code, 'same_operator');
-const d2 = await T2.approveWithdrawal(x4.body.id);
-check('  …segundo tesorero distinto → autorizada', `${d2.body.approval_status} ${!!d2.body.approved2_by}`, 'approved true');
-check('  …el cliente ve 2 de 2', (await vwr.s.call('GET', `/exits/${x4.body.id}`)).body.authorizations.given, 2);
+check('  …un tesorero la autoriza con una sola aprobación', d1.body.approval_status, 'approved');
+check('  …la segunda aprobación ya no es aceptada → 409', (await T1.approveWithdrawal(x4.body.id)).status, 409);
+check('  …el cliente ve 1 de 1', `${(await vwr.s.call('GET', `/exits/${x4.body.id}`)).body.authorizations.given}/${(await vwr.s.call('GET', `/exits/${x4.body.id}`)).body.authorizations.required}`, '1/1');
 
 // ═════ Cambio de alcance y rechazo
 const r1 = await apr.s.call('POST', `/whitelist/${wl.body.id}/remove`, {});

@@ -96,6 +96,7 @@ const DEST = privateKeyToAccount(generatePrivateKey()).address;
 await api('POST', '/v1/wallets', { client_id: cl.id, chain: 'ethereum', network: 'eth-sepolia', address: DEST, purpose: 'withdrawal_whitelist' });
 r = await api('POST', '/v1/withdrawals', { client_id: cl.id, asset_id: TUSD, to_address: DEST, amount: U(600) }, 'w');
 await tick(); await mine(3); await tick();
-check('retiro de 600 pagado con fondos barridos', (await api('GET', `/v1/withdrawals/${r.body.id}`)).body.status, 'confirmed');
+const pendingWithdrawal = (await api('GET', `/v1/withdrawals/${r.body.id}`)).body;
+check('retiro de integración queda pendiente de autorización aunque haya fondos barridos', `${pendingWithdrawal.status} ${pendingWithdrawal.approval_status}`, 'reserved pending');
 check('  …conciliación sin diferencia nueva', BigInt((await api('GET', '/v1/treasury/hot-wallet')).body.balances.find((b) => b.asset_id === TUSD).difference) - (d0[TUSD] ?? 0n), 0);
 console.log(`── ${ok} OK, ${fail} fallas`); process.exit(fail ? 1 : 0);

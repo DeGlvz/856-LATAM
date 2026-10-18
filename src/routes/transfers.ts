@@ -31,14 +31,14 @@ const WithdrawalBody = z.object({
 });
 
 export async function transferRoutes(app: FastifyInstance) {
-  // Retiros on-chain: reserva inmediata; firma, envío y confirmaciones los hace el worker
+  // Operadores registran instrucciones directas; las solicitudes de API/cliente esperan autorización interna.
   app.post('/withdrawals', async (req, reply) => {
-    await assertConsoleMayOriginate(req, 'withdrawal', null);
+    if (req.principal?.kind !== 'operator') await assertConsoleMayOriginate(req, 'withdrawal', null);
     return idempotent(req, reply, async (key) => {
       const r = requester(req);
       return { status: 202, body: await T.requestWithdrawal({
         ...parse(WithdrawalBody, req.body), idempotency_key: key,
-        requested_by: r.by, requested_by_operator: r.operatorId, needs_approval: r.needsApproval,
+        requested_by: r.by, requested_by_operator: r.operatorId, needs_approval: !r.operatorId,
       }) };
     });
   });
@@ -58,7 +58,7 @@ export async function transferRoutes(app: FastifyInstance) {
     return T.cancelWithdrawal(parse(uuid, req.params.id), reason ? `${who}: ${reason}` : who);
   });
 
-  // Doble aprobación: otro tesorero (con 2FA) aprueba; el rechazo devuelve el saldo reservado
+  // Las solicitudes de cliente/API requieren aprobación interna; el rechazo devuelve el saldo reservado.
   app.post<{ Params: { id: string } }>('/withdrawals/:id/approve', async (req) => {
     const op = decider(req);
     const id = parse(uuid, req.params.id);

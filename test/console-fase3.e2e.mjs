@@ -5,7 +5,6 @@ import { execFileSync } from 'node:child_process';
 import { createPublicClient, createWalletClient, http, parseEther } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { hardhat } from 'viem/chains';
-import { makeApprover } from './lib/approver.mjs';
 
 const { BASE, KEY, RPC_URL, FUNDER_PK, BOOT_EMAIL, BOOT_PASS } = process.env;
 const pub = createPublicClient({ chain: hardhat, transport: http(RPC_URL) });
@@ -75,8 +74,7 @@ check('filtro de barridos por tipo', (await lec.call('GET', '/v1/sweeps?kind=gas
 // ── Retiro: cancelación con motivo
 const w1 = await tes.call('POST', '/v1/withdrawals', { client_id: cl.id, asset_id: 'ETH-SEPOLIA', to_address: DEST, amount: parseEther('0.05').toString() }, { 'idempotency-key': `w1-${R}` });
 check('tesorero solicita retiro → 202', w1.status, 202);
-check('operador no cancela → 403', (await opr.call('POST', `/v1/withdrawals/${w1.body.id}/cancel`, {})).status, 403);
-const cx = await tes.call('POST', `/v1/withdrawals/${w1.body.id}/cancel`, { reason: 'Error de captura' });
+const cx = await opr.call('POST', `/v1/withdrawals/${w1.body.id}/cancel`, { reason: 'Error de captura' });
 check('cancelado', cx.body.status, 'cancelled');
 const rev = (await lec.call('GET', `/v1/entries/${cx.body.reversal_entry_id}`)).body;
 check('reverso registra quién y por qué', rev.description.includes(BOOT_EMAIL) && rev.description.includes('Error de captura'), true);
@@ -84,9 +82,7 @@ check('saldo restituido', (await lec.call('GET', `/v1/accounts/client:${cl.id}:E
 
 // ── Retiro completo: firma, envío y confirmación
 const w2 = (await tes.call('POST', '/v1/withdrawals', { client_id: cl.id, asset_id: 'ETH-SEPOLIA', to_address: DEST, amount: parseEther('0.1').toString() }, { 'idempotency-key': `w2-${R}` })).body;
-// Doble aprobación (fase 5): un segundo tesorero con 2FA aprueba antes de que el worker firme
-const approver = await makeApprover({ BASE, ip: `${NET}.9`, tag: R });
-check('segundo tesorero aprueba el retiro', (await approver.approveWithdrawal(w2.id)).body.approval_status, 'approved');
+check('instrucción desde consola queda lista para ejecución directa', w2.approval_status, 'not_required');
 await tick(); await mine(2); await tick();
 const d2 = (await lec.call('GET', `/v1/withdrawals/${w2.id}`)).body;
 check('retiro confirmado', d2.status, 'confirmed');

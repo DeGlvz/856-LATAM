@@ -11,14 +11,12 @@ import { Input } from '@/components/ui/input';
 const REFRESH = ['approvals', 'summary', 'withdrawals', 'withdrawal', 'netting-runs', 'netting-run', 'obligations', 'client', 'entries'];
 
 /**
- * Aprobar (con código 2FA) o rechazar (con motivo) un retiro o una corrida pendiente.
- * Reglas visibles: solo tesorería, quien solicitó no aprueba, el aprobador necesita 2FA.
+ * Autorizar (con código 2FA) o rechazar (con motivo) un retiro o una corrida pendiente.
+ * Quien solicitó un retiro no puede autorizarlo.
  */
-export function ApprovalPanel({ kind, id, requestedByOperator, requestedBy, onDone, compact, dual, exit }: {
+export function ApprovalPanel({ kind, id, requestedByOperator, requestedBy, onDone, compact, exit }: {
   kind: 'withdrawal' | 'run'; id: string; requestedByOperator: string | null; requestedBy?: string | null;
   onDone?: () => void; compact?: boolean;
-  /** Fase 3: arriba del umbral del activo se requieren dos tesoreros distintos. */
-  dual?: { firstBy: string | null; firstByOperator: string | null } | null;
   /** Fase 3: salida originada por el cliente (la consola valida y autoriza; el texto cambia). */
   exit?: boolean;
 }) {
@@ -32,27 +30,21 @@ export function ApprovalPanel({ kind, id, requestedByOperator, requestedBy, onDo
   const approve = useMutation({ mutationFn: () => api(`${base}/approve`, { method: 'POST', json: { code } }), onSuccess: after });
   const reject = useMutation({ mutationFn: () => api(`${base}/reject`, { method: 'POST', json: { reason: reason.trim() } }), onSuccess: after });
 
-  if (!can('tesorero')) return <p className="text-sm text-muted-foreground">Pendiente de aprobación por un segundo tesorero.</p>;
+  if (!can('ejecutivo')) return <p className="text-sm text-muted-foreground">Pendiente de autorización por un ejecutivo de cuenta o tesorero.</p>;
   const own = !!operator && requestedByOperator === operator.id;
-  const firstMine = !!operator && !!dual?.firstByOperator && dual.firstByOperator === operator.id;
   const label = exit ? 'salida' : kind === 'withdrawal' ? 'retiro' : 'corrida';
   const art = exit ? 'la salida' : kind === 'withdrawal' ? 'el retiro' : 'la corrida';
-  const approveText = exit ? `Autorizar ${dual ? (dual.firstBy ? 'salida (2.ª de 2)' : 'salida (1.ª de 2)') : 'salida'}` : `Aprobar ${label}`;
+  const approveText = exit ? 'Autorizar salida' : `Aprobar ${label}`;
 
   return (
     <div className="grid gap-3 rounded-md border border-warning/60 bg-warning/5 p-3 text-sm">
       {!compact && (
         <div className="flex items-start gap-2">
           <ShieldAlert className="mt-0.5 size-4 shrink-0" />
-          <p>Doble aprobación: solicitado por <b>{requestedBy ?? '—'}</b>. Otro tesorero debe aprobarlo con su código 2FA.</p>
+          <p>Solicitado por <b>{requestedBy ?? '—'}</b>. Un ejecutivo de cuenta o tesorero distinto debe autorizarlo con 2FA.</p>
         </div>
       )}
-      {dual && (
-        <p className="text-xs" data-dual>{dual.firstBy ? <>Autorizó <b>{dual.firstBy}</b>; falta un segundo tesorero distinto.</> : 'Supera el umbral del activo: requiere dos tesoreros distintos.'}</p>
-      )}
-      {firstMine ? (
-        <p className="text-muted-foreground">Usted ya dio la primera autorización: la segunda debe darla otro tesorero.</p>
-      ) : own ? (
+      {own ? (
         <p className="text-muted-foreground">Usted lo solicitó: no puede aprobarlo. Puede rechazarlo si ya no procede.</p>
       ) : !operator?.totp_enabled ? (
         <p>Para aprobar necesita el 2FA activo. <Link to="/seguridad" className="font-medium underline">Activarlo en Seguridad</Link>.</p>

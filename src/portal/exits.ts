@@ -9,7 +9,7 @@ import { config } from '../config.js';
 import { pool, tx, type Tx } from '../db.js';
 import { HttpError } from '../idempotency.js';
 import { openClientAccount } from '../ledger/service.js';
-import { assertScopeUnchanged, cancelWithdrawal, exitScopeHash, requestWithdrawal, treasurersWith2fa } from '../ledger/transfers.js';
+import { assertScopeUnchanged, cancelWithdrawal, exitScopeHash, requestWithdrawal } from '../ledger/transfers.js';
 import { roleAtLeast, type ClientUser, type PortalPrincipal } from './identity.js';
 
 const lower = (a: string) => a.toLowerCase();
@@ -220,17 +220,13 @@ export async function submit(p: PortalPrincipal, simulationId: string, ip: strin
     const { rows: [th] } = await c.query(
       'SELECT threshold FROM client_approval_thresholds WHERE client_id = $1 AND asset_id = $2', [clientId, sim.asset_id]);
     const needsClient = th && BigInt(sim.amount) >= BigInt(th.threshold);
-    const { rows: [asset] } = await c.query('SELECT dual_treasurer_threshold FROM assets WHERE id = $1', [sim.asset_id]);
-    // Fase M1: con un solo tesorero activo con 2FA, el umbral de dos tesoreros no aplica (lo autoriza el único tesorero)
-    const overDual = asset.dual_treasurer_threshold != null && BigInt(sim.amount) >= BigInt(asset.dual_treasurer_threshold);
-    const dual = overDual && (await treasurersWith2fa(c)) >= 2;
     const w = await requestWithdrawal({
       client_id: clientId, asset_id: sim.asset_id, to_address: sim.to_address, amount: String(sim.amount),
-      idempotency_key: `exit:${sim.id}`, metadata: { simulation_id: sim.id, ...(overDual && !dual ? { single_treasurer: true } : {}) },
+      idempotency_key: `exit:${sim.id}`, metadata: { simulation_id: sim.id },
       requested_by: origin.kind === 'client_user' ? `portal:${(p as { user: ClientUser }).user.email}` : `llave:${origin.ref}`,
       exit: {
         approval_status: needsClient ? 'client_pending' : 'pending', origin_kind: origin.kind, origin_ref: origin.ref, origin_ip: ip,
-        simulation_id: sim.id, scope_hash: sim.scope_hash, dual_required: dual,
+        simulation_id: sim.id, scope_hash: sim.scope_hash,
       },
     }, c);
     await c.query(`UPDATE exit_simulations SET status = 'submitted' WHERE id = $1`, [sim.id]);
@@ -286,7 +282,7 @@ function stateOf(w: Record<string, unknown>) {
 }
 
 const EXIT_COLS = `w.id, w.asset_id, s.symbol, s.decimals, s.network, w.to_address, w.amount::text AS amount, w.status, w.approval_status,
-  w.tx_hash, w.confirmations, w.origin_kind, w.origin_ref, w.simulation_id, w.scope_hash, w.dual_required,
+  w.tx_hash, w.confirmations, w.origin_kind, w.origin_ref, w.simulation_id, w.scope_hash,
   w.client_approved_at, w.approved_at, w.approved2_at, w.rejected_by, w.rejected_reason, w.validation_due_at, w.last_error,
   w.created_at, w.updated_at, w.created_at::text AS _ts,
   (SELECT u.name FROM client_users u WHERE u.id::text = w.origin_ref) AS origin_user,
@@ -299,7 +295,7 @@ const exitView = (w: Record<string, unknown>) => ({
   client_approved_at: w.client_approved_at, client_approver: w.client_approver ?? null,
   // Del lado de 856 solo se informa el hecho y la hora, no quién
   authorized_at: w.approval_status === 'approved' ? (w.approved2_at ?? w.approved_at) : null,
-  authorizations: { required: w.dual_required ? 2 : 1, given: (w.approved2_at ? 1 : 0) + (w.approved_at ? 1 : 0) },
+  authorizations: { required: 1, given: (w.approved_at || w.approved2_at) ? 1 : 0 },
   rejection_reason: stateOf(w) === 'rejected' ? w.rejected_reason : null, validation_due_at: w.validation_due_at,
   simulation_id: w.simulation_id, scope_hash: w.scope_hash, created_at: w.created_at, updated_at: w.updated_at,
 });

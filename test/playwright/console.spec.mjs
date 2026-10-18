@@ -1,4 +1,4 @@
-// Recorridos reales de la consola en el navegador: login, 2FA, doble aprobación (retiro y corrida) y auditoría.
+// Recorridos reales de la consola en el navegador: login, 2FA, retiros internos y aprobación de corridas.
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -96,34 +96,34 @@ test('2FA: alta con QR y clave, y login en dos pasos', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Salir' })).toBeVisible();
 });
 
-test('retiro: el solicitante no puede aprobar; el segundo tesorero aprueba con 2FA', async ({ browser }) => {
+test('retiro por instrucción interna va directo; integración requiere una aprobación 2FA', async ({ browser }) => {
   const p1 = await (await browser.newContext()).newPage();
   await login(p1, BOOT_EMAIL, BOOT_PASS);
   const r = await consolePost(p1, '/withdrawals', { client_id: client.id, asset_id: 'ETH-SEPOLIA', to_address: client.dest, amount: '1000000000000000' }, 'wd');
-  expect(r.status(), await r.text()).toBe(202);
+  expect(r.status()).toBe(202);
   const wd = await r.json();
-  expect(wd.approval_status).toBe('pending');
-  // El solicitante no aprueba lo suyo: 403 (queda «Denegado» en la bitácora, lo usa la prueba de auditoría)
-  expect((await consolePost(p1, `/withdrawals/${wd.id}/approve`, { code: '000000' })).status()).toBe(403);
-
-  await p1.getByRole('link', { name: /^Aprobaciones/ }).click();
-  const card1 = p1.locator('div.rounded-lg.border', { hasText: `PW Retiro ${R}` });
-  await expect(card1).toContainText('Usted lo solicitó');
+  expect(wd.approval_status).toBe('not_required');
+  expect((await consolePost(p1, `/withdrawals/${wd.id}/approve`, { code: '000000' })).status()).toBe(409);
   await p1.goto('/console/movimientos');
-  await expect(p1.getByRole('row', { name: new RegExp(`PW Retiro ${R}`) }).getByText('Por aprobar')).toBeVisible();
+  await expect(p1.getByRole('row', { name: new RegExp(`PW Retiro ${R}`) }).getByText('Reservado')).toBeVisible();
+
+  const integration = await api('POST', '/v1/withdrawals', {
+    client_id: client.id, asset_id: 'ETH-SEPOLIA', to_address: client.dest, amount: '1000000000000000',
+  }, 'wd-api');
+  expect(integration.approval_status).toBe('pending');
 
   const p2 = await (await browser.newContext()).newPage();
   await login(p2, T2, PW, () => otp.next());
   await expect(p2.getByRole('link', { name: /^Aprobaciones/ })).toContainText(/\d/); // contador de pendientes
   await p2.getByRole('link', { name: /^Aprobaciones/ }).click();
-  const card2 = p2.locator('div.rounded-lg.border', { hasText: `PW Retiro ${R}` });
+  const card2 = p2.locator('div.rounded-lg.border', { hasText: 'api:' }).filter({ has: p2.getByRole('button', { name: 'Aprobar retiro' }) });
   await card2.getByLabel('Código 2FA para aprobar el retiro').fill(otp.wrong());
   await card2.getByRole('button', { name: 'Aprobar retiro' }).click();
   await expect(card2.getByRole('alert')).toContainText('incorrecto');
   await card2.getByLabel('Código 2FA para aprobar el retiro').fill(await otp.next());
   await card2.getByRole('button', { name: 'Aprobar retiro' }).click();
-  await expect(p2.locator('div.rounded-lg.border', { hasText: `PW Retiro ${R}` })).toHaveCount(0);
-  const after = await (await p2.request.get(`/v1/withdrawals/${wd.id}`)).json();
+  await expect(p2.locator('div.rounded-lg.border', { hasText: 'api:' })).toHaveCount(0);
+  const after = await (await p2.request.get(`/v1/withdrawals/${integration.id}`)).json();
   expect(after.approval_status).toBe('approved');
   expect(after.approved_by).toBe(T2);
 });

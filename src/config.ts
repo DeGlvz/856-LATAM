@@ -45,7 +45,8 @@ const Env = z.object({
   CONSOLE_INVITE_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(72),
   // Tablero: alerta de gas si la hot wallet tiene menos de este saldo nativo (wei)
   GAS_LOW_WEI: z.coerce.bigint().default(50_000_000_000_000_000n), // 0.05 ETH
-  // Doble aprobación (retiros y corridas de compensación): off | console (solo lo pedido desde la consola) | all (también API)
+  // Aprobación de corridas de compensación: off | console (solo lo pedido desde la consola) | all (también API key).
+  // Los retiros de cliente/API siempre requieren aprobación; las instrucciones de consola no.
   DUAL_APPROVAL: z.enum(['off', 'console', 'all']).default('console'),
   // El aprobador debe tener 2FA activo y confirmar cada aprobación con un código TOTP
   APPROVAL_REQUIRE_2FA: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),

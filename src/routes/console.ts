@@ -146,7 +146,7 @@ export async function consoleRoutes(app: FastifyInstance) {
       obligations_pending: { total: Number(approvals[0]?.op ?? 0), expiring_24h: Number(approvals[0]?.oe ?? 0) },
       dual_approval: config.DUAL_APPROVAL,
       origin_rule: config.ORIGIN_RULE,
-      // Fase M1: ambiente y tesoreros activos con 2FA (con uno solo, el umbral de dos tesoreros no aplica)
+      // Ambiente y tesoreros activos con 2FA
       environment: config.ENVIRONMENT,
       treasurers: await treasurersWith2fa(pool).then((n) => ({ active_with_2fa: n, single: n < 2 })),
     };
@@ -256,9 +256,8 @@ export async function consoleRoutes(app: FastifyInstance) {
         `SELECT w.id, w.client_id, c.name AS client_name, c.status AS client_status, w.asset_id, w.amount, w.to_address,
                 w.requested_by, w.requested_by_operator, w.created_at,
                 -- Fase 3: salida originada por el cliente (simulación, origen, aprobación interna y autorización 1 o 2 tesoreros)
-                w.simulation_id, w.scope_hash, w.origin_kind, w.dual_required, w.validation_due_at,
+                w.simulation_id, w.scope_hash, w.origin_kind, w.validation_due_at,
                 (w.validation_due_at IS NOT NULL AND w.validation_due_at < now()) AS overdue,
-                w.approved_by AS first_approved_by, w.approved_by_operator AS first_approved_by_operator, w.approved_at AS first_approved_at,
                 CASE WHEN w.origin_kind = 'client_user' THEN (SELECT u.name || ' <' || u.email || '>' FROM client_users u WHERE u.id::text = w.origin_ref)
                      WHEN w.origin_kind = 'client_key' THEN 'Llave ' || w.origin_ref ELSE w.origin_ref END AS origin_label,
                 (SELECT u.name FROM client_users u WHERE u.id = w.client_approved_by) AS client_approver, w.client_approved_at,

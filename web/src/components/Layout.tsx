@@ -3,7 +3,6 @@ import { EnvBadge } from '@/components/EnvBanner';
 import { NavLink, Outlet } from 'react-router';
 import {
   ArrowLeftRight, Building2, Euro, CheckCheck, FileClock, Gauge, KeyRound, LogOut, Menu, Network, ShieldCheck, UsersRound, X,
-  ShieldAlert,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { api, type Summary } from '@/lib/api';
@@ -92,12 +91,6 @@ export function Layout() {
             </div>
           )}
         </header>
-        {summary.data?.treasurers?.single && (
-          <div role="note" data-testid="single-treasurer" className="flex items-center gap-2 border-b border-warning/60 bg-warning/10 px-4 py-2 text-sm">
-            <ShieldAlert className="size-4 shrink-0" />
-            <span><b>Operando con un solo tesorero.</b> Toda salida la autoriza un solo tesorero con 2FA; el umbral de dos tesoreros vuelve a aplicar al activar el 2FA de un segundo tesorero.</span>
-          </div>
-        )}
         <main className="min-w-0 flex-1 p-4 md:p-6"><Outlet /></main>
       </div>
     </div>

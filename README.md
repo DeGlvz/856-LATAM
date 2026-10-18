@@ -156,10 +156,10 @@ Reglas nuevas del motor (migración `008`):
 
 Prueba: `node test/console-fase4.e2e.mjs` (41 verificaciones; no requiere cadena).
 
-### Consola — fase 5: auditoría, doble aprobación y 2FA
+### Consola — fase 5: auditoría, autorización y 2FA
 - **2FA (TOTP)** en *Seguridad*: alta con QR o clave manual (Google/Microsoft Authenticator, 1Password…), baja con código vigente. Con 2FA activo el login pide el código en un segundo paso (`POST /v1/auth/login` → `{mfa_required, mfa_token}` → `POST /v1/auth/login/totp {mfa_token, code}`). Un código no se acepta dos veces (anti-reuso por paso de tiempo). El secreto se guarda cifrado con AES-256-GCM.
-- **Doble aprobación** de retiros y corridas de compensación (pantalla *Aprobaciones*, con contador en el menú):
-  - Retiro: el saldo se reserva al pedirlo (`approval_status: pending`); el worker no firma hasta que **otro** tesorero lo apruebe. Rechazar devuelve el saldo (motivo obligatorio).
+- **Autorización** de retiros y corridas de compensación (pantalla *Aprobaciones*, con contador en el menú):
+  - Retiro de cliente/API: el saldo se reserva al pedirlo (`approval_status: pending`); el worker no firma hasta que **un** ejecutivo de cuenta o tesorero distinto lo autorice. Una sola aprobación basta; rechazar devuelve el saldo (motivo obligatorio). Una instrucción ingresada por un ejecutivo o tesorero en consola puede pasar al worker directamente.
   - Corrida: se solicita (`202`, `pending_approval`) con las obligaciones exactas y el neto simulado; al aprobar se liquida en un asiento solo si nada cambió (si cambió → `409 scope_changed` / `422 obligations_not_open`, la corrida sigue pendiente con `last_error` y se puede rechazar).
   - Reglas: quien solicita no aprueba (`403 same_operator`); solo operadores de consola aprueban (`403 operator_only`); con `APPROVAL_REQUIRE_2FA=true` el aprobador necesita 2FA activo (`403 totp_required`) y un código por aprobación.
 - **Auditoría** (solo tesorero): bitácora con filtros por actor, acción, resultado (correcto / error / denegado), objetivo y fechas; paginación y exportación CSV. Ahora guarda el motivo de cancelaciones y rechazos.
@@ -170,7 +170,7 @@ Prueba: `node test/console-fase4.e2e.mjs` (41 verificaciones; no requiere cadena
 | POST | `/v1/auth/login/totp` | Segundo paso del login (público, limitado a 10/min) |
 | POST | `/v1/auth/totp/setup` · `/enable` · `/disable` | El propio operador; `enable`/`disable` exigen `{code}` |
 | GET | `/v1/approvals` | Retiros y corridas pendientes + política vigente |
-| POST | `/v1/withdrawals/:id/approve` · `/reject` | Tesorero. `{code}` para aprobar; `{reason}` para rechazar |
+| POST | `/v1/withdrawals/:id/approve` · `/reject` | Ejecutivo de cuenta o tesorero. `{code}` para aprobar; `{reason}` para rechazar |
 | POST | `/v1/netting/runs/:id/approve` · `/reject` | Ídem |
 | GET | `/v1/netting/runs?status=` | `pending_approval` · `settled` · `rejected` |
 | GET | `/v1/audit` · `/v1/audit/actions` | Tesorero. `actor, action, result, target, from, to, limit, cursor` |
@@ -180,12 +180,12 @@ Variables nuevas (migración `009`):
 
 | Variable | Por defecto | Uso |
 |---|---|---|
-| `DUAL_APPROVAL` | `console` | `off` · `console` (solo lo pedido desde la consola) · `all` (también por API key) |
+| `DUAL_APPROVAL` | `console` | `off` · `console` (solo corridas solicitadas desde consola) · `all` (también corridas por API key); no afecta retiros |
 | `APPROVAL_REQUIRE_2FA` | `true` | El aprobador debe tener 2FA y confirmar con código |
 | `TOTP_ENCRYPTION_KEY` | — | **Requerida para activar 2FA.** Mínimo 32 caracteres aleatorios (p. ej. `openssl rand -hex 32`). No cambiarla después: los secretos existentes dejarían de descifrarse |
 | `TOTP_ISSUER` | `856-LATAM` | Nombre que muestra la app de autenticación |
 
-> Operación: con `DUAL_APPROVAL` activo se necesitan **al menos dos tesoreros con 2FA**. Alta: `npm run operator:create -- <correo> tesorero`.
+> Operación: una corrida de compensación que requiera aprobación necesita un tesorero con 2FA. Alta: `npm run operator:create -- <correo> tesorero`.
 
 Pruebas: `node test/console-fase5.e2e.mjs` (56 verificaciones, cadena local) y navegador con Playwright:
 ```bash
@@ -304,14 +304,16 @@ Sin migraciones ni variables nuevas.
 Pruebas: `node test/portal-fase2.e2e.mjs` (79 verificaciones: saldos exactos, precisión > 2^53, paginación, CSV y estado de cuenta que cuadran, depósito real pending → credited, llaves, aislamiento y ausencia de datos internos) y `npx playwright test portal-cuentas.spec.mjs` (5 recorridos).
 
 ### Portal de clientes — fase 3: lista blanca y salidas
-**El cliente origina; 856 valida y autoriza.** Con `ORIGIN_RULE=enforce` la consola y las `API_KEYS` globales ya no originan retiros, transferencias internas ni altas de lista blanca de clientes (`403 origin_not_client`): solo consultan, validan, autorizan o rechazan. La única excepción prevista es el gestor delegado con delegación o mandato vigente (fase 6). Las obligaciones quedan fuera de la regla hasta la fase 4.
+**El cliente origina; 856 valida y autoriza.** Los retiros solicitados desde el portal o una integración/API key quedan pendientes hasta que los autorice un ejecutivo de cuenta o tesorero distinto; el worker no los ejecuta antes de esa autorización. Con `ORIGIN_RULE=enforce`, las `API_KEYS` globales no originan retiros y la consola no origina transferencias internas ni altas de lista blanca (`403 origin_not_client`); un operador sí puede ingresar una instrucción interna de retiro. Las obligaciones quedan fuera de la regla hasta la fase 4.
+
+Los retiros ingresados en consola por instrucción de un ejecutivo de cuenta o tesorero pueden pasar directamente al worker sin aprobación adicional. El operador solicitante queda registrado y se conservan las validaciones normales de cliente activo, activo habilitado, saldo y lista blanca.
 
 - **Lista blanca** (`/portal/lista-blanca`): la pide un usuario Operador o superior; la aprueba **otro** usuario Aprobador o Administrador con 2FA (`403 same_user`); queda **en espera** `WHITELIST_COOLDOWN_HOURS` (24 h) antes de poder usarse, con cuenta regresiva. Retirar (Aprobador+) es inmediato. Una dirección no se repite entre clientes (`409 address_unavailable`).
 - **Nueva salida** (`/portal/salidas`) en cuatro pasos: activo → destino vigente → monto en unidades del activo (sin float) → confirmación con **simulación** exacta: monto, destino, comisión de 856 (hoy 0), gas (lo paga 856), disponible, saldo resultante, obligaciones por pagar y la **huella** (`sha256` del alcance). La simulación vence en `EXIT_SIMULATION_TTL_MIN` (30 min).
 - **Aprobación interna del cliente:** el Administrador fija con 2FA un umbral por activo; arriba de él otro usuario Aprobador+ aprueba con 2FA antes de que la salida llegue a 856.
-- **Validación y autorización en la consola** (Aprobaciones › *Salidas por validar*): muestra origen, aprobación del cliente, simulación y huella, con tiempo objetivo `EXIT_VALIDATION_SLA_MIN` (4 h; alerta en el Tablero si se rebasa). Autoriza un tesorero con 2FA; arriba del **umbral de dos tesoreros** del activo (`PATCH /v1/assets/:id`, con 2FA) se necesitan dos tesoreros distintos. Rechazar exige motivo y devuelve el saldo.
+- **Validación y autorización en la consola** (Aprobaciones › *Salidas por validar*): muestra origen, aprobación del cliente, simulación y huella, con tiempo objetivo `EXIT_VALIDATION_SLA_MIN` (4 h; alerta en el Tablero si se rebasa). Un ejecutivo de cuenta o tesorero distinto del solicitante autoriza con 2FA; basta una aprobación individual. Rechazar exige motivo y devuelve el saldo.
 - **Atado a la huella:** si al autorizar cambió el destino (ya no vigente) o las obligaciones por pagar, responde `409 scope_changed` (simular de nuevo). El worker vuelve a calcular la huella antes de firmar y, si no coincide, revierte la reserva y marca la salida fallida.
-- **Seguimiento:** el cliente ve el estado (aprobación interna, validación, autorizada 1/2 o 2/2, enviada, ejecutada, rechazada con motivo, cancelada), el hash y el enlace al explorador; nunca ve quién autorizó en 856. Puede cancelar mientras no esté autorizada.
+- **Seguimiento:** el cliente ve el estado (aprobación interna, validación, autorizada, enviada, ejecutada, rechazada con motivo, cancelada), el hash y el enlace al explorador; nunca ve quién autorizó en 856. Puede cancelar mientras no esté autorizada.
 - **Llaves de API:** una llave Ed25519 con permiso `withdraw` (casilla al crearla) puede simular, solicitar y cancelar salidas; los tokens de lectura nunca originan.
 - **Rol de consola renombrado:** `operador` → `ejecutivo` (*Ejecutivo de cuenta*), mismos permisos; el tesorero es el superusuario.
 
@@ -324,14 +326,13 @@ Pruebas: `node test/portal-fase2.e2e.mjs` (79 verificaciones: saldos exactos, pr
 | `POST /v1/portal/exits` `{simulation_id}` | operador+ o llave `withdraw` | Solicitar (reserva el saldo) |
 | `GET /v1/portal/exits?state` · `GET /v1/portal/exits/:id` | lectura | Seguimiento |
 | `POST /v1/portal/exits/:id/approve` `{code}` · `/cancel` | aprobador+ (+2FA) · operador+ | Aprobación interna y cancelación |
-| `POST /v1/withdrawals/:id/approve` `{code}` · `/reject` `{reason}` | tesorero (consola) | Autorizar (1 o 2 tesoreros) o rechazar |
-| `PATCH /v1/assets/:id` `{dual_treasurer_threshold\|null, code}` | tesorero + 2FA | Umbral de dos tesoreros |
+| `POST /v1/withdrawals/:id/approve` `{code}` · `/reject` `{reason}` | ejecutivo de cuenta o tesorero (consola) | Autorizar una vez con 2FA o rechazar |
 
-Migración `013_portal_salidas` (idempotente): rol `operador` → `ejecutivo`; `wallets.wl_status/wl_requested_by/wl_approved_by/active_from/removed_*` (las direcciones existentes quedan vigentes); `assets.dual_treasurer_threshold`; tablas `client_approval_thresholds` y `exit_simulations`; `withdrawals` con origen, simulación, huella, aprobación del cliente, tiempo objetivo y segunda autorización (`approval_status` admite `client_pending`).
+Migración `013_portal_salidas` (idempotente): rol `operador` → `ejecutivo`; `wallets.wl_status/wl_requested_by/wl_approved_by/active_from/removed_*` (las direcciones existentes quedan vigentes); campos históricos de umbral y segunda autorización en `assets`/`withdrawals`; tablas `client_approval_thresholds` y `exit_simulations`; retiros con origen, simulación, huella, aprobación del cliente y tiempo objetivo (`approval_status` admite `client_pending`).
 
 Variables nuevas: `WHITELIST_COOLDOWN_HOURS` (24), `EXIT_SIMULATION_TTL_MIN` (30), `EXIT_VALIDATION_SLA_MIN` (240). Para activar la regla: `ORIGIN_RULE=enforce`.
 
-Pruebas: `ORIGIN_RULE=enforce` + `node test/portal-fase3.e2e.mjs` (63 verificaciones: regla de origen, lista blanca, simulación, autorización y ejecución en cadena, umbral del cliente, dos tesoreros, `scope_changed`, rechazo, cancelación, fila alterada en la base, llaves, aislamiento, tiempo objetivo y bitácora) y `npx playwright test portal-salidas.spec.mjs` (5 recorridos: lista blanca, salida en cuatro pasos, aprobación interna, autorización y rechazo en la consola, permiso de la llave).
+Pruebas: `ORIGIN_RULE=enforce` + `node test/portal-fase3.e2e.mjs` (regla de origen, lista blanca, simulación, autorización individual por ejecutivo/tesorero y ejecución en cadena, umbral del cliente, `scope_changed`, rechazo, cancelación, fila alterada en la base, llaves, aislamiento, tiempo objetivo y bitácora) y `npx playwright test portal-salidas.spec.mjs` (5 recorridos: lista blanca, salida en cuatro pasos, aprobación interna, autorización y rechazo en la consola, permiso de la llave).
 
 ### Portal de clientes — fase 4: obligaciones y compensación
 **El acreedor registra, el deudor acepta.** Solo las obligaciones aceptadas (`open`) entran a compensación. Con `ORIGIN_RULE=enforce` la consola y las `API_KEYS` globales ya no registran obligaciones de clientes (`403 origin_not_client`): conservan la consulta, la cancelación con motivo y las corridas sobre lo ya aceptado.
@@ -440,7 +441,7 @@ Si un activo ya existe con otra red, contrato o decimales, el arranque se detien
 - `production` exige `ORIGIN_RULE=enforce`, `TOTP_ENCRYPTION_KEY` y semilla HD propia (`HD_MNEMONIC` o `DEPOSIT_HD_SEED`; no se deriva de `SIGNER_PRIVATE_KEY`). Un `SWEEP_MIN_*` que no sea entero → rechazado.
 - `production` sin ningún tesorero activo con 2FA → rechazado, salvo el primer despliegue (`CONSOLE_BOOTSTRAP_*` o un tesorero aún sin 2FA): arranca en **modo de alta**, con el worker detenido y `/v1` (portal incluido) respondiendo `503 setup_required` excepto login y 2FA. Sale solo en cuanto el tesorero activa su 2FA.
 
-**Un solo tesorero (decisión de esta fase).** El umbral de dos tesoreros (`dual_treasurer_threshold` del activo) aplica solo si hay al menos dos tesoreros activos con 2FA. Con uno, toda salida la autoriza ese tesorero con 2FA y queda marcada `single_treasurer` en el retiro. Al activar el 2FA de un segundo tesorero el umbral vuelve a aplicar sin cambiar código ni configuración. La consola muestra fijo «Operando con un solo tesorero».
+**Política de retiros.** Las solicitudes de clientes e integraciones requieren una sola autorización interna, sin umbral de monto que active doble aprobación. Las instrucciones ingresadas por un ejecutivo de cuenta o tesorero en consola pueden ejecutarse directamente tras las validaciones normales.
 
 **Bloqueantes antes de fondos reales.** `POST /v1/internal-transfers` valida activos habilitados: el emisor debe tener el activo habilitado o en «solo salida» y el receptor habilitado, si no `422 asset_not_enabled`. `ORIGIN_RULE=enforce` es obligatorio en `production`.
 

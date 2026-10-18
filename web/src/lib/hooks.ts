@@ -21,7 +21,7 @@ export const ENTRY_KIND: Record<string, string> = {
   conversion: 'Conversión', netting: 'Compensación', adjustment: 'Ajuste',
 };
 
-/** Fase 3: con ORIGIN_RULE=enforce la consola no origina retiros ni altas de lista blanca de clientes. */
+/** Con ORIGIN_RULE=enforce se ocultan acciones que no pueden originarse desde la consola. */
 export function useConsoleOriginates() {
   const q = useQuery({ queryKey: ['summary'], queryFn: () => api<Summary>('/summary'), staleTime: 60_000 });
   return q.data ? q.data.origin_rule !== 'enforce' : false;
