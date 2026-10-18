@@ -35,6 +35,9 @@ export async function updateClient(id: string, i: {
              (SELECT count(*) FROM accounts WHERE client_id = $1 AND balance <> 0) AS balances,
              (SELECT count(*) FROM withdrawals WHERE client_id = $1 AND status IN ('reserved','signed','broadcast')) AS withdrawals,
              (SELECT count(*) FROM deposits WHERE client_id = $1 AND status = 'pending') AS deposits,
+             (SELECT count(*) FROM fiat_accounts WHERE client_id = $1 AND mode = 'per_client' AND status <> 'closed') AS fiat_accounts,
+             (SELECT count(*) FROM fiat_deposits d JOIN fiat_accounts a ON a.id = d.fiat_account_id
+                WHERE a.client_id = $1 AND a.mode = 'per_client' AND d.status IN ('received','minted','reconciled','review')) AS fiat_deposits,
              (SELECT count(*) FROM obligations WHERE (debtor_id = $1 OR creditor_id = $1) AND status = 'open') AS obligations`, [id]);
         const open = Object.entries(chk).filter(([, n]) => n !== '0').map(([k, n]) => `${k}: ${n}`);
         if (open.length) throw new LedgerError(409, `No se puede cerrar: ${open.join(', ')}`, 'client_not_empty');

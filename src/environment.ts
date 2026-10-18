@@ -25,7 +25,9 @@ export function configErrors(): string[] {
     }
   }
   // Fase F1: fiat
-  if (config.FIAT_MODE !== 'treasury') errs.push('FIAT_MODE=per_client está declarado pero no implementado: use treasury');
+  if (config.FIAT_MODE === 'per_client' && isProduction && !config.FIAT_LIVE_ENABLED) {
+    errs.push('FIAT_MODE=per_client exige FIAT_LIVE_ENABLED=true; no se permite arrancar un modo por cliente sin proveedor operativo');
+  }
   if (!isProduction && config.FIAT_LIVE_ENABLED) errs.push('En sandbox el fiat solo usa el proveedor simulado: FIAT_LIVE_ENABLED debe ser false');
   if (isProduction && config.FIAT_LIVE_ENABLED) {
     if (!config.MONERIUM_CLIENT_ID || !config.MONERIUM_CLIENT_SECRET) errs.push('FIAT_LIVE_ENABLED=true exige MONERIUM_CLIENT_ID y MONERIUM_CLIENT_SECRET');

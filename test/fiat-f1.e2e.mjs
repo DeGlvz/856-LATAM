@@ -108,6 +108,11 @@ check('aviso antes del alta → 409 fiat_not_ready', (await oprA.s.call('POST', 
 check('alta sin código 2FA → 422 bad_code', (await T1.call('POST', '/v1/console/fiat/setup', {})).body?.code, 'bad_code');
 check('alta con API_KEY global → 403 session_required', (await api('POST', '/v1/console/fiat/setup', {})).body?.code, 'session_required');
 check('alta por ejecutivo → 403 (requiere tesorero)', (await ej.call('POST', '/v1/console/fiat/setup', {})).status, 403);
+check('activar cuenta de cliente por ejecutivo → 403 (requiere tesorero)',
+  (await ej.call('POST', `/v1/console/fiat/clients/${A.id}/accounts/activate`, { provider: 'mock' })).status, 403);
+check('activar cuenta con API_KEY global → 403', (await api('POST', `/v1/console/fiat/clients/${A.id}/accounts/activate`, { provider: 'mock' })).status, 403);
+check('lista de IBANs por cliente por ejecutivo → 403', (await ej.call('GET', '/v1/console/fiat/accounts')).status, 403);
+check('lista de IBANs por cliente por API_KEY → 403', (await api('GET', '/v1/console/fiat/accounts')).status, 403);
 const su = await T1.call('POST', '/v1/console/fiat/setup', { code: await T1.code() });
 check('alta: dirección ligada (firma de propiedad) e IBAN activo', `${su.status} ${su.body.account?.status} ${/^ZZ00SIMU/.test(su.body.account?.iban)}`, '200 active true');
 const TREAS = su.body.account.address;
@@ -238,13 +243,23 @@ if (WHS) {
   const ts = String(Math.floor(Date.now() / 1000));
   const good = await whSend({ 'webhook-id': `msg_${R}`, 'webhook-timestamp': ts, 'webhook-signature': whSig(`msg_${R}`, ts, WHS) });
   check('webhook de Monerium con firma válida → 200 verificado (solo adelanta el sondeo)', `${good.status} ${(await good.json()).verified}`, '200 true');
+  const retry = await whSend({ 'webhook-id': `msg_${R}`, 'webhook-timestamp': ts, 'webhook-signature': whSig(`msg_${R}`, ts, WHS) });
+  check('webhook repetido → 200 idempotente', `${retry.status} ${(await retry.json()).duplicate}`, '200 true');
+  const changedBody = JSON.stringify({ type: 'order.updated', data: { id: `${o1.order_id}-different` } });
+  const collision = await fetch(BASE + '/v1/webhooks/monerium', { method: 'POST',
+    headers: { 'content-type': 'application/json', 'webhook-id': `msg_${R}`, 'webhook-timestamp': ts,
+      'webhook-signature': `v1,${createHmac('sha256', Buffer.from(WHS.replace(/^whsec_/, ''), 'base64')).update(`msg_${R}.${ts}.${changedBody}`).digest('base64')}` },
+    body: changedBody });
+  check('reutilizar webhook-id con otro payload firmado → 409', collision.status, 409);
+  check('evento aceptado persistido antes de responder', (await db.query(
+    'SELECT count(*)::int AS n FROM fiat_webhook_events WHERE provider = $1 AND external_event_id = $2', ['mock', `msg_${R}`])).rows[0].n, 1);
   check('  …firma con otro secreto → 401', (await whSend({ 'webhook-id': `msg_${R}`, 'webhook-timestamp': ts, 'webhook-signature': whSig(`msg_${R}`, ts, 'whsec_b3Ryb3NlY3JldG8=') })).status, 401);
   const old = String(Math.floor(Date.now() / 1000) - 900);
   check('  …firma vieja (> 5 min) → 401', (await whSend({ 'webhook-id': `msg_${R}`, 'webhook-timestamp': old, 'webhook-signature': whSig(`msg_${R}`, old, WHS) })).status, 401);
   check('  …sin firma → 401', (await whSend({})).status, 401);
 } else {
   const wh = await whSend({});
-  check('webhook de Monerium sin secreto: solo adelanta el sondeo (no mueve estado)', `${wh.status} ${(await wh.json()).verified}`, '200 false');
+  check('webhook sin secreto configurado → no se acepta ni responde éxito', `${wh.status} ${(await wh.json()).code}`, '503 webhook_not_configured');
 }
 check('  …el depósito no cambió por el aviso', (await depByOrder(o1.order_id)).status, 'released');
 check('estado final: ninguna llamada a Monerium (FIAT_LIVE_ENABLED=false)', (await T1.call('GET', '/v1/console/fiat/status')).body.provider_calls, 0);
@@ -253,7 +268,52 @@ check('estado final: ninguna llamada a Monerium (FIAT_LIVE_ENABLED=false)', (awa
 const sw = (await db.query(`SELECT count(*)::int AS n FROM wallets WHERE purpose = 'fiat_treasury' AND network = 'base-sepolia' AND derivation_index IS NOT NULL`)).rows[0].n;
 check('la tesorería fiat entra al barrido como dirección derivada', sw, 1);
 
-// ═════ 12. Reglas de arranque del fiat
+// ═════ 12. Aislamiento por cuenta/cliente/proveedor y restricciones de propiedad
+const createClientFiatAccount = async (client, provider) => {
+  const address = privateKeyToAccount(generatePrivateKey()).address.toLowerCase();
+  const index = (await db.query(`SELECT nextval('deposit_address_index')::int AS i`)).rows[0].i;
+  const wallet = (await db.query(
+    `INSERT INTO wallets (client_id, chain, network, address, purpose, derivation_index, label)
+     VALUES ($1,'ethereum','base-sepolia',$2,'fiat_client',$3,'Prueba fiat per-client') RETURNING id`,
+    [client.id, address, index])).rows[0];
+  return (await db.query(
+    `INSERT INTO fiat_accounts (provider, mode, client_id, network, address, derivation_index, wallet_id, status, created_by)
+     VALUES ($1,'per_client',$2,'base-sepolia',$3,$4,$5,'active','test') RETURNING *`,
+    [provider, client.id, address, index, wallet.id])).rows[0];
+};
+const accA = await createClientFiatAccount(A, 'monerium');
+const accB = await createClientFiatAccount(B, 'mock');
+const orderA = `per-client-${R}-A`;
+const orderB = `per-client-${R}-B`;
+const insertFiatDeposit = (account, clientId, orderId, provider = account.provider) => db.query(
+  `INSERT INTO fiat_deposits (fiat_account_id, provider, provider_order_id, idempotency_key, amount_cents, token_amount,
+     asset_id, network, client_id, match_rule)
+   VALUES ($1,$2,$3,$4,100,1000000000000000000,$5,'base-sepolia',$6,'account')
+   ON CONFLICT (fiat_account_id, provider_order_id) DO NOTHING`,
+  [account.id, provider, orderId, sha(`${provider}${orderId}${clientId}`), ASSET, clientId]);
+await insertFiatDeposit(accA, A.id, orderA);
+await insertFiatDeposit(accB, B.id, orderB);
+await insertFiatDeposit(accA, A.id, orderA);
+check('clientes distintos usan cuentas/proveedores distintos sin mezclar depósitos',
+  (await db.query(`SELECT count(*)::int AS n FROM fiat_deposits
+    WHERE (fiat_account_id = $1 AND provider = 'monerium' AND client_id = $2)
+       OR (fiat_account_id = $3 AND provider = 'mock' AND client_id = $4)`,
+  [accA.id, A.id, accB.id, B.id])).rows[0].n, 2);
+check('reintentar la misma orden en la misma cuenta no duplica el depósito',
+  (await db.query('SELECT count(*)::int AS n FROM fiat_deposits WHERE fiat_account_id = $1 AND provider_order_id = $2', [accA.id, orderA])).rows[0].n, 1);
+let ownershipCode = '';
+try { await insertFiatDeposit(accA, B.id, `${orderA}-wrong-client`); } catch (e) { ownershipCode = e.code; }
+check('la base rechaza depósito de B en cuenta de A', ownershipCode, '23514');
+let providerCode = '';
+try { await insertFiatDeposit(accB, B.id, `${orderB}-wrong-provider`, 'monerium'); } catch (e) { providerCode = e.code; }
+check('la base rechaza proveedor distinto al de la cuenta', providerCode, '23514');
+let ownerChangeCode = '';
+try {
+  await db.query('UPDATE fiat_deposits SET client_id = $2 WHERE fiat_account_id = $1 AND provider_order_id = $3', [accA.id, B.id, orderA]);
+} catch (e) { ownerChangeCode = e.code; }
+check('la propiedad de un depósito per_client no se puede cambiar', ownerChangeCode, '23514');
+
+// ═════ 13. Reglas de arranque del fiat
 const TEST_MNEMONIC = 'test test test test test test test test test test test junk';
 const clean = (e) => Object.fromEntries(Object.entries(e).filter(([, v]) => v !== undefined));
 const prodEnv = (extra = {}) => clean({
@@ -278,7 +338,7 @@ check('production con Monerium sandbox → rechazado', `${b.code} ${b.out.includ
 b = await boot(prodEnv({ FIAT_LIVE_ENABLED: 'true', MONERIUM_CLIENT_ID: 'id-prueba', MONERIUM_CLIENT_SECRET: 'secreto-prueba', NETWORKS: 'arb-mainnet' }));
 check('production con fiat sin Base encendida → rechazado', `${b.code} ${b.out.includes('base-mainnet encendida')}`, '1 true');
 b = await boot(prodEnv({ FIAT_MODE: 'per_client' }));
-check('FIAT_MODE=per_client (declarado, no implementado) → rechazado', `${b.code} ${b.out.includes('per_client')}`, '1 true');
+check('per_client sin proveedor real habilitado en production → rechazado', `${b.code} ${b.out.includes('FIAT_LIVE_ENABLED=true')}`, '1 true');
 
 await db.end();
 console.log(`\n${ok} ok, ${fail} fallas`);

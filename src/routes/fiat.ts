@@ -22,8 +22,14 @@ const eur = z.string().regex(/^\d{1,15}(\.\d{1,2})?$/, 'euros con hasta 2 decima
 async function treasurer2fa(req: FastifyRequest, code: string | undefined) {
   const p = req.principal;
   if (p?.kind !== 'operator') throw new HttpError(403, 'Requiere sesión de un tesorero en la consola (con 2FA)', 'session_required');
+  if (p.operator.role !== 'tesorero') throw new HttpError(403, 'Requiere rol tesorero', 'forbidden');
   await stepUp(p.operator, code ?? '');
   return p.operator.email;
+}
+function requireTreasurerSession(req: FastifyRequest) {
+  const p = req.principal;
+  if (p?.kind !== 'operator') throw new HttpError(403, 'Requiere sesión de tesorero', 'session_required');
+  if (p.operator.role !== 'tesorero') throw new HttpError(403, 'Requiere rol tesorero', 'forbidden');
 }
 const noSimulationInProduction = () => {
   if (isProduction) throw new HttpError(403, 'La simulación de depósitos no existe en production', 'simulation_disabled');
@@ -36,6 +42,24 @@ export async function fiatConsoleRoutes(app: FastifyInstance) {
     const b = parse(z.object({ code: code6.optional() }), req.body ?? {});
     const by = await treasurer2fa(req, b.code);
     return F.setup(by, req.log);
+  });
+
+  app.get('/console/fiat/accounts', async (req) => {
+    requireTreasurerSession(req);
+    return { accounts: await F.listAccountsConsole() };
+  });
+
+  app.post<{ Params: { clientId: string } }>('/console/fiat/clients/:clientId/accounts/activate', async (req, reply) => {
+    const clientId = parse(uuid, req.params.clientId);
+    const b = parse(z.object({ provider: z.enum(['monerium', 'mock', 'transak', 'circle']), code: code6.optional() }), req.body ?? {});
+    const by = await treasurer2fa(req, b.code);
+    return reply.code(201).send(await F.activateClientAccount(clientId, b.provider, by, req.log));
+  });
+
+  app.post<{ Params: { id: string } }>('/console/fiat/accounts/:id/close', async (req) => {
+    const b = parse(z.object({ code: code6.optional(), reason }), req.body ?? {});
+    const by = await treasurer2fa(req, b.code);
+    return F.closeClientAccount(parse(uuid, req.params.id), by, b.reason);
   });
 
   // Sondeo inmediato (normalmente lo hace el worker cada FIAT_POLL_INTERVAL_MS)
@@ -69,13 +93,13 @@ export async function fiatConsoleRoutes(app: FastifyInstance) {
     const b = parse(z.object({
       amount: eur, memo: z.string().max(140).optional(), payer_name: z.string().max(140).optional(),
       payer_iban: z.string().max(40).optional(), tx_hash: z.string().regex(/^0x[0-9a-fA-F]{64}$/).optional(),
-      state: z.enum(['pending', 'processed', 'rejected']).optional(),
+      state: z.enum(['pending', 'processed', 'rejected']).optional(), client_id: uuid.optional(),
     }), req.body);
     return reply.code(201).send(await F.simulateOrder(b));
   });
   app.post<{ Params: { orderId: string } }>('/console/fiat/simulate/:orderId/process', async (req) => {
     noSimulationInProduction();
-    const b = parse(z.object({ tx_hash: z.string().regex(/^0x[0-9a-fA-F]{64}$/) }), req.body);
-    return F.simulateProcess(parse(z.string().min(3).max(80), req.params.orderId), b.tx_hash);
+    const b = parse(z.object({ tx_hash: z.string().regex(/^0x[0-9a-fA-F]{64}$/), client_id: uuid.optional() }), req.body);
+    return F.simulateProcess(parse(z.string().min(3).max(80), req.params.orderId), b.tx_hash, b.client_id);
   });
 }

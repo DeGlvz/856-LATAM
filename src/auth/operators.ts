@@ -196,11 +196,15 @@ const TESORERO = new Set([
   // Fase F1: entrada de fiat
   'POST /v1/console/fiat/setup', 'POST /v1/console/fiat/poll', 'POST /v1/console/fiat/deposits/:id/release',
   'POST /v1/console/fiat/deposits/:id/reject', 'POST /v1/console/fiat/simulate', 'POST /v1/console/fiat/simulate/:orderId/process',
+  'POST /v1/console/fiat/clients/:clientId/accounts/activate', 'POST /v1/console/fiat/accounts/:id/close',
   // Registro de gas en el libro
   'POST /v1/gas-fundings',
 ]);
 // Consultas restringidas: la bitácora (IPs, intentos) y la lista de operadores solo para tesorería
-const GET_TESORERO = new Set(['GET /v1/audit', 'GET /v1/audit/actions', 'GET /v1/operators', 'GET /v1/operators/invites']);
+const GET_TESORERO = new Set([
+  'GET /v1/audit', 'GET /v1/audit/actions', 'GET /v1/operators', 'GET /v1/operators/invites',
+  'GET /v1/console/fiat/accounts',
+]);
 // POST que solo consultan (no escriben): basta con rol lectura
 const CUALQUIERA = new Set([
   'POST /v1/auth/logout', 'POST /v1/netting/preview',

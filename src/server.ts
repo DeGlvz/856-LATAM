@@ -101,7 +101,7 @@ const PUBLIC = new Set(['/v1/meta', '/v1/auth/login', '/v1/auth/login/totp', '/v
 await app.register(async (v1) => {
   v1.addHook('onRequest', async (req, reply) => {
     const path = req.url.split('?')[0];
-    if (path.startsWith('/v1/webhooks/') || PUBLIC.has(path)) return;
+    if (path.startsWith('/v1/webhooks/') || path.startsWith('/v1/fiat/webhooks/') || PUBLIC.has(path)) return;
     const k = req.headers['x-api-key'];
     if (k !== undefined) {
       if (typeof k !== 'string' || !config.API_KEYS.has(k)) return reply.code(401).send({ error: 'No autorizado' });
@@ -128,9 +128,19 @@ await app.register(async (v1) => {
     if (route.startsWith('/v1/auth/')) return; // login/logout ya se registran con más detalle
     // Motivo (cancelaciones, rechazos) a la bitácora; nunca códigos, contraseñas ni el resto del cuerpo
     const reason = (req.body as { reason?: unknown } | undefined)?.reason;
+    const params = (req.params ?? {}) as Record<string, string>;
+    let clientId = params.clientId ?? null;
+    if (!clientId && route === '/v1/console/fiat/accounts/:id/close' && params.id) {
+      try {
+        const { rows: [account] } = await pool.query('SELECT client_id FROM fiat_accounts WHERE id = $1', [params.id]);
+        clientId = account?.client_id ?? null;
+      } catch (e) { req.log.error(e, 'audit_fiat_account_scope'); }
+    }
+    const body = (req.body ?? {}) as { provider?: unknown };
     await audit({ operator_id: p.operator.id, actor: p.operator.email, action: `${req.method} ${route}`,
-      target: Object.values((req.params ?? {}) as Record<string, string>).join(',') || null, status: reply.statusCode, ip: req.ip,
-      metadata: typeof reason === 'string' ? { reason: reason.slice(0, 300) } : {} })
+      target: Object.values(params).join(',') || null, status: reply.statusCode, ip: req.ip, client_id: clientId,
+      metadata: { ...(typeof reason === 'string' ? { reason: reason.slice(0, 300) } : {}),
+        ...(typeof body.provider === 'string' ? { provider: body.provider } : {}) } })
       .catch((e) => req.log.error(e, 'audit_log'));
   });
   // Público: ambiente del despliegue (distintivo «PRUEBAS» en consola y portal, también antes del login)

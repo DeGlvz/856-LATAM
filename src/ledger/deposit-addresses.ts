@@ -81,7 +81,7 @@ export async function getOrCreateDepositAddress(clientId: string, rotate = false
 export async function registerPendingAddresses(n: Net, log: Log) {
   if (!n.webhookId || !config.ALCHEMY_NOTIFY_TOKEN) return;
   const { rows } = await pool.query(
-    `SELECT id, address FROM wallets WHERE purpose IN ('deposit','fiat_treasury') AND derivation_index IS NOT NULL
+    `SELECT id, address FROM wallets WHERE purpose IN ('deposit','fiat_treasury','fiat_client') AND derivation_index IS NOT NULL
        AND NOT webhook_registered AND active AND network = $1 LIMIT 100`, [n.id]);
   if (!rows.length) return;
   try {
