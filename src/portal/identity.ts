@@ -4,7 +4,7 @@ import { createHash, createPublicKey, randomBytes, timingSafeEqual, verify as ed
 import { BlockList, isIP } from 'node:net';
 import { hash, verify } from '@node-rs/argon2';
 import { config } from '../config.js';
-import { pool } from '../db.js';
+import { pool, tx } from '../db.js';
 import { HttpError } from '../idempotency.js';
 import { decryptSecret, encryptSecret, generateSecret, otpauthUrl, verifyCode } from '../auth/totp.js';
 
@@ -251,6 +251,91 @@ export async function updateUser(clientId: string, actor: ClientUser, id: string
   return u;
 }
 
+/** Elimina un usuario únicamente cuando no tiene operaciones financieras abiertas. */
+export async function deleteUser(clientId: string, actor: ClientUser, id: string) {
+  if (id === actor.id) throw new HttpError(409, 'No puede eliminar su propio usuario', 'self_delete');
+  return tx(async (c) => {
+    const { rows: [user] } = await c.query(
+      'SELECT id, email, name, role, active FROM client_users WHERE id = $1 AND client_id = $2 FOR UPDATE',
+      [id, clientId]);
+    if (!user) throw new HttpError(404, 'Usuario no encontrado', 'not_found');
+
+    const { rows: [counts] } = await c.query(
+      `SELECT
+         (SELECT count(*)::int FROM obligations
+           WHERE origin_kind = 'client_user' AND origin_ref = $1
+             AND status IN ('pending_acceptance','open')) AS obligations,
+         (SELECT count(*)::int FROM withdrawals
+           WHERE origin_kind = 'client_user' AND origin_ref = $1
+             AND status IN ('reserved','signed','broadcast')) AS withdrawals,
+         (SELECT count(*)::int FROM fiat_payment_intents
+           WHERE origin_kind = 'client_user' AND origin_ref = $1 AND status = 'open') AS fiat_intents`,
+      [id]);
+    const obligations = Number(counts.obligations);
+    const withdrawals = Number(counts.withdrawals);
+    const fiatIntents = Number(counts.fiat_intents);
+    const pending = obligations + withdrawals + fiatIntents;
+    if (pending) {
+      throw new HttpError(409,
+        `No se puede eliminar: hay operaciones financieras abiertas (obligaciones: ${obligations}, retiros: ${withdrawals}, avisos fiat: ${fiatIntents}).`,
+        'user_has_open_financial_operations');
+    }
+
+    if (user.role === 'admin' && user.active) {
+      const { rows: [admins] } = await c.query(
+        `SELECT count(*)::int AS n FROM client_users WHERE client_id = $1 AND role = 'admin' AND active`,
+        [clientId]);
+      if (admins.n <= 1) throw new HttpError(409, 'El cliente debe conservar al menos un admin activo', 'last_admin');
+    }
+
+    const actorSnapshot = [id, user.email, user.name];
+    await c.query(
+      `UPDATE obligations o SET origin_user_email = $2, origin_user_name = $3
+        WHERE o.origin_kind = 'client_user' AND o.origin_ref = $1 AND o.origin_user_email IS NULL`,
+      actorSnapshot);
+    await c.query(
+      `UPDATE exit_simulations s SET origin_user_email = $2, origin_user_name = $3
+        WHERE s.origin_kind = 'client_user' AND s.origin_ref = $1 AND s.origin_user_email IS NULL`,
+      actorSnapshot);
+    await c.query(
+      `UPDATE withdrawals w SET
+         origin_user_email = CASE WHEN w.origin_kind = 'client_user' AND w.origin_ref = $1 THEN $2 ELSE w.origin_user_email END,
+         origin_user_name = CASE WHEN w.origin_kind = 'client_user' AND w.origin_ref = $1 THEN $3 ELSE w.origin_user_name END,
+         client_approved_by_email = CASE WHEN w.client_approved_by = $1 THEN $2 ELSE w.client_approved_by_email END,
+         client_approved_by_name = CASE WHEN w.client_approved_by = $1 THEN $3 ELSE w.client_approved_by_name END
+       WHERE (w.origin_kind = 'client_user' AND w.origin_ref = $1) OR w.client_approved_by = $1`,
+      actorSnapshot);
+    await c.query(
+      `UPDATE wallets SET
+         wl_requested_by_email = CASE WHEN wl_requested_by = $1 THEN $2 ELSE wl_requested_by_email END,
+         wl_requested_by_name = CASE WHEN wl_requested_by = $1 THEN $3 ELSE wl_requested_by_name END,
+         wl_approved_by_email = CASE WHEN wl_approved_by = $1 THEN $2 ELSE wl_approved_by_email END,
+         wl_approved_by_name = CASE WHEN wl_approved_by = $1 THEN $3 ELSE wl_approved_by_name END
+       WHERE wl_requested_by = $1 OR wl_approved_by = $1`,
+      actorSnapshot);
+    await c.query(
+      `UPDATE client_approval_thresholds SET updated_by_email = $2, updated_by_name = $3
+        WHERE updated_by = $1 AND updated_by_email IS NULL`,
+      actorSnapshot);
+    await c.query(
+      `UPDATE client_api_keys SET created_by_email = $2, created_by_name = $3, revoked_at = COALESCE(revoked_at, now())
+        WHERE created_by = $1 AND created_by_email IS NULL`,
+      actorSnapshot);
+
+    await c.query('UPDATE withdrawals SET client_approved_by = NULL WHERE client_approved_by = $1', [id]);
+    await c.query('UPDATE wallets SET wl_requested_by = NULL WHERE wl_requested_by = $1', [id]);
+    await c.query('UPDATE wallets SET wl_approved_by = NULL WHERE wl_approved_by = $1', [id]);
+    await c.query('UPDATE client_approval_thresholds SET updated_by = NULL WHERE updated_by = $1', [id]);
+    await c.query('UPDATE client_api_keys SET created_by = NULL, revoked_at = COALESCE(revoked_at, now()) WHERE created_by = $1', [id]);
+    await c.query('DELETE FROM client_sessions WHERE user_id = $1', [id]);
+    await c.query('DELETE FROM client_mfa_challenges WHERE user_id = $1', [id]);
+    await c.query('DELETE FROM client_recovery_codes WHERE user_id = $1', [id]);
+    await c.query('DELETE FROM client_key_challenges WHERE user_id = $1', [id]);
+    await c.query('DELETE FROM client_users WHERE id = $1 AND client_id = $2', [id, clientId]);
+    return { id, deleted: true };
+  });
+}
+
 /** Nivel 2 de recuperación: otro admin del cliente restablece el 2FA de un usuario. */
 export async function resetUserTotp(clientId: string, actor: ClientUser, id: string) {
   if (id === actor.id) throw new HttpError(409, 'No puede restablecer su propio 2FA: pídalo a otro admin', 'self_reset');
@@ -341,8 +426,8 @@ export async function createKey(u: ClientUser, k: NewKey, rotatedFrom?: string) 
 export async function listKeys(clientId: string) {
   const { rows } = await pool.query(
     `SELECT k.id, k.name, k.kind, k.prefix, k.permissions, k.ip_allowlist, k.expires_at, k.rotated_from, k.last_used_at, k.last_used_ip,
-            k.revoked_at, k.locked_until, k.created_at, u.email AS created_by
-       FROM client_api_keys k JOIN client_users u ON u.id = k.created_by WHERE k.client_id = $1 ORDER BY k.created_at DESC`, [clientId]);
+            k.revoked_at, k.locked_until, k.created_at, COALESCE(u.email, k.created_by_email) AS created_by
+       FROM client_api_keys k LEFT JOIN client_users u ON u.id = k.created_by WHERE k.client_id = $1 ORDER BY k.created_at DESC`, [clientId]);
   return rows;
 }
 

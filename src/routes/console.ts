@@ -296,9 +296,9 @@ export async function consoleRoutes(app: FastifyInstance) {
                 -- Fase 3: salida originada por el cliente (simulación, origen, aprobación interna y autorización 1 o 2 tesoreros)
                 w.simulation_id, w.scope_hash, w.origin_kind, w.validation_due_at,
                 (w.validation_due_at IS NOT NULL AND w.validation_due_at < now()) AS overdue,
-                CASE WHEN w.origin_kind = 'client_user' THEN (SELECT u.name || ' <' || u.email || '>' FROM client_users u WHERE u.id::text = w.origin_ref)
+                CASE WHEN w.origin_kind = 'client_user' THEN COALESCE((SELECT u.name || ' <' || u.email || '>' FROM client_users u WHERE u.id::text = w.origin_ref), w.origin_user_name || ' <' || w.origin_user_email || '>')
                      WHEN w.origin_kind = 'client_key' THEN 'Llave ' || w.origin_ref ELSE w.origin_ref END AS origin_label,
-                (SELECT u.name FROM client_users u WHERE u.id = w.client_approved_by) AS client_approver, w.client_approved_at,
+                COALESCE((SELECT u.name FROM client_users u WHERE u.id = w.client_approved_by), w.client_approved_by_name) AS client_approver, w.client_approved_at,
                 wl.label AS wl_label, wl.active_from AS wl_active_from,
                 s.available::text AS sim_available, s.balance_after::text AS sim_balance_after, s.payable_open::text AS sim_payable_open,
                 s.fee::text AS sim_fee, s.created_at AS simulated_at

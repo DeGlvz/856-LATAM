@@ -222,6 +222,11 @@ export async function portalRoutes(app: FastifyInstance) {
     const b = parse(z.object({ role: role.optional(), active: z.boolean().optional() }).refine((v) => v.role || v.active !== undefined, 'nada que cambiar'), req.body);
     return P.updateUser(u.client_id, u, parse(uuid, req.params.id), b);
   });
+  app.delete<{ Params: { id: string } }>('/users/:id', async (req) => {
+    const u = requireRole(req, 'admin');
+    parse(z.object({ confirm: z.literal(true) }), req.body);
+    return P.deleteUser(u.client_id, u, parse(uuid, req.params.id));
+  });
   app.post<{ Params: { id: string } }>('/users/:id/totp/reset', async (req) => {
     const u = requireRole(req, 'admin');
     parse(z.object({ reason: z.string().trim().min(5, 'Indique el motivo (mín. 5 caracteres)').max(300) }), req.body ?? {});
