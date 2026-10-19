@@ -24,7 +24,7 @@ export function ClientAssetsCard({ clientId, disabled }: { clientId: string; dis
   const q = useQuery({ queryKey: ['client-assets', clientId], queryFn: () => api<{ assets: ClientAssetRow[] }>(`/clients/${clientId}/assets`).then((r) => r.assets) });
   const [edit, setEdit] = useState<{ a: ClientAssetRow; to: ClientAssetStatus } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
-  const [bulkEdit, setBulkEdit] = useState<ClientAssetRow[] | null>(null);
+  const [bulkEdit, setBulkEdit] = useState<{ assets: ClientAssetRow[]; group?: string } | null>(null);
   const groups = useMemo(() => {
     const m = new Map<string, ClientAssetRow[]>();
     for (const a of q.data ?? []) m.set(a.network, [...(m.get(a.network) ?? []), a]);
@@ -53,7 +53,7 @@ export function ClientAssetsCard({ clientId, disabled }: { clientId: string; dis
             <span className="text-sm">{selected.size} activo(s) seleccionado(s)</span>
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => setSelected(new Set())}>Quitar selección</Button>
-              <Button size="sm" onClick={() => setBulkEdit((q.data ?? []).filter((a) => selected.has(a.asset_id)))}>
+              <Button size="sm" onClick={() => setBulkEdit({ assets: (q.data ?? []).filter((a) => selected.has(a.asset_id)) })}>
                 Editar selección
               </Button>
             </div>
@@ -65,6 +65,13 @@ export function ClientAssetsCard({ clientId, disabled }: { clientId: string; dis
             <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
               <span>{nets.label(network)}</span><span className="font-mono">{network}</span>
               {!rows[0].network_enabled && <Badge variant="outline">Red no encendida</Badge>}
+              {canEdit && rows.some((a) => tes || !a.pending_request) && (
+                <Button variant="outline" size="sm" className="h-7 text-xs"
+                  aria-label={`Editar activos de ${nets.label(network)}`}
+                  onClick={() => setBulkEdit({ assets: rows.filter((a) => tes || !a.pending_request), group: nets.label(network) })}>
+                  Editar grupo
+                </Button>
+              )}
               {canEdit && <label className="ml-auto flex items-center gap-1.5">
                 <input type="checkbox" aria-label={`Seleccionar activos de ${nets.label(network)}`} className="size-4 accent-primary"
                   checked={rows.filter((a) => tes || !a.pending_request).length > 0 && rows.filter((a) => tes || !a.pending_request).every((a) => selected.has(a.asset_id))}
@@ -107,14 +114,14 @@ export function ClientAssetsCard({ clientId, disabled }: { clientId: string; dis
         ))}
       </CardContent>
       <ChangeDialog clientId={clientId} edit={edit} direct={tes} onClose={() => setEdit(null)} />
-      <BulkChangeDialog clientId={clientId} assets={bulkEdit} direct={tes}
+      <BulkChangeDialog clientId={clientId} assets={bulkEdit?.assets ?? null} group={bulkEdit?.group} direct={tes}
         onClose={() => setBulkEdit(null)} onSuccess={() => setSelected(new Set())} />
     </Card>
   );
 }
 
-function BulkChangeDialog({ clientId, assets, direct, onClose, onSuccess }: {
-  clientId: string; assets: ClientAssetRow[] | null; direct: boolean; onClose: () => void; onSuccess: () => void;
+function BulkChangeDialog({ clientId, assets, group, direct, onClose, onSuccess }: {
+  clientId: string; assets: ClientAssetRow[] | null; group?: string; direct: boolean; onClose: () => void; onSuccess: () => void;
 }) {
   const qc = useQueryClient();
   const [to, setTo] = useState<ClientAssetStatus>('enabled');
@@ -135,9 +142,11 @@ function BulkChangeDialog({ clientId, assets, direct, onClose, onSuccess }: {
     <Dialog open onOpenChange={(v) => { if (!v) { m.reset(); setCode(''); setReason(''); setTo('enabled'); onClose(); } }}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{direct ? 'Editar activos seleccionados' : 'Solicitar cambio masivo'}</DialogTitle>
+          <DialogTitle>{group
+            ? direct ? `Editar activos de ${group}` : `Solicitar cambio para ${group}`
+            : direct ? 'Editar activos seleccionados' : 'Solicitar cambio masivo'}</DialogTitle>
           <DialogDescription>
-            Cambiarán {changed.length} de {assets.length} activos seleccionados: {changed.map((a) => a.asset_id).join(', ') || 'ninguno; todos ya tienen ese estado'}.{' '}
+            Cambiarán {changed.length} de {assets.length} activos {group ? `del grupo ${group}` : 'seleccionados'}: {changed.map((a) => a.asset_id).join(', ') || 'ninguno; todos ya tienen ese estado'}.{' '}
             {direct ? 'El cambio se aplica completo o no se aplica.' : 'Se enviará una solicitud por activo para aprobación del tesorero.'}
             {to === 'disabled' && ' Solo se deshabilitan activos sin saldo ni operaciones abiertas.'}
             {to === 'exit_only' && ' El cliente podrá retirar o compensar, pero no recibir depósitos nuevos.'}

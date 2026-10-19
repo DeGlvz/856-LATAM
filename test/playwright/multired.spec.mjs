@@ -91,7 +91,7 @@ test('tablero: una fila por red encendida', async ({ page }) => {
   await shot(page, 'tablero');
 });
 
-test('activos del cliente: redes por defecto y el Tesorero pasa uno a «Solo salida» con 2FA', async ({ page }) => {
+test('activos del cliente: edición individual y por red conservan 2FA', async ({ page }) => {
   await consoleLogin(page, TES);
   await page.goto(`/console/clientes/${A.id}`);
   const card = page.locator('[data-section="client-assets"]');
@@ -106,6 +106,14 @@ test('activos del cliente: redes por defecto y el Tesorero pasa uno a «Solo sal
   await dlg.getByLabel('Código 2FA para cambiar el activo').fill(await TES.otp.next());
   await dlg.getByRole('button', { name: 'Aplicar' }).click();
   await expect(card.locator('[data-asset="ETH-BASE-SEPOLIA"]')).toContainText('Solo salida');
+  await card.getByRole('button', { name: 'Editar activos de Base Sepolia' }).click();
+  const group = page.getByRole('dialog');
+  await expect(group).toContainText('Editar activos de Base Sepolia');
+  await expect(group).toContainText('del grupo Base Sepolia');
+  await group.getByLabel('Nuevo estado para los activos seleccionados').selectOption('exit_only');
+  await group.getByLabel('Código 2FA para cambiar los activos seleccionados').fill(await TES.otp.next());
+  await group.getByRole('button', { name: 'Aplicar a todos' }).click();
+  await expect(card.locator('[data-asset="USDC-BASE-SEPOLIA"]')).toContainText('Solo salida');
   for (const id of ['USDC-ARB-SEPOLIA', 'USDC-AMOY']) {
     await card.getByLabel(`Seleccionar activo ${id}`).check();
   }
