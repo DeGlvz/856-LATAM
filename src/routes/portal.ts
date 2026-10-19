@@ -26,7 +26,7 @@ const code6 = z.string().regex(/^\d{6}$/, 'código de 6 dígitos');
 const role = z.enum(['viewer', 'operator', 'approver', 'admin']);
 
 // Rutas sin sesión
-const PUBLIC = new Set(['/v1/portal/auth/login', '/v1/portal/auth/login/totp', '/v1/portal/auth/assist', '/v1/portal/invites/lookup', '/v1/portal/invites/accept']);
+const PUBLIC = new Set(['/v1/portal/auth/login', '/v1/portal/auth/login/totp', '/v1/portal/auth/assist', '/v1/portal/invites/lookup', '/v1/portal/invites/accept', '/v1/portal/password-reset/lookup', '/v1/portal/password-reset/accept']);
 // Rutas que aceptan llave de API (fase 1: identidad; fase 2: lectura de saldos y cuentas); el resto exige sesión de usuario
 const KEY_ROUTES = new Set(['GET /v1/portal/me', 'GET /v1/portal/ping', ...ACCOUNT_KEY_ROUTES, ...EXIT_KEY_READ, ...EXIT_KEY_WRITE,
   ...OBLIGATION_KEY_READ, ...OBLIGATION_KEY_WRITE, ...FIAT_KEY_READ, ...FIAT_KEY_WRITE]);
@@ -208,6 +208,13 @@ export async function portalRoutes(app: FastifyInstance) {
   });
 
   // ───────────── Usuarios del cliente (admin) ─────────────
+  app.post('/password-reset/lookup', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req) => P.lookupPasswordReset(parse(Token, req.body).token));
+  app.post('/password-reset/accept', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req) => {
+    const b = parse(Token.extend({ password: z.string().min(1).max(200) }), req.body);
+    const r = await P.acceptPasswordReset(b.token, b.password);
+    await audit({ actor: `portal:${r.email}`, action: 'portal_password_reset_completed', status: 200, ip: req.ip, client_id: r.client_id, metadata: {} });
+    return { ok: true };
+  });
   app.get('/users', async (req) => ({ users: await P.listUsers(requireRole(req, 'admin').client_id) }));
   app.get('/users/invites', async (req) => ({ invites: await P.listInvites(requireRole(req, 'admin').client_id) }));
   app.post('/users/invites', async (req, reply) => {

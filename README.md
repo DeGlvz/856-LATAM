@@ -223,7 +223,7 @@ Prueba: `node test/gas-bump.e2e.mjs` (cadena local con minado manual; API con `G
 ### Portal de clientes — fase 1: identidad, usuarios y llaves de API
 Portal web en `/portal` (separado de la consola: otra cookie, otra cabecera anti-CSRF, otros hooks) y API en `/v1/portal`. **El `client_id` nunca viaja en la petición**: sale de la sesión o de la llave; acceder a datos de otro cliente responde `404`.
 
-**Alta:** 856 solo invita al **primer admin** desde la consola (detalle del cliente → *Portal del cliente* → *Invitar primer admin*, rol tesorero). El enlace (`/portal/invitacion#<token>`, 72 h, un solo uso) se muestra una vez; el token va en el fragmento y nunca llega al servidor en la URL. Después, el admin del cliente invita y administra a su gente.
+**Alta:** desde la consola (detalle del cliente → *Portal del cliente*, rol tesorero) se puede *Invitar admin* en cualquier momento, *Reenviar* una invitación vigente (revoca la anterior y genera enlace nuevo) y, por usuario, restablecer **contraseña** (enlace `/portal/restablecer#<token>`, 24 h, un solo uso; al usarlo se cierran las sesiones) o **2FA**. Los enlaces (`/portal/invitacion#<token>`, 72 h, un solo uso) se muestran una vez; el token va en el fragmento y nunca llega al servidor en la URL. Todas las acciones quedan en auditoría.
 
 | Rol | Puede | 2FA |
 |---|---|---|
@@ -252,6 +252,7 @@ Portal web en `/portal` (separado de la consola: otra cookie, otra cabecera anti
 | `GET /v1/portal/users/invites` · `POST /users/invites` · `POST /users/invites/:id/revoke` | Invitaciones (admin) |
 | `GET /v1/portal/keys` · `POST /keys/challenge` · `POST /keys` · `POST /keys/:id/rotate` · `POST /keys/:id/revoke` | Llaves (admin) |
 | `GET /v1/clients/:id/portal` · `POST /v1/clients/:id/portal-invite` | Consola: estado del portal e invitación del primer admin |
+| `GET /v1/clients/:id/portal/users` · `POST …/portal/invites` · `POST …/portal/invites/:inviteId/resend` · `POST …/portal/users/:userId/password-reset` · `POST …/portal/users/:userId/totp-reset` | Consola (tesorero): usuarios e invitaciones, reenvío, restablecer contraseña y 2FA |
 
 Toda petición del portal queda en `audit_log` con `client_id` (actor `portal:<correo>` o `llave:<prefijo>`). Migración `011_portal_identidad`.
 
