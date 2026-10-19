@@ -572,16 +572,24 @@ Pruebas: `bash test/smoke.sh` (libro), `bash test/netting.sh` (compensación), `
 
 ## Local
 ```bash
-cp .env.example .env   # completar ALCHEMY_API_KEY, API_KEYS y DATABASE_URL
-npm i && npm run dev
+cp .env.example .env   # completar las variables requeridas; usar credenciales de prueba
+npm ci
+npm run dev            # API en http://localhost:8080
+# En otra terminal:
+npm --prefix web ci
+npm --prefix web run dev
 curl -H 'x-api-key: clave-cliente-1' localhost:8080/v1/block/latest
 ```
+Requisitos: Node.js 20 o superior (el CI y Docker usan Node 22), npm y PostgreSQL accesible mediante `DATABASE_URL`. La API también necesita `ALCHEMY_API_KEY` y `API_KEYS`; usa `COOKIE_SECURE=false` para la consola local en HTTP. Vite sirve la consola y reenvía las rutas `/v1` a la API. `npm run build` compila la API, `npm run build:web` compila la consola y `npm test` compila la API y ejecuta las pruebas unitarias sin conectarse a PostgreSQL ni a proveedores externos. Las pruebas `*.e2e.mjs` y Playwright requieren una API/base de datos configuradas y, según el recorrido, servicios de cadena, credenciales o navegador; no forman parte de la barrera CI.
 
 ## Despliegue en Akash
+El workflow publica la imagen en `ghcr.io/deglvz/cripto-api` solo después de pasar la compilación y las pruebas: `:sha-<commit-completo>` es inmutable, `:main` sigue el branch y `:latest` se actualiza en pushes a `main`. Para un despliegue reproducible, copia el tag `sha-...` del workflow exitoso y reemplaza `latest` en `deploy.yaml` por ese tag antes de crear o actualizar el deployment. Revisa el SDL y las variables en Akash manualmente; este repositorio no despliega en Akash ni en producción de forma automática. No guardes credenciales reales en el repositorio.
+
 ```bash
-docker build -t ghcr.io/TU_USUARIO/cripto-api:1.0.0 .
-docker push ghcr.io/TU_USUARIO/cripto-api:1.0.0
-# Editar deploy.yaml (imagen + variables) y desplegar desde console.akash.network
+# Para probar una compilación local (no sustituye el tag SHA publicado):
+docker build -t cripto-api:local .
+# Editar deploy.yaml: fijar la imagen al tag SHA validado y revisar las variables.
+# Desplegar manualmente desde console.akash.network
 # o con: provider-services tx deployment create deploy.yaml --from <wallet>
 ```
 Después, en Alchemy → Webhooks, apuntar a `https://<uri-akash>/v1/webhooks/alchemy` y copiar el *signing key*.

@@ -3,7 +3,7 @@
 version: "2.0"
 services:
   api:
-    image: ghcr.io/TU_USUARIO/cripto-api:1.0.0
+    image: ghcr.io/deglvz/cripto-api:latest
     env:
       - PORT=8080
       - ALCHEMY_NETWORK=eth-sepolia
