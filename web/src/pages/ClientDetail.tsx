@@ -185,7 +185,7 @@ export function ClientDetail() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6">
         {/* Direcciones de depósito */}
         <Card data-section="client-deposit-addresses">
           <CardHeader>
