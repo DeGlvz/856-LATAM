@@ -9,7 +9,7 @@ import { pool } from '../db.js';
 import { HttpError } from '../idempotency.js';
 import { hotWalletStatus, treasurersWith2fa } from '../ledger/transfers.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
-import { setWalletActive, updateClient } from '../ledger/clients.js';
+import { retireClient, setWalletActive, updateClient } from '../ledger/clients.js';
 import { hasRole } from '../auth/operators.js';
 import { inviteFirstAdmin, portalStatus } from '../portal/identity.js';
 import { issueAssistToken } from '../portal/assist.js';
@@ -262,6 +262,14 @@ export async function consoleRoutes(app: FastifyInstance) {
       throw new HttpError(403, 'Cerrar un cliente requiere rol tesorero', 'forbidden');
     }
     return updateClient(parse(uuid, req.params.id), { ...body, external_id: body.external_id === '' ? null : body.external_id });
+  });
+  app.post<{ Params: { id: string } }>('/clients/:id/retire', async (req) => {
+    const { reason } = parse(z.object({ reason: z.string().trim().min(5).max(500) }), req.body);
+    const p = req.principal;
+    if (p?.kind === 'operator' && !hasRole(p.operator.role, 'tesorero')) {
+      throw new HttpError(403, 'Retirar un cliente requiere rol tesorero', 'forbidden');
+    }
+    return retireClient(parse(uuid, req.params.id), { reason, by: p?.kind === 'operator' ? p.operator.email : 'api' });
   });
 
   // Activar/desactivar una dirección de lista blanca o de depósito (no se borran: quedan en el historial)

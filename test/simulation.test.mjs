@@ -10,6 +10,7 @@ const { rollbackOnly, simulationFingerprint, simulationResult } = await import('
 const { canonical, verifyCanonicalSignature } = await import('../dist/portal/identity.js');
 const { toBaseUnits } = await import('../dist/portal/obligations.js');
 const { sendClientFiatActivation } = await import('../dist/routes/fiat.js');
+const { summarizeClientRetirement } = await import('../dist/ledger/clients.js');
 
 test('dry-run transaction always rolls back and never commits', async () => {
   const statements = [];
@@ -65,6 +66,49 @@ test('fingerprint is SHA-256 and simulated adapters are visibly synthetic', () =
   assert.equal(result.emulation.webhook.status, 'processed');
   assert.match(result.emulation.wallet, /^0x[0-9a-f]{40}$/);
   assert.match(result.emulation.iban, /^ZZ00SIMU[A-F0-9]{12}$/);
+});
+
+test('client retirement summary blocks open financial flows and preserves audit history', () => {
+  const blocked = summarizeClientRetirement({
+    balance_accounts: 2,
+    balance_total: '100.00',
+    obligations: 1,
+    withdrawals: 1,
+    deposits: 0,
+    fiat_accounts: 1,
+    fiat_deposits: 2,
+    fiat_intents: 1,
+    accounts: 3,
+    wallets: 1,
+    audit_entries: 5,
+    withdrawals_history: 4,
+    deposits_history: 2,
+    obligations_history: 3,
+  });
+  assert.ok(blocked.open_reasons.includes('saldo'));
+  assert.ok(blocked.open_reasons.includes('obligaciones'));
+  assert.equal(blocked.has_financial_history, true);
+  assert.equal(blocked.has_audit_history, true);
+  assert.equal(blocked.can_hard_delete, false);
+
+  const safe = summarizeClientRetirement({
+    balance_accounts: 0,
+    balance_total: '0',
+    obligations: 0,
+    withdrawals: 0,
+    deposits: 0,
+    fiat_accounts: 0,
+    fiat_deposits: 0,
+    fiat_intents: 0,
+    accounts: 0,
+    wallets: 0,
+    audit_entries: 0,
+    withdrawals_history: 0,
+    deposits_history: 0,
+    obligations_history: 0,
+  });
+  assert.deepEqual(safe.open_reasons, []);
+  assert.equal(safe.can_hard_delete, true);
 });
 
 test('fiat activation responds HTTP 200 when no simulation audit event exists', () => {
