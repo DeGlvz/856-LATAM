@@ -474,9 +474,9 @@ function StatusDialog({ client, open, onOpenChange, onSaved }: { client: TClient
           <DialogTitle>Cambiar estado</DialogTitle>
           <DialogDescription>Estado actual: {CLIENT_STATUS[client.status].label}. Suspender bloquea retiros, transferencias y pagos; cerrar es definitivo y exige saldos en cero.</DialogDescription>
         </DialogHeader>
-        <form className="grid gap-4"         onSubmit={(e) => { e.preventDefault(); if (mustHaveReason && reasonShort) return; submit(); }}>
+        <form className="grid gap-4" onSubmit={(e) => { e.preventDefault(); if (mustHaveReason && reasonShort) return; submit(); }}>
           <Field label="Nuevo estado" htmlFor="st-new">
-                    <Select id="st-new" value={status} disabled={retireMode} onChange={(e) => setStatus(e.target.value as ClientStatus)}>
+            <Select id="st-new" value={status} disabled={retireMode} onChange={(e) => setStatus(e.target.value as ClientStatus)}>
               {options.map((s) => <option key={s} value={s}>{CLIENT_STATUS[s].label}</option>)}
             </Select>
           </Field>
@@ -501,7 +501,7 @@ function StatusDialog({ client, open, onOpenChange, onSaved }: { client: TClient
           <ErrorBox error={m.error ?? retire.error} />
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-            <Button type="submit"             variant={needsReason || retireMode ? 'destructive' : 'default'} disabled={(!retireMode && !status) || pending || (mustHaveReason && reasonShort)}>
+            <Button             type="submit" variant={needsReason || retireMode ? 'destructive' : 'default'} disabled={(!retireMode && !status) || pending || (mustHaveReason && reasonShort)}>
                           {pending && <Loader2 className="animate-spin" />}{retireMode ? 'Retirar cliente' : 'Confirmar'}
             </Button>
           </DialogFooter>
