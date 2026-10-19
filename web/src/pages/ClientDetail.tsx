@@ -185,9 +185,8 @@ export function ClientDetail() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Direcciones de depósito */}
-        <Card data-section="client-deposit-addresses">
+      {/* Direcciones de depósito */}
+      <Card data-section="client-deposit-addresses">
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><WalletIcon className="size-4" />Direcciones de depósito</CardTitle>
             <CardDescription>Derivadas (HD) de la semilla de la plataforma; solo se muestran en redes con activos habilitados para recibir.</CardDescription>
@@ -261,12 +260,12 @@ export function ClientDetail() {
               </div>
             )}
           </CardContent>
-        </Card>
+      </Card>
 
+      <div className="grid gap-6 lg:grid-cols-2">
         <WhitelistCard clientId={c.id} network={network} wallets={whitelist} loading={wallets.isPending} explorer={explorer} disabled={closed} onChange={refresh} />
+        <PortalCard clientId={c.id} disabled={closed} />
       </div>
-
-      <PortalCard clientId={c.id} disabled={closed} />
 
       <ClientAssetsCard clientId={c.id} disabled={closed} />
 
