@@ -348,11 +348,21 @@ Pruebas: `ORIGIN_RULE=enforce` + `node test/portal-fase3.e2e.mjs` (regla de orig
 - El worker vence las aceptaciones fuera de plazo; cada lectura o decisión del portal también lo hace, salvo las lecturas de asistencia, estrictamente de solo lectura.
 
 ### Consola — asistencia de solo lectura («Ver como cliente»)
-Ejecutivos y tesoreros pueden abrir el portal del cliente en una pestaña separada desde la lista o el perfil del cliente. `POST /v1/console/clients/:id/assist-token` exige sesión de consola y `x-856-console: 1`; emite un token de un solo canje con alcance `read_only` y vigencia máxima de 10 minutos. La bitácora inmutable registra `client_impersonation_initiated`, el operador, el cliente, el resultado y el origen de la acción.
+Ejecutivos y tesoreros pueden abrir el portal en una pestaña separada desde la lista o el perfil del cliente. El flujo no reutiliza la sesión ni las cookies del cliente: la pestaña mantiene una credencial de asistencia separada en `sessionStorage`, y las peticiones de asistencia omiten cookies. El `client_id` se obtiene del principal autenticado, nunca de parámetros enviados por el navegador. La asistencia no cambia `ORIGIN_RULE=enforce` ni habilita acciones de origen del cliente.
 
-El portal canjea el enlace en `GET /v1/portal/auth/assist?token=ast_...` por una credencial aislada en `sessionStorage`; no usa ni modifica cookies de consola o de cliente. Las consultas toman el `client_id` del principal de asistencia y aceptan solo `GET`/`HEAD`. Cualquier otro método recibe `403 operation_not_allowed_in_assist_mode` antes de ejecutar la ruta, sin mutar el libro ni datos del cliente. La interfaz presenta el aviso de asistencia y deshabilita los controles de acción. Al salir o cerrar la pestaña el navegador intenta revocar la sesión; aunque el cierre abrupto de un proceso no permite garantizar que ese aviso llegue al servidor, el vencimiento en base de datos limita la credencial a 10 minutos.
+| Método y ruta | Quién | Uso |
+|---|---|---|
+| `POST /v1/console/clients/:id/assist-token` `{origin: "client_list" or "client_detail"}` | Sesión de consola, rol `ejecutivo` o `tesorero`, `x-856-console: 1` | Emite `{token, expires_at}`; token `ast_` de un solo canje y máximo 10 minutos |
+| `GET /v1/portal/auth/assist?token=ast_...` | Token de asistencia | Canjea una vez el enlace por una credencial `asr_`, con el mismo vencimiento |
+| `GET /v1/portal/auth/assist/close` con `x-856-assist-token: asr_...` | Sesión de asistencia | Revoca la credencial al salir o al cerrar la pestaña (intento best-effort del navegador) |
+| `GET` / `HEAD` en rutas de consulta del portal | Sesión de asistencia | Consulta únicamente los datos del cliente ligado al token; la ruta `auth/assist/close` es la excepción de control de sesión |
+| Cualquier otro método HTTP en rutas del portal | Sesión de asistencia | `403 operation_not_allowed_in_assist_mode`; se rechaza antes de ejecutar la ruta |
 
-Prueba E2E: `ORIGIN_RULE=enforce BASE KEY DATABASE_URL node test/client-assist.e2e.mjs` (lecturas de balances, movimientos y obligaciones; POST/PATCH bloqueados; balance y postings intactos; auditoría y revocación).
+Los tokens se guardan como SHA-256 en PostgreSQL; el vencimiento se comprueba en cada petición y es el límite garantizado de la sesión. El navegador intenta revocar al salir o cerrar la pestaña, pero el cierre abrupto puede impedir que llegue el aviso. La bitácora inmutable registra `client_impersonation_initiated`, el actor `console:<correo>`, el cliente, `success`/`denied` y el origen del inicio. Los rechazos de escritura del portal también quedan auditados con el cliente y el actor operador. La interfaz muestra el banner de asistencia y deshabilita controles de acción; la API sigue siendo la protección autoritativa.
+
+La consulta de obligaciones del portal (`GET /v1/portal/obligations`) cubre la vista de obligaciones/facturación existente; el sistema no tiene un recurso o endpoint independiente de facturas. También se pueden consultar balances, movimientos, estados de cuenta, depósitos y demás rutas `GET` del portal bajo el mismo contexto y las mismas restricciones.
+
+Prueba E2E: `ORIGIN_RULE=enforce BASE KEY DATABASE_URL node test/client-assist.e2e.mjs` (roles permitidos/denegados, emisión/canje único, balances, movimientos, estado de cuenta y obligaciones, POST/PATCH bloqueados, balance y postings intactos, auditoría y revocación).
 
 | Método y ruta (`/v1/portal`) | Quién | Uso |
 |---|---|---|
