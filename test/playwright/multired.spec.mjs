@@ -18,7 +18,7 @@ const PW = 'clave-multired-pw-1';
 const DEST = '0x' + randomBytes(20).toString('hex');
 const TES = { email: `pw-mr-tes-${R}@ejemplo.mx`, ip: `${IP}.20` };
 const EJE = { email: `pw-mr-eje-${R}@ejemplo.mx`, ip: `${IP}.21` };
-let A, adm;
+let A, adm, baseWalletId;
 
 test.describe.configure({ mode: 'serial' });
 const shot = async (page, name) => { if (SHOTS) await page.screenshot({ path: `${SHOTS}/mr-${name}.png`, fullPage: true }); };
@@ -92,7 +92,9 @@ test('tablero: una fila por red encendida', async ({ page }) => {
 });
 
 test('activos del cliente: edición individual y por red conservan 2FA', async ({ page }) => {
-  await api('POST', `/v1/clients/${A.id}/deposit-address`, { network: 'base-sepolia' });
+  const oldWallet = await api('POST', `/v1/clients/${A.id}/deposit-address`, { network: 'base-sepolia' });
+  baseWalletId = oldWallet.wallet_id;
+  const unusedWallet = await api('POST', `/v1/clients/${A.id}/deposit-address`, { network: 'base-sepolia', rotate: true });
   await consoleLogin(page, TES);
   await page.goto(`/console/clientes/${A.id}`);
   const card = page.locator('[data-section="client-assets"]');
@@ -100,6 +102,16 @@ test('activos del cliente: edición individual y por red conservan 2FA', async (
   await expect(card).toContainText('Activos habilitados');
   await expect(card.locator('[data-wallet-visibility="base-sepolia"]')).toHaveText('Billetera visible');
   await expect(addressCard.locator('[data-address-network="base-sepolia"]')).toBeVisible();
+  const unusedRow = addressCard.locator(`[data-wallet="${unusedWallet.wallet_id}"]`);
+  await expect(unusedRow).toContainText('Sin movimientos');
+  await unusedRow.getByRole('button', { name: 'Eliminar' }).click();
+  const deleteWallet = page.getByRole('dialog');
+  await deleteWallet.getByLabel('Código 2FA para administrar la dirección').fill(await TES.otp.next());
+  await deleteWallet.getByRole('button', { name: 'Eliminar permanentemente' }).click();
+  await expect(unusedRow).toHaveCount(0);
+  const retainedWallet = addressCard.locator(`[data-wallet="${oldWallet.wallet_id}"]`);
+  await expect(retainedWallet).toBeVisible();
+  await expect(retainedWallet.getByRole('button', { name: 'Eliminar' })).toBeDisabled();
   for (const id of ['USDC-ETH-SEPOLIA', 'USDC-BASE-SEPOLIA', 'USDC-ARB-SEPOLIA', 'USDC-AMOY', 'BNB-TESTNET']) {
     await expect(card.locator(`[data-asset="${id}"]`)).toContainText('Habilitado');
   }
@@ -186,6 +198,20 @@ test('depósito en revisión: el Tesorero lo acredita con 2FA', async ({ page })
   await expect(row).toHaveCount(0);
   expect(sql(`SELECT status || ' ' || released_by FROM deposits WHERE tx_hash = '${tx}'`)).toBe(`credited ${TES.email}`);
   await api('PUT', `/v1/clients/${A.id}/assets/USDC-BASE-SEPOLIA`, { status: 'exit_only' });
+  await page.goto(`/console/clientes/${A.id}`);
+  const addressCard = page.locator('[data-section="client-deposit-addresses"]');
+  const walletId = baseWalletId;
+  const usedWallet = addressCard.locator(`[data-wallet="${walletId}"]`);
+  await expect(usedWallet).toContainText('Con movimientos');
+  await usedWallet.getByRole('button', { name: 'Archivar' }).click();
+  const archiveWallet = page.getByRole('dialog');
+  await expect(archiveWallet).toContainText('seguirá monitoreándose');
+  await archiveWallet.getByLabel('Código 2FA para administrar la dirección').fill(await TES.otp.next());
+  await archiveWallet.getByRole('button', { name: 'Archivar' }).click();
+  await expect(usedWallet).toHaveCount(0);
+  await addressCard.getByRole('button', { name: 'Mostrar archivadas (1)' }).click();
+  await expect(addressCard.locator(`[data-wallet-archived="${walletId}"]`)).toContainText('Archivada');
+  expect(sql(`SELECT active::text || ' ' || (archived_at IS NOT NULL)::text FROM wallets WHERE id = '${walletId}'`)).toBe('true true');
 });
 
 test('portal: «Solo salida», dirección por red y lista blanca con red', async ({ page }) => {

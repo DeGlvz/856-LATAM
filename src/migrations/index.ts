@@ -17,6 +17,7 @@ import m015 from './015_multired.js';
 import m016 from './016_fiat_entrada.js';
 import m017 from './017_fiat_per_client.js';
 import m018 from './018_client_assistance.js';
+import m019 from './019_deposit_wallet_archive.js';
 
 // Migraciones embebidas en el build (no hay archivos .sql que copiar al contenedor).
 // Nunca editar una ya aplicada: agregar una nueva.
@@ -39,6 +40,7 @@ const migrations: [string, string][] = [
   ['016_fiat_entrada', m016],
   ['017_fiat_per_client', m017],
   ['018_client_assistance', m018],
+  ['019_deposit_wallet_archive', m019],
 ];
 
 export async function migrate(pool: Pool, log: (msg: string) => void = console.log) {

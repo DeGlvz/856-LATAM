@@ -85,6 +85,7 @@ export interface Wallet {
   id: string; client_id: string | null; chain: string; network: string; address: string;
   purpose: 'master_hot' | 'master_cold' | 'deposit' | 'withdrawal_whitelist';
   derivation_index: number | null; webhook_registered: boolean; label: string | null; active: boolean; created_at: string;
+  archived_at?: string | null; archived_by?: string | null; has_activity?: boolean;
   wl_status?: 'pending_approval' | 'active' | 'removed' | null; active_from?: string | null;
 }
 export interface PostingLine {

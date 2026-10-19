@@ -145,8 +145,12 @@ export async function registerWallet(w: {
 
 export async function listWallets(filter: { client_id?: string; network?: string }) {
   const { rows } = await pool.query(
-    `SELECT * FROM wallets WHERE ($1::uuid IS NULL OR client_id = $1) AND ($2::text IS NULL OR network = $2)
-     ORDER BY created_at`,
+    `SELECT w.*,
+            (EXISTS (SELECT 1 FROM deposits d WHERE d.wallet_id = w.id)
+             OR EXISTS (SELECT 1 FROM sweeps s WHERE s.wallet_id = w.id)) AS has_activity
+       FROM wallets w
+      WHERE ($1::uuid IS NULL OR w.client_id = $1) AND ($2::text IS NULL OR w.network = $2)
+      ORDER BY w.created_at`,
     [filter.client_id ?? null, filter.network ?? null],
   );
   return rows;
