@@ -313,7 +313,7 @@ export async function listDeposits(clientId: string, f: { status?: string; limit
 // ═════════════ 7. Avisos ═════════════
 export interface Notice { code: string; severity: 'info' | 'warning' | 'critical'; message: string; data?: Record<string, unknown> }
 
-export async function notices(clientId: string, user?: { totp_enabled: boolean }) {
+export async function notices(clientId: string, user?: { totp_enabled: boolean }, allowExpiry = true) {
   const out: Notice[] = [];
   const { rows: [cl] } = await pool.query('SELECT status FROM clients WHERE id = $1', [clientId]);
   if (cl?.status === 'pending_kyb') {
@@ -338,6 +338,6 @@ export async function notices(clientId: string, user?: { totp_enabled: boolean }
   if (user && !user.totp_enabled) {
     out.push({ code: 'totp_disabled', severity: 'warning', message: 'Active la verificación en dos pasos (2FA) en su usuario' });
   }
-  out.push(...(await obligationNotices(clientId)));
+  out.push(...(await obligationNotices(clientId, allowExpiry)));
   return { notices: out };
 }

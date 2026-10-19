@@ -124,6 +124,7 @@ export function originOf(p: PortalPrincipal): Origin {
     if (!roleAtLeast(p.user.role, 'operator')) throw new HttpError(403, 'Requiere rol operator para originar salidas', 'forbidden');
     return { kind: 'client_user', ref: p.user.id, userId: p.user.id };
   }
+  if (p.kind === 'assist') throw new HttpError(403, 'La sesión de asistencia es de solo lectura', 'operation_not_allowed_in_assist_mode');
   if (p.key.kind !== 'ed25519' || !p.key.permissions.includes('withdraw')) {
     throw new HttpError(403, 'La llave no tiene permiso withdraw', 'forbidden');
   }
@@ -259,6 +260,7 @@ export async function clientApprove(u: ClientUser, id: string) {
 /** Cancelación por el cliente (operator+) mientras 856 no la haya autorizado. Devuelve el saldo reservado. */
 export async function clientCancel(p: PortalPrincipal, id: string) {
   if (p.kind === 'client_user' && !roleAtLeast(p.user.role, 'operator')) throw new HttpError(403, 'Requiere rol operator', 'forbidden');
+  if (p.kind === 'assist') throw new HttpError(403, 'La sesión de asistencia es de solo lectura', 'operation_not_allowed_in_assist_mode');
   const { rows: [w] } = await pool.query('SELECT * FROM withdrawals WHERE id = $1 AND client_id = $2', [id, p.clientId]);
   if (!w || !w.simulation_id) throw NOT_FOUND('Salida');
   if (w.status !== 'reserved' || !['client_pending', 'pending'].includes(w.approval_status) || w.approved_by_operator) {

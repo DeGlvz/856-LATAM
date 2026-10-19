@@ -345,7 +345,14 @@ Pruebas: `ORIGIN_RULE=enforce` + `node test/portal-fase3.e2e.mjs` (regla de orig
 - **Carga CSV** (columnas `contraparte, activo, monto, referencia, vencimiento`; coma o punto y coma; BOM de Excel): primero se valida sin registrar y se devuelve el reporte por fila y campo; al confirmar se registran todas las filas válidas en una sola transacción o ninguna (`409 import_row_failed`). Máximo `OBLIGATION_IMPORT_MAX_ROWS` (5 000).
 - **Compensación (vista del cliente):** posición en la próxima corrida por activo (por cobrar, por pagar, neto, ahorro estimado y faltante de saldo), calculada como la consola pero devolviendo solo lo propio; historial de corridas donde participó con su renglón del asiento (abono o cargo) y sus obligaciones.
 - **Avisos:** el portal avisa las obligaciones por aceptar (y las que vencen en < 24 h); el Tablero de la consola, las que vencen en < 24 h.
-- El worker vence las aceptaciones fuera de plazo; cada lectura o decisión del portal también lo hace.
+- El worker vence las aceptaciones fuera de plazo; cada lectura o decisión del portal también lo hace, salvo las lecturas de asistencia, estrictamente de solo lectura.
+
+### Consola — asistencia de solo lectura («Ver como cliente»)
+Ejecutivos y tesoreros pueden abrir el portal del cliente en una pestaña separada desde la lista o el perfil del cliente. `POST /v1/console/clients/:id/assist-token` exige sesión de consola y `x-856-console: 1`; emite un token de un solo canje con alcance `read_only` y vigencia máxima de 10 minutos. La bitácora inmutable registra `client_impersonation_initiated`, el operador, el cliente, el resultado y el origen de la acción.
+
+El portal canjea el enlace en `GET /v1/portal/auth/assist?token=ast_...` por una credencial aislada en `sessionStorage`; no usa ni modifica cookies de consola o de cliente. Las consultas toman el `client_id` del principal de asistencia y aceptan solo `GET`/`HEAD`. Cualquier otro método recibe `403 operation_not_allowed_in_assist_mode` antes de ejecutar la ruta, sin mutar el libro ni datos del cliente. La interfaz presenta el aviso de asistencia y deshabilita los controles de acción. Al salir o cerrar la pestaña el navegador intenta revocar la sesión; aunque el cierre abrupto de un proceso no permite garantizar que ese aviso llegue al servidor, el vencimiento en base de datos limita la credencial a 10 minutos.
+
+Prueba E2E: `ORIGIN_RULE=enforce BASE KEY DATABASE_URL node test/client-assist.e2e.mjs` (lecturas de balances, movimientos y obligaciones; POST/PATCH bloqueados; balance y postings intactos; auditoría y revocación).
 
 | Método y ruta (`/v1/portal`) | Quién | Uso |
 |---|---|---|

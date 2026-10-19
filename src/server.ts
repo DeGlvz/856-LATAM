@@ -123,6 +123,21 @@ await app.register(async (v1) => {
   // Bitácora: toda acción de escritura hecha desde la consola
   v1.addHook('onResponse', async (req, reply) => {
     const p = req.principal;
+    const assistMatch = /^\/v1\/console\/clients\/([^/]+)\/assist-token$/.exec(req.url.split('?')[0]);
+    if (assistMatch) {
+      if (reply.statusCode >= 400) {
+        const body = (req.body ?? {}) as { origin?: unknown };
+        const trigger = body.origin === 'client_list' || body.origin === 'client_detail' ? body.origin : 'unknown';
+        await audit({
+          operator_id: p?.kind === 'operator' ? p.operator.id : null,
+          actor: p?.kind === 'operator' ? `console:${p.operator.email}` : 'anonimo',
+          action: 'client_impersonation_initiated',
+          target: assistMatch[1], status: reply.statusCode, ip: req.ip,
+          metadata: { result: 'denied', trigger },
+        }).catch((e) => req.log.error(e, 'audit_log'));
+      }
+      return;
+    }
     if (p?.kind !== 'operator' || req.method === 'GET' || req.method === 'HEAD') return;
     const route = req.routeOptions.url ?? req.url.split('?')[0];
     if (route.startsWith('/v1/auth/')) return; // login/logout ya se registran con más detalle

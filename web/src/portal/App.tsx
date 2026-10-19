@@ -16,6 +16,7 @@ import { ExitDetail, Exits } from './pages/Exits';
 import { Obligations } from './pages/Obligations';
 import { Netting } from './pages/Netting';
 import { PaymentIntents, ReceiveEuros } from './pages/Euros';
+import { AssistEntry } from './pages/AssistEntry';
 
 function RequireSession({ children }: { children: ReactNode }) {
   const { me, loading } = usePortal();
@@ -37,6 +38,7 @@ export default function PortalApp() {
       <EnvBanner />
       <Routes>
         <Route path="/login" element={<PortalLogin />} />
+        <Route path="/auth/assist" element={<AssistEntry />} />
         <Route path="/invitacion" element={<Invitation />} />
         <Route element={<RequireSession><PortalLayout /></RequireSession>}>
           <Route index element={<Home />} />

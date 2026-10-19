@@ -21,6 +21,7 @@ export function tradeOrigin(p: PortalPrincipal): Origin {
     if (!roleAtLeast(p.user.role, 'operator')) throw new HttpError(403, 'Requiere rol operator', 'forbidden');
     return { kind: 'client_user', ref: p.user.id, actor: `portal:${p.user.email}` };
   }
+  if (p.kind === 'assist') throw new HttpError(403, 'La sesión de asistencia es de solo lectura', 'operation_not_allowed_in_assist_mode');
   if (p.key.kind !== 'ed25519' || !p.key.permissions.includes('trade')) throw new HttpError(403, 'La llave no tiene permiso trade', 'forbidden');
   return { kind: 'client_key', ref: p.key.prefix, actor: `llave:${p.key.prefix}` };
 }
@@ -77,15 +78,15 @@ function view(o: Record<string, unknown>, me: string) {
   };
 }
 
-export async function getObligation(me: string, id: string) {
-  await expirePending();
+export async function getObligation(me: string, id: string, allowExpiry = true) {
+  if (allowExpiry) await expirePending();
   const { rows: [o] } = await pool.query(`SELECT ${COLS} ${FROM} WHERE o.id = $1 AND (o.debtor_id = $2 OR o.creditor_id = $2)`, [id, me]);
   if (!o) throw NOT_FOUND('Obligación');
   return view(o, me);
 }
 
-export async function listObligations(me: string, f: { role?: 'creditor' | 'debtor'; status?: string; asset_id?: string; limit: number; cursor?: string }) {
-  await expirePending();
+export async function listObligations(me: string, f: { role?: 'creditor' | 'debtor'; status?: string; asset_id?: string; limit: number; cursor?: string }, allowExpiry = true) {
+  if (allowExpiry) await expirePending();
   const cur = decodeCursor(f.cursor);
   const { rows } = await pool.query(
     `SELECT ${COLS} ${FROM}
@@ -423,8 +424,8 @@ export async function myRun(me: string, id: string) {
 }
 
 /** Avisos del portal (fase 4): obligaciones por aceptar, con las que vencen en menos de 24 h. */
-export async function obligationNotices(me: string) {
-  await expirePending();
+export async function obligationNotices(me: string, allowExpiry = true) {
+  if (allowExpiry) await expirePending();
   const { rows: [n] } = await pool.query(
     `SELECT count(*)::int AS total, count(*) FILTER (WHERE accept_due_at <= now() + interval '24 hours')::int AS soon
        FROM obligations WHERE debtor_id = $1 AND status = 'pending_acceptance'`, [me]);

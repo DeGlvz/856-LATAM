@@ -40,9 +40,10 @@ export async function portalObligationRoutes(app: FastifyInstance) {
       status: z.enum(['pending_acceptance', 'open', 'settled', 'cancelled', 'rejected', 'expired']).optional(),
       asset_id: assetId.optional(), ...page,
     }), req.query);
-    return O.listObligations(req.portal!.clientId, q);
+    return O.listObligations(req.portal!.clientId, q, req.portal!.kind !== 'assist');
   });
-  app.get<{ Params: { id: string } }>('/obligations/:id', async (req) => O.getObligation(req.portal!.clientId, parse(uuid, req.params.id)));
+  app.get<{ Params: { id: string } }>('/obligations/:id', async (req) =>
+    O.getObligation(req.portal!.clientId, parse(uuid, req.params.id), req.portal!.kind !== 'assist'));
   app.post('/obligations', async (req, reply) => {
     const b = parse(z.object({
       counterparty_code: z.string().trim().min(5).max(20), asset_id: assetId, amount,

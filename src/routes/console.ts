@@ -12,6 +12,7 @@ import { decodeCursor, encodeCursor } from '../pagination.js';
 import { setWalletActive, updateClient } from '../ledger/clients.js';
 import { hasRole } from '../auth/operators.js';
 import { inviteFirstAdmin, portalStatus } from '../portal/identity.js';
+import { issueAssistToken } from '../portal/assist.js';
 
 const uuid = z.string().uuid();
 const limit = (max: number, def: number) => z.coerce.number().int().min(1).max(max).default(def);
@@ -223,6 +224,24 @@ export async function consoleRoutes(app: FastifyInstance) {
       entries: page.map(({ _ts, postings, ...e }) => (f.postings === 'true' ? { ...e, postings: postings ?? [] } : e)),
       next_cursor: more && last ? encodeCursor(last._ts, last.id) : null,
     };
+  });
+
+  app.post<{ Params: { id: string } }>('/console/clients/:id/assist-token', async (req) => {
+    const id = parse(uuid, req.params.id);
+    const body = parse(z.object({ origin: z.enum(['client_list', 'client_detail']) }), req.body);
+    const principal = req.principal;
+    if (principal?.kind !== 'operator' || !hasRole(principal.operator.role, 'ejecutivo')) {
+      throw new HttpError(403, 'Requiere sesión de ejecutivo o tesorero', 'forbidden');
+    }
+    return issueAssistToken({
+      clientId: id,
+      operatorId: principal.operator.id,
+      operatorEmail: principal.operator.email,
+      operatorName: principal.operator.name,
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+      trigger: body.origin,
+    });
   });
 
   // ───────────── Ciclo de vida y datos del cliente ─────────────

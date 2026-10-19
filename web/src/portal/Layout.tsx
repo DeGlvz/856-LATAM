@@ -24,7 +24,7 @@ const NAV = [
 ];
 
 export function PortalLayout() {
-  const { me, logout, isAdmin } = usePortal();
+  const { me, logout, isAdmin, isAssist } = usePortal();
   const [open, setOpen] = useState(false);
   const enrolling = !!me?.totp_enrollment_required;
   const items = NAV.filter((n) => (!n.admin || isAdmin) && (!enrolling || n.to === '/seguridad'));
@@ -49,7 +49,13 @@ export function PortalLayout() {
     </nav>
   );
   return (
-    <div className="flex min-h-dvh">
+    <>
+      {isAssist && (
+        <div role="alert" className="fixed inset-x-0 top-0 z-50 bg-amber-400 px-4 py-2 text-center text-sm font-semibold text-amber-950 shadow">
+          Sesión de Asistencia Activa - Modo de Solo Lectura para Soporte
+        </div>
+      )}
+    <div className={`flex min-h-dvh ${isAssist ? 'pt-14' : ''}`}>
       <aside className="hidden w-64 shrink-0 bg-sidebar lg:block">{sidebar}</aside>
       {open && (
         <div className="fixed inset-0 z-40 lg:hidden">
@@ -73,8 +79,11 @@ export function PortalLayout() {
             </div>
           )}
         </header>
-        <main className="min-w-0 flex-1 p-4 md:p-6"><Outlet /></main>
+        <main className="min-w-0 flex-1 p-4 md:p-6">
+          {isAssist ? <fieldset disabled className="contents"><Outlet /></fieldset> : <Outlet />}
+        </main>
       </div>
     </div>
+    </>
   );
 }

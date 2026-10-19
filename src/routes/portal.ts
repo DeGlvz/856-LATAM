@@ -14,6 +14,7 @@ import { ACCOUNT_KEY_ROUTES, portalAccountRoutes } from './portal-accounts.js';
 import { EXIT_KEY_READ, EXIT_KEY_WRITE, portalExitRoutes } from './portal-exits.js';
 import { OBLIGATION_KEY_READ, OBLIGATION_KEY_WRITE, portalObligationRoutes } from './portal-obligations.js';
 import { FIAT_KEY_READ, FIAT_KEY_WRITE, portalFiatRoutes } from './portal-fiat.js';
+import { activateAssistToken, assistSessionFromToken, revokeAssistSession } from '../portal/assist.js';
 
 const parse = <S extends z.ZodTypeAny>(s: S, v: unknown): z.infer<S> => {
   const r = s.safeParse(v);
@@ -25,7 +26,7 @@ const code6 = z.string().regex(/^\d{6}$/, 'código de 6 dígitos');
 const role = z.enum(['viewer', 'operator', 'approver', 'admin']);
 
 // Rutas sin sesión
-const PUBLIC = new Set(['/v1/portal/auth/login', '/v1/portal/auth/login/totp', '/v1/portal/invites/lookup', '/v1/portal/invites/accept']);
+const PUBLIC = new Set(['/v1/portal/auth/login', '/v1/portal/auth/login/totp', '/v1/portal/auth/assist', '/v1/portal/invites/lookup', '/v1/portal/invites/accept']);
 // Rutas que aceptan llave de API (fase 1: identidad; fase 2: lectura de saldos y cuentas); el resto exige sesión de usuario
 const KEY_ROUTES = new Set(['GET /v1/portal/me', 'GET /v1/portal/ping', ...ACCOUNT_KEY_ROUTES, ...EXIT_KEY_READ, ...EXIT_KEY_WRITE,
   ...OBLIGATION_KEY_READ, ...OBLIGATION_KEY_WRITE, ...FIAT_KEY_READ, ...FIAT_KEY_WRITE]);
@@ -44,7 +45,8 @@ const requireRole = (req: FastifyRequest, need: P.ClientRole) => {
   return u;
 };
 const actorOf = (req: FastifyRequest) =>
-  req.portal?.kind === 'client_user' ? `portal:${req.portal.user.email}` : req.portal?.kind === 'client_key' ? `llave:${req.portal.key.prefix}` : 'anonimo';
+  req.portal?.kind === 'client_user' ? `portal:${req.portal.user.email}` : req.portal?.kind === 'client_key' ? `llave:${req.portal.key.prefix}`
+    : req.portal?.kind === 'assist' ? `console:${req.portal.operatorEmail}` : 'anonimo';
 
 const setCookie = (reply: FastifyReply, token: string, expires: Date) =>
   reply.setCookie(P.PORTAL_COOKIE, token, { httpOnly: true, secure: config.COOKIE_SECURE, sameSite: 'strict', path: '/', expires });
@@ -55,8 +57,26 @@ export async function portalRoutes(app: FastifyInstance) {
   // La firma necesita el cuerpo crudo: la autenticación corre después del parseo
   app.addHook('preValidation', async (req) => {
     const path = req.url.split('?')[0];
-    if (PUBLIC.has(path)) return;
     const route = `${req.method} ${req.routeOptions.url ?? path}`;
+    if (req.method === 'GET' && path === '/v1/portal/auth/assist/close') return;
+    const assistHeader = req.headers['x-856-assist-token'];
+    if (assistHeader !== undefined) {
+      if (typeof assistHeader !== 'string') throw new HttpError(401, 'Token de asistencia inválido o vencido', 'invalid_assist_token');
+      const session = await assistSessionFromToken(assistHeader);
+      if (!session) throw new HttpError(401, 'Token de asistencia inválido o vencido', 'invalid_assist_token');
+      req.portal = {
+        kind: 'assist', clientId: session.client_id, operatorId: session.operator_id,
+        operatorEmail: session.operator_email, operatorName: session.operator_name, expiresAt: session.expires_at,
+      };
+      if (path === '/v1/portal/auth/assist') {
+        throw new HttpError(403, 'Esta sesión no puede iniciar otra asistencia', 'operation_not_allowed_in_assist_mode');
+      }
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        throw new HttpError(403, 'La sesión de asistencia es de solo lectura', 'operation_not_allowed_in_assist_mode');
+      }
+      return;
+    }
+    if (PUBLIC.has(path)) return;
     const keyHeader = req.headers['x-856-key'];
     const bearer = req.headers.authorization;
     if (typeof keyHeader === 'string' || (typeof bearer === 'string' && bearer.startsWith('Bearer 856r_'))) {
@@ -103,6 +123,15 @@ export async function portalRoutes(app: FastifyInstance) {
   });
 
   // ───────────── Acceso ─────────────
+  app.get('/auth/assist', async (req) => {
+    if (req.method !== 'GET') throw new HttpError(405, 'Método no permitido', 'method_not_allowed');
+    return activateAssistToken(parse(z.object({ token: z.string().min(40).max(80) }), req.query).token);
+  });
+  app.get('/auth/assist/close', async (req) => {
+    if (req.method === 'GET') await revokeAssistSession(req.headers['x-856-assist-token'] as string | undefined);
+    return { ok: true };
+  });
+
   const LoginBody = z.object({ email: z.string().email().max(200), password: z.string().min(1).max(200) });
   app.post('/auth/login', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply) => {
     const b = parse(LoginBody, req.body);
@@ -146,6 +175,14 @@ export async function portalRoutes(app: FastifyInstance) {
   // Identidad actual + datos públicos del propio cliente (nada interno de 856)
   app.get('/me', async (req) => {
     const p = req.portal!;
+    if (p.kind === 'assist') {
+      const { rows: [c] } = await pool.query('SELECT id, name, kind, status FROM clients WHERE id = $1', [p.clientId]);
+      return {
+        kind: 'assist', assist: true, operator: { email: p.operatorEmail, name: p.operatorName },
+        user: { id: 'assist', client_id: p.clientId, email: `console:${p.operatorEmail}`, name: `Soporte · ${p.operatorName}`, role: 'viewer', totp_enabled: true },
+        client: c, totp_enrollment_required: false,
+      };
+    }
     const { rows: [c] } = await pool.query('SELECT id, name, kind, status FROM clients WHERE id = $1', [p.clientId]);
     return p.kind === 'client_user'
       ? { kind: 'user', user: p.user, client: c, totp_enrollment_required: P.roleNeeds2fa(p.user.role) && !p.user.totp_enabled }
