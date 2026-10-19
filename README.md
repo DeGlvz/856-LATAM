@@ -1,4 +1,4 @@
-# cripto-api
+# 856-LATAM
 
 API REST (Node 22 + TypeScript + Fastify + viem) sobre RPC de **Alchemy**, con **PostgreSQL** como libro contable. Desplegado en **Railway** (núcleo + base de datos); imagen portable a Akash/Flux.
 
