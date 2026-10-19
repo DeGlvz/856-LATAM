@@ -60,11 +60,17 @@ export function ClientAssetsCard({ clientId, disabled }: { clientId: string; dis
           </div>
         )}
         {q.isPending && <Skeleton className="h-24" />}
-        {groups.map(([network, rows]) => (
+        {groups.map(([network, rows]) => {
+          const walletVisible = rows[0].network_enabled && rows.some((a) => a.status === 'enabled');
+          return (
           <div key={network} className="grid gap-1.5">
             <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
               <span>{nets.label(network)}</span><span className="font-mono">{network}</span>
               {!rows[0].network_enabled && <Badge variant="outline">Red no encendida</Badge>}
+              <Badge data-wallet-visibility={network} variant={walletVisible ? 'success' : 'secondary'}
+                title={walletVisible ? 'Hay al menos un activo habilitado para recibir en esta red.' : !rows[0].network_enabled ? 'La red está apagada.' : 'No hay activos habilitados para recibir en esta red.'}>
+                Billetera {walletVisible ? 'visible' : 'no visible'}
+              </Badge>
               {canEdit && rows.some((a) => tes || !a.pending_request) && (
                 <Button variant="outline" size="sm" className="h-7 text-xs"
                   aria-label={`Editar activos de ${nets.label(network)}`}
@@ -111,7 +117,8 @@ export function ClientAssetsCard({ clientId, disabled }: { clientId: string; dis
               );
             })}
           </div>
-        ))}
+          );
+        })}
       </CardContent>
       <ChangeDialog clientId={clientId} edit={edit} direct={tes} onClose={() => setEdit(null)} />
       <BulkChangeDialog clientId={clientId} assets={bulkEdit?.assets ?? null} group={bulkEdit?.group} direct={tes}
