@@ -1,7 +1,7 @@
 import { isAddress } from 'viem';
 import { pool, tx, type Tx } from '../db.js';
 import { isEnabled } from '../chain/networks.js';
-import { LedgerError, postEntryIn } from './service.js';
+import { LedgerError, ensureSystemAccounts, postEntryIn } from './service.js';
 
 export type ClientStatus = 'pending_kyb' | 'active' | 'suspended' | 'closed';
 export type ClientRetirementSummary = {
@@ -119,9 +119,7 @@ export async function retireClient(id: string, opts: { reason: string; by?: stri
          (SELECT count(*) FROM obligations WHERE debtor_id = $1 OR creditor_id = $1) AS obligations_history,
          (SELECT count(*) FROM withdrawals WHERE client_id = $1) AS withdrawals_history,
          (SELECT count(*) FROM deposits WHERE client_id = $1) AS deposits_history`, [id]);
-    const summary = summarizeClientRetirement(chk as Record<string, unknown>);
-
-    const reason = opts.reason.trim();
+   const reason = opts.reason.trim();
     if (reason.length < 5) throw new LedgerError(400, 'Indique el motivo (mín. 5 caracteres) para retirar el cliente', 'reason_required');
     if (cl.retired_at) throw new LedgerError(409, 'El cliente ya fue retirado', 'already_retired');
     const by = opts.by ?? 'console';
@@ -155,15 +153,50 @@ export async function retireClient(id: string, opts: { reason: string; by?: stri
     const { rowCount: cancelledIntents } = await c.query(
       `UPDATE fiat_payment_intents SET status = 'cancelled', cancelled_by = $2, cancelled_at = now(), updated_at = now()
         WHERE client_id = $1 AND status = 'open'`, [id, by]);
+    // Saldos a cero: se mueven a la cuenta de sistema "retired_balances" (pasivo; la custodia no cambia) para que la
+    // conciliación siga cuadrando. El trigger de estado bloquea débitos de clientes suspendidos, así que se
+    // habilita un instante dentro de la misma transacción (el cierre definitivo ocurre al final).
+    const { rows: funded } = await c.query(
+      `SELECT id, asset_id, balance::text AS balance FROM accounts WHERE client_id = $1 AND balance > 0 FOR UPDATE`, [id]);
+    if (funded.length) {
+      if (cl.status === 'suspended') await c.query(`UPDATE clients SET status = 'active' WHERE id = $1`, [id]);
+      for (const a of funded) {
+        await ensureSystemAccounts(c, a.asset_id);
+        await postEntryIn(c, {
+          kind: 'adjustment', description: `Saldo a cero por retiro de cliente ${id}: ${reason}`,
+          external_ref: `client-retire:${id}`, idempotency_key: `client-retire:${id}:${a.id}`,
+          metadata: { client_id: id, reason, by },
+          postings: [
+            { account: a.id, direction: 'debit', amount: a.balance },
+            { account: `system:${a.asset_id}:retired_balances`, direction: 'credit', amount: a.balance },
+          ],
+        });
+      }
+    }
     const resolved = {
       obligations_cancelled: cancelledObligations ?? 0,
       withdrawals_cancelled: reserved.length,
       fiat_intents_cancelled: cancelledIntents ?? 0,
+      balances_zeroed: funded.map((a) => ({ asset_id: a.asset_id, amount: a.balance })),
     };
     const preserved = {
-      balance_accounts: Number(chk.balance_accounts), withdrawals_in_flight: Number(chk.withdrawals) - reserved.length,
+      withdrawals_in_flight: Number(chk.withdrawals) - reserved.length,
       deposits_pending: Number(chk.deposits), fiat_accounts: Number(chk.fiat_accounts), fiat_deposits: Number(chk.fiat_deposits),
     };
+    // Tras las acciones: ¿queda historial? (una cuenta con asientos cuenta; sin asientos ni referencias se borra)
+    const { rows: [after] } = await c.query(
+      `SELECT
+         (SELECT count(*) FROM postings p JOIN accounts a ON a.id = p.account_id WHERE a.client_id = $1) AS accounts,
+         (SELECT count(*) FROM wallets WHERE client_id = $1 AND false) AS wallets, -- wallets se borran con el cliente; sus depósitos ya cuentan
+         (SELECT count(*) FROM audit_log WHERE client_id = $1) AS audit_entries,
+         (SELECT count(*) FROM obligations WHERE debtor_id = $1 OR creditor_id = $1) AS obligations_history,
+         (SELECT count(*) FROM withdrawals WHERE client_id = $1) AS withdrawals_history,
+         (SELECT count(*) FROM deposits WHERE client_id = $1) AS deposits_history,
+         (SELECT count(*) FROM fiat_accounts WHERE client_id = $1) AS fiat_accounts,
+         (SELECT count(*) FROM fiat_deposits d JOIN fiat_accounts a ON a.id = d.fiat_account_id WHERE a.client_id = $1) AS fiat_deposits,
+         (SELECT count(*) FROM fiat_payment_intents WHERE client_id = $1) AS fiat_intents`, [id]);
+    const canHardDelete = !summarizeClientRetirement(after as Record<string, unknown>).has_financial_history
+      && Number(after.audit_entries) === 0;
 
     const metadata = {
       ...(cl.metadata && typeof cl.metadata === 'object' ? cl.metadata : {}),
@@ -196,7 +229,7 @@ export async function retireClient(id: string, opts: { reason: string; by?: stri
       return { action: 'anonymized' as const, client: u, resolved, preserved };
     };
 
-    if (!summary.can_hard_delete) return anonymize();
+    if (!canHardDelete) return anonymize();
 
     await c.query('SAVEPOINT hard_delete');
     try {

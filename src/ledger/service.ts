@@ -43,6 +43,7 @@ const SYSTEM_ACCOUNTS = [
   ['equity', 'equity', 'credit', true, 'Patrimonio / ajustes'],
   ['withdrawals_pending', 'liability', 'credit', false, 'Retiros en tránsito (reservados, aún no confirmados)'],
   ['network_fees', 'expense', 'debit', false, 'Gas / comisiones de red pagadas'],
+  ['retired_balances', 'liability', 'credit', false, 'Saldos de clientes retirados (puestos en cero)'],
 ] as const;
 
 export async function ensureSystemAccounts(c: Tx, assetId: string) {

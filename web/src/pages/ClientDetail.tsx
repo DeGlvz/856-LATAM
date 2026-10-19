@@ -522,7 +522,8 @@ function StatusDialog({ client, open, onOpenChange, onSaved }: { client: TClient
         </DialogHeader>
         <ul className="list-disc space-y-1.5 pl-5 text-sm">
           <li>Se <b>cancelan</b> las obligaciones abiertas o pendientes, los retiros solo reservados (se revierte la reserva) y los avisos fiat abiertos.</li>
-          <li>Se <b>conservan</b> sin cambios los saldos, retiros ya firmados o enviados, y depósitos o fiat por confirmar: siguen en el ledger y se liquidan por los procesos normales.</li>
+          <li>Los <b>saldos</b> se ponen en cero: se mueven a la cuenta de sistema «saldos de clientes retirados» con un asiento de ajuste (la conciliación sigue cuadrando).</li>
+          <li>Se <b>conservan</b> sin cambios los retiros ya firmados o enviados, y los depósitos o fiat por confirmar: se liquidan por los procesos normales.</li>
           <li>Se <b>revocan</b> los accesos del cliente: usuarios, sesiones, llaves de API e invitaciones.</li>
           <li>Con historial financiero o de auditoría, el cliente queda <b>cerrado y anonimizado</b>. Sin ninguna referencia, se <b>borra definitivamente</b>.</li>
         </ul>
