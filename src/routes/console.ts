@@ -1,5 +1,5 @@
 import { gasLedgerStatus } from '../ledger/gas-funding.js';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { client } from '../chain.js';
 import { explorerOf, networks, netView, type Net } from '../chain/networks.js';
@@ -13,6 +13,8 @@ import { setWalletActive, updateClient } from '../ledger/clients.js';
 import { hasRole } from '../auth/operators.js';
 import { inviteFirstAdmin, portalStatus } from '../portal/identity.js';
 import { issueAssistToken } from '../portal/assist.js';
+import { archiveDepositAddress, deleteUnusedDepositAddress } from '../ledger/deposit-addresses.js';
+import { stepUp } from '../auth/operator-admin.js';
 
 const uuid = z.string().uuid();
 const limit = (max: number, def: number) => z.coerce.number().int().min(1).max(max).default(def);
@@ -266,6 +268,23 @@ export async function consoleRoutes(app: FastifyInstance) {
   app.patch<{ Params: { id: string } }>('/wallets/:id', async (req) => {
     const { active } = parse(z.object({ active: z.boolean() }), req.body);
     return setWalletActive(parse(uuid, req.params.id), active);
+  });
+  const walletManager = async (req: FastifyRequest) => {
+    const p = req.principal;
+    if (p?.kind !== 'operator' || !hasRole(p.operator.role, 'tesorero')) {
+      throw new HttpError(403, 'Archivar o eliminar una dirección requiere rol tesorero', 'forbidden');
+    }
+    const { code } = parse(z.object({ code: z.string().regex(/^\d{6}$/, 'código de 6 dígitos') }), req.body);
+    await stepUp(p.operator, code);
+    return p.operator.email;
+  };
+  app.post<{ Params: { id: string; walletId: string } }>('/clients/:id/deposit-addresses/:walletId/archive', async (req) => {
+    const by = await walletManager(req);
+    return archiveDepositAddress(parse(uuid, req.params.id), parse(uuid, req.params.walletId), by);
+  });
+  app.delete<{ Params: { id: string; walletId: string } }>('/clients/:id/deposit-addresses/:walletId', async (req) => {
+    const by = await walletManager(req);
+    return deleteUnusedDepositAddress(parse(uuid, req.params.id), parse(uuid, req.params.walletId), by);
   });
 
   // ───────────── Fase 5: cola de aprobaciones ─────────────

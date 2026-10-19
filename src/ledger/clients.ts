@@ -1,5 +1,6 @@
 import { isAddress } from 'viem';
 import { pool, tx } from '../db.js';
+import { isEnabled } from '../chain/networks.js';
 import { LedgerError } from './service.js';
 
 export type ClientStatus = 'pending_kyb' | 'active' | 'suspended' | 'closed';
@@ -60,10 +61,25 @@ export async function updateClient(id: string, i: {
 }
 
 export async function setWalletActive(id: string, active: boolean) {
-  const { rows: [w] } = await pool.query(
-    `UPDATE wallets SET active = $2 WHERE id = $1 AND purpose IN ('withdrawal_whitelist','deposit') RETURNING *`, [id, active]);
-  if (!w) throw new LedgerError(404, 'Wallet no encontrada (solo lista blanca o depósito)', 'not_found');
-  return w;
+  return tx(async (c) => {
+    const { rows: [wallet] } = await c.query(
+      `SELECT id, client_id, network, purpose, active, archived_at FROM wallets
+        WHERE id = $1 AND purpose IN ('withdrawal_whitelist','deposit') FOR UPDATE`, [id]);
+    if (!wallet) throw new LedgerError(404, 'Wallet no encontrada (solo lista blanca o depósito)', 'not_found');
+    if (wallet.purpose === 'deposit' && !active && wallet.active && !wallet.archived_at && isEnabled(wallet.network)) {
+      const { rows: [receivable] } = await c.query(
+        `SELECT 1 FROM client_assets ca JOIN assets s ON s.id = ca.asset_id
+          WHERE ca.client_id = $1 AND s.network = $2 AND s.active AND ca.status = 'enabled' LIMIT 1`, [wallet.client_id, wallet.network]);
+      if (receivable) {
+        const { rows: [other] } = await c.query(
+          `SELECT 1 FROM wallets WHERE client_id = $1 AND network = $2 AND purpose = 'deposit'
+             AND active AND archived_at IS NULL AND id <> $3 LIMIT 1`, [wallet.client_id, wallet.network, id]);
+        if (!other) throw new LedgerError(409, 'Debe quedar al menos una dirección visible para recibir en esta red', 'last_visible_deposit_address');
+      }
+    }
+    const { rows: [updated] } = await c.query('UPDATE wallets SET active = $2 WHERE id = $1 RETURNING *', [id, active]);
+    return updated;
+  });
 }
 
 export function assertAddress(chain: string, address: string) {

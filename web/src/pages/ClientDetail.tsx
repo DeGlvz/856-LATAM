@@ -1,14 +1,14 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ArrowLeft, ArrowLeftRight, Eye, ExternalLink, KeyRound, Loader2, Pencil, Plus, RefreshCw, Scale, ShieldCheck, UserPlus, Users, Wallet as WalletIcon } from 'lucide-react';
+import { AlertTriangle, Archive, ArrowLeft, ArrowLeftRight, Eye, ExternalLink, KeyRound, Loader2, Pencil, Plus, RefreshCw, Scale, ShieldCheck, Trash2, UserPlus, Users, Wallet as WalletIcon } from 'lucide-react';
 import { api, type ClientAssetRow, type ClientDetail as TClient, type ClientStatus, type EntryRow, type ObligationRow, type Summary, type Wallet } from '@/lib/api';
 import { launchAssistTab, openAssistTab } from '@/lib/assist';
 import { useAuth } from '@/lib/auth';
 import { CLIENT_KIND, CLIENT_STATUS, ENTRY_KIND, useAssets, useConsoleOriginates, useNetworks } from '@/lib/hooks';
 import { ClientAssetsCard } from '@/components/ClientAssets';
 import { shortHex } from '@/lib/amount';
-import { Amount, CopyButton, ErrorBox, Field, StatusBadge, fmtDate } from '@/components/common';
+import { Amount, CodeInput, CopyButton, ErrorBox, Field, StatusBadge, fmtDate } from '@/components/common';
 import { EntryDialog } from '@/components/EntryDialog';
 import { ObligationDialog, ObligationsTable } from '@/components/ObligationDialogs';
 import { RunDialog } from '@/pages/Netting';
@@ -34,6 +34,9 @@ export function ClientDetail() {
   const [obStatus, setObStatus] = useState<'open' | 'all'>('open');
   const [runId, setRunId] = useState<string | null>(null);
   const [assistPopupError, setAssistPopupError] = useState('');
+  const [walletAction, setWalletAction] = useState<{ wallet: Wallet; action: 'archive' | 'delete' } | null>(null);
+  const [walletCode, setWalletCode] = useState('');
+  const [showArchivedWallets, setShowArchivedWallets] = useState(false);
   const assist = useMutation({
     mutationFn: ({ tab }: { tab: Window }) => launchAssistTab(id, 'client_detail', tab),
   });
@@ -46,7 +49,7 @@ export function ClientDetail() {
   const summary = useQuery({ queryKey: ['summary'], queryFn: () => api<Summary>('/summary'), staleTime: 60_000 });
   const explorer = summary.data?.explorer ?? 'https://sepolia.etherscan.io';
   const network = summary.data?.health.chain.network ?? 'eth-sepolia';
-  const refresh = () => { ['client', 'wallets', 'entries', 'clients'].forEach((k) => qc.invalidateQueries({ queryKey: [k] })); };
+  const refresh = () => { ['client', 'wallets', 'client-assets', 'entries', 'clients'].forEach((k) => qc.invalidateQueries({ queryKey: [k] })); };
 
   const openAccount = useMutation({
     mutationFn: (asset_id: string) => api(`/clients/${id}/accounts`, { method: 'POST', json: { asset_id } }),
@@ -58,6 +61,16 @@ export function ClientDetail() {
     mutationFn: (rotate: boolean) => api(`/clients/${id}/deposit-address`, { method: 'POST', json: { rotate, ...(depNet ? { network: depNet } : {}) } }),
     onSuccess: refresh,
   });
+  const manageDepositWallet = useMutation({
+    mutationFn: () => {
+      if (!walletAction) throw new Error('Seleccione una dirección de depósito');
+      const path = `/clients/${id}/deposit-addresses/${walletAction.wallet.id}`;
+      return walletAction.action === 'archive'
+        ? api(`${path}/archive`, { method: 'POST', json: { code: walletCode } })
+        : api(path, { method: 'DELETE', json: { code: walletCode } });
+    },
+    onSuccess: () => { refresh(); setWalletAction(null); setWalletCode(''); },
+  });
 
   if (client.isPending) return <div className="mx-auto grid max-w-7xl gap-4"><Skeleton className="h-24" /><Skeleton className="h-48" /></div>;
   if (client.error || !client.data) return <div className="mx-auto max-w-7xl"><BackLink /><ErrorBox error={client.error ?? 'No encontrado'} className="mt-4" /></div>;
@@ -66,10 +79,13 @@ export function ClientDetail() {
   const missing = assets.filter((a) => a.active && !c.accounts.some((x) => x.asset_id === a.id));
   const receivableNetworks = new Set((clientAssets.data ?? []).filter((a) => a.status === 'enabled' && a.network_enabled).map((a) => a.network));
   const depositNetworks = nets.networks.filter((n) => receivableNetworks.has(n.id));
-  const deposits = (wallets.data ?? []).filter((w) => w.purpose === 'deposit' && receivableNetworks.has(w.network));
+  const deposits = (wallets.data ?? []).filter((w) => w.purpose === 'deposit' && !w.archived_at);
+  const archivedDeposits = (wallets.data ?? []).filter((w) => w.purpose === 'deposit' && !!w.archived_at);
   const whitelist = (wallets.data ?? []).filter((w) => w.purpose === 'withdrawal_whitelist');
   const selNet = depositNetworks.some((n) => n.id === depNet) ? depNet : depositNetworks[0]?.id ?? '';
-  const current = deposits.find((w) => w.active && w.derivation_index != null && w.network === selNet);
+  const current = deposits.find((w) => w.active && receivableNetworks.has(w.network) && w.derivation_index != null && w.network === selNet);
+  const hasAnotherVisibleDeposit = (wallet: Wallet) => !wallet.active || !receivableNetworks.has(wallet.network)
+    || deposits.some((w) => w.id !== wallet.id && w.network === wallet.network && w.active);
 
   return (
     <div className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)] gap-6">
@@ -191,10 +207,14 @@ export function ClientDetail() {
           <CardContent className="grid gap-2">
             <ErrorBox error={depositAddr.error} />
             <ErrorBox error={clientAssets.error} />
+            <ErrorBox error={manageDepositWallet.error} />
             {(wallets.isPending || clientAssets.isPending) && <Skeleton className="h-10" />}
             {!wallets.isPending && clientAssets.data && deposits.length === 0 && <p className="text-sm text-muted-foreground">{receivableNetworks.size ? 'Sin dirección de depósito para las redes con activos habilitados.' : 'No hay redes con activos habilitados para recibir.'}</p>}
-            {deposits.map((w) => (
-              <div key={w.id} className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2">
+            {deposits.map((w) => {
+              const visible = w.active && receivableNetworks.has(w.network);
+              const mayRemove = hasAnotherVisibleDeposit(w);
+              return (
+              <div key={w.id} data-wallet={w.id} className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2">
                 <a className="inline-flex items-center gap-1 font-mono text-xs hover:underline" href={`${nets.explorer(w.network)}/address/${w.address}`} target="_blank" rel="noreferrer noopener" title={w.address}>
                   {shortHex(w.address, 10)}<ExternalLink className="size-3" />
                 </a>
@@ -202,10 +222,44 @@ export function ClientDetail() {
                 <Badge data-address-network={w.network} variant="outline" className="text-[11px]">{nets.label(w.network)}</Badge>
                 {w.id === current?.id && <Badge variant="success">Vigente</Badge>}
                 {!w.active && <Badge variant="secondary">Inactiva</Badge>}
+                <Badge data-wallet-visibility={w.id} variant={visible ? 'success' : 'secondary'}>{visible ? 'Visible' : 'No visible'}</Badge>
+                <Badge variant="outline">{w.has_activity ? 'Con movimientos' : 'Sin movimientos'}</Badge>
                 <Badge variant={w.webhook_registered ? 'outline' : 'warning'}>{w.webhook_registered ? 'Webhook' : 'Webhook pendiente'}</Badge>
                 <span className="ml-auto text-[11px] text-muted-foreground">#{w.derivation_index} · {fmtDate(w.created_at)}</span>
+                {can('tesorero') && (
+                  w.has_activity
+                    ? <Button variant="outline" size="sm" disabled={!mayRemove} title={!mayRemove ? 'Debe quedar una dirección visible para recibir en esta red.' : 'Ocultar del panel; seguirá monitoreándose y acreditando depósitos.'}
+                        onClick={() => { setWalletAction({ wallet: w, action: 'archive' }); setWalletCode(''); manageDepositWallet.reset(); }}>
+                        <Archive />Archivar
+                      </Button>
+                    : <Button variant="outline" size="sm" disabled={!mayRemove} title={!mayRemove ? 'Debe quedar una dirección visible para recibir en esta red.' : 'Eliminar dirección sin movimientos.'}
+                        onClick={() => { setWalletAction({ wallet: w, action: 'delete' }); setWalletCode(''); manageDepositWallet.reset(); }}>
+                        <Trash2 />Eliminar
+                      </Button>
+                )}
               </div>
-            ))}
+              );
+            })}
+            {!!archivedDeposits.length && (
+              <div className="grid gap-2">
+                <Button variant="ghost" size="sm" className="justify-self-start"
+                  onClick={() => setShowArchivedWallets((v) => !v)}>
+                  {showArchivedWallets ? 'Ocultar' : 'Mostrar'} archivadas ({archivedDeposits.length})
+                </Button>
+                {showArchivedWallets && archivedDeposits.map((w) => (
+                  <div key={w.id} data-wallet-archived={w.id} className="flex flex-wrap items-center gap-2 rounded-md border border-dashed px-3 py-2">
+                    <a className="inline-flex items-center gap-1 font-mono text-xs hover:underline" href={`${nets.explorer(w.network)}/address/${w.address}`} target="_blank" rel="noreferrer noopener" title={w.address}>
+                      {shortHex(w.address, 10)}<ExternalLink className="size-3" />
+                    </a>
+                    <CopyButton value={w.address} />
+                    <Badge variant="outline" className="text-[11px]">{nets.label(w.network)}</Badge>
+                    <Badge variant="secondary">Archivada</Badge>
+                    <Badge variant="outline">{w.has_activity ? 'Con movimientos' : 'Sin movimientos'}</Badge>
+                    {w.archived_at && <span className="ml-auto text-[11px] text-muted-foreground">Archivada {fmtDate(w.archived_at)}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -270,6 +324,34 @@ export function ClientDetail() {
       <EntryDialog id={entryId} onClose={() => setEntryId(null)} />
       <ObligationDialog obligation={obligation} onClose={() => setObligation(null)} onOpenRun={(rid) => { setObligation(null); setRunId(rid); }} />
       <RunDialog id={runId} onClose={() => setRunId(null)} />
+      <Dialog open={!!walletAction} onOpenChange={(open) => {
+        if (!open) { manageDepositWallet.reset(); setWalletAction(null); setWalletCode(''); }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{walletAction?.action === 'archive' ? 'Archivar dirección' : 'Eliminar dirección sin movimientos'}</DialogTitle>
+            <DialogDescription>
+              {walletAction?.action === 'archive'
+                ? 'La dirección se ocultará del panel, pero seguirá monitoreándose y los depósitos que lleguen se seguirán acreditando o poniendo en revisión.'
+                : 'Esta acción elimina la dirección de forma permanente. Solo se permite porque no tiene depósitos ni barridos registrados.'}
+            </DialogDescription>
+          </DialogHeader>
+          {walletAction && <div className="rounded-md border px-3 py-2 font-mono text-sm">{shortHex(walletAction.wallet.address, 12)} · {nets.label(walletAction.wallet.network)}</div>}
+          <Field label="Código 2FA">
+            <CodeInput label="Código 2FA para administrar la dirección" autoFocus value={walletCode} onChange={setWalletCode} />
+          </Field>
+          <ErrorBox error={manageDepositWallet.error} />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setWalletAction(null); setWalletCode(''); }}>Cancelar</Button>
+            <Button variant={walletAction?.action === 'delete' ? 'destructive' : 'default'}
+              disabled={!walletAction || manageDepositWallet.isPending || walletCode.length !== 6}
+              onClick={() => manageDepositWallet.mutate()}>
+              {manageDepositWallet.isPending && <Loader2 className="animate-spin" />}
+              {walletAction?.action === 'archive' ? 'Archivar' : 'Eliminar permanentemente'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
