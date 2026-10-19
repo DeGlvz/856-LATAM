@@ -10,8 +10,11 @@ import { HttpError } from '../idempotency.js';
 import { hotWalletStatus, treasurersWith2fa } from '../ledger/transfers.js';
 import { decodeCursor, encodeCursor } from '../pagination.js';
 import { retireClient, setWalletActive, updateClient } from '../ledger/clients.js';
-import { hasRole } from '../auth/operators.js';
-import { inviteFirstAdmin, portalStatus } from '../portal/identity.js';
+import { hasRole, audit } from '../auth/operators.js';
+import {
+  CLIENT_ROLES, createInvite as createPortalInvite, createPasswordReset, inviteFirstAdmin, listInvites as listPortalInvites,
+  listUsers as listPortalUsers, portalStatus, resendInvite as resendPortalInvite, resetTotpByOperator,
+} from '../portal/identity.js';
 import { issueAssistToken } from '../portal/assist.js';
 import { archiveDepositAddress, deleteUnusedDepositAddress } from '../ledger/deposit-addresses.js';
 import { stepUp } from '../auth/operator-admin.js';
@@ -365,5 +368,51 @@ export async function consoleRoutes(app: FastifyInstance) {
     const email = parse(z.object({ email: z.string().email().max(200) }), req.body).email;
     const by = p?.kind === 'operator' ? p.operator.email : 'api';
     return reply.code(201).send(await inviteFirstAdmin(parse(uuid, req.params.id), email, by));
+  });
+
+  // Gestión de usuarios del portal por tesorería: invitar admins, reenviar invitaciones, restablecer contraseña/2FA
+  const treasurer = (req: FastifyRequest) => {
+    const p = req.principal;
+    if (p?.kind === 'operator' && !hasRole(p.operator.role, 'tesorero')) {
+      throw new HttpError(403, 'Gestionar usuarios del portal requiere rol tesorero', 'forbidden');
+    }
+    return p?.kind === 'operator' ? p.operator.email : 'api';
+  };
+  const portalAudit = (req: FastifyRequest, clientId: string, action: string, by: string, target: string | null, metadata: Record<string, unknown> = {}) =>
+    audit({ operator_id: req.principal?.kind === 'operator' ? req.principal.operator.id : null, actor: `operador:${by}`, action, target, status: 200, ip: req.ip, client_id: clientId, metadata });
+  app.get<{ Params: { id: string } }>('/clients/:id/portal/users', async (req) => {
+    treasurer(req);
+    const id = parse(uuid, req.params.id);
+    return { users: await listPortalUsers(id), invites: await listPortalInvites(id) };
+  });
+  app.post<{ Params: { id: string } }>('/clients/:id/portal/invites', async (req, reply) => {
+    const by = treasurer(req);
+    const id = parse(uuid, req.params.id);
+    const b = parse(z.object({ email: z.string().email().max(200), role: z.enum(CLIENT_ROLES).default('admin') }), req.body);
+    const inv = await createPortalInvite({ clientId: id, email: b.email, role: b.role, createdBy: `operador:${by}` });
+    await portalAudit(req, id, 'console_portal_invite', by, b.email.toLowerCase(), { role: b.role });
+    return reply.code(201).send(inv);
+  });
+  app.post<{ Params: { id: string; inviteId: string } }>('/clients/:id/portal/invites/:inviteId/resend', async (req, reply) => {
+    const by = treasurer(req);
+    const id = parse(uuid, req.params.id);
+    const inv = await resendPortalInvite(id, parse(uuid, req.params.inviteId), `operador:${by}`);
+    await portalAudit(req, id, 'console_portal_invite_resent', by, inv.email, { role: inv.role });
+    return reply.code(201).send(inv);
+  });
+  app.post<{ Params: { id: string; userId: string } }>('/clients/:id/portal/users/:userId/password-reset', async (req, reply) => {
+    const by = treasurer(req);
+    const id = parse(uuid, req.params.id);
+    const r = await createPasswordReset(id, parse(uuid, req.params.userId), `operador:${by}`);
+    await portalAudit(req, id, 'console_portal_password_reset', by, r.email);
+    return reply.code(201).send(r);
+  });
+  app.post<{ Params: { id: string; userId: string } }>('/clients/:id/portal/users/:userId/totp-reset', async (req) => {
+    const by = treasurer(req);
+    const id = parse(uuid, req.params.id);
+    const userId = parse(uuid, req.params.userId);
+    const r = await resetTotpByOperator(id, userId);
+    await portalAudit(req, id, 'console_portal_totp_reset', by, userId);
+    return r;
   });
 }

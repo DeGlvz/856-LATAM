@@ -537,6 +537,60 @@ export async function inviteFirstAdmin(clientId: string, email: string, operator
   return createInvite({ clientId, email, role: 'admin', createdBy: `operador:${operatorEmail}` });
 }
 
+/** Reenvío: revoca la invitación vigente y emite una nueva (mismo correo y rol) con enlace nuevo. */
+export async function resendInvite(clientId: string, id: string, createdBy: string) {
+  const { rows: [inv] } = await pool.query(
+    'SELECT email, role FROM client_invites WHERE id = $1 AND client_id = $2 AND used_at IS NULL', [id, clientId]);
+  if (!inv) throw new HttpError(404, 'Invitación no encontrada', 'not_found');
+  return createInvite({ clientId, email: inv.email, role: inv.role, createdBy });
+}
+
+// ═════════════ Restablecimiento de contraseña (lo genera la tesorería; enlace de un solo uso) ═════════════
+export async function createPasswordReset(clientId: string, userId: string, createdBy: string) {
+  const { rows: [u] } = await pool.query(
+    `SELECT u.id, u.email, c.status FROM client_users u JOIN clients c ON c.id = u.client_id WHERE u.id = $1 AND u.client_id = $2`, [userId, clientId]);
+  if (!u) throw new HttpError(404, 'Usuario no encontrado', 'not_found');
+  if (u.status === 'closed') throw new HttpError(409, 'Cliente cerrado', 'client_closed');
+  await pool.query('UPDATE client_password_resets SET revoked_at = now() WHERE user_id = $1 AND used_at IS NULL AND revoked_at IS NULL', [userId]);
+  const token = b64u(32);
+  const expires_at = new Date(Date.now() + 24 * 3600_000);
+  await pool.query('INSERT INTO client_password_resets (user_id, token_hash, created_by, expires_at) VALUES ($1,$2,$3,$4)',
+    [userId, sha(token), createdBy, expires_at]);
+  return { email: u.email, expires_at, link: `/portal/restablecer#${token}` };
+}
+
+async function openPasswordReset(token: string) {
+  const { rows: [r] } = await pool.query(
+    `SELECT r.id, r.user_id, r.created_by, u.client_id, u.email, c.name AS client_name, c.status AS client_status
+       FROM client_password_resets r JOIN client_users u ON u.id = r.user_id JOIN clients c ON c.id = u.client_id
+      WHERE r.token_hash = $1 AND r.used_at IS NULL AND r.revoked_at IS NULL AND r.expires_at > now()`, [sha(token)]);
+  if (!r || r.client_status === 'closed') throw new HttpError(404, 'Enlace inválido, usado o vencido', 'invalid_reset');
+  return r;
+}
+export async function lookupPasswordReset(token: string) {
+  const r = await openPasswordReset(token);
+  return { email: r.email, client_name: r.client_name };
+}
+export async function acceptPasswordReset(token: string, password: string) {
+  if (password.length < PASSWORD_MIN) throw new HttpError(400, `La contraseña requiere al menos ${PASSWORD_MIN} caracteres`, 'weak_password');
+  const r = await openPasswordReset(token);
+  const used = await pool.query('UPDATE client_password_resets SET used_at = now() WHERE id = $1 AND used_at IS NULL RETURNING id', [r.id]);
+  if (!used.rowCount) throw new HttpError(404, 'Enlace inválido, usado o vencido', 'invalid_reset');
+  await pool.query('UPDATE client_users SET password_hash = $2, failed_attempts = 0, locked_until = NULL WHERE id = $1',
+    [r.user_id, await hash(password, ARGON)]);
+  await revokeUserSessions(r.user_id);
+  return { ok: true, email: r.email, user_id: r.user_id, client_id: r.client_id };
+}
+
+/** Restablecimiento de 2FA desde la consola (tesorería): el usuario lo vuelve a activar al entrar. */
+export async function resetTotpByOperator(clientId: string, userId: string) {
+  const { rows: [t] } = await pool.query('SELECT id FROM client_users WHERE id = $1 AND client_id = $2', [userId, clientId]);
+  if (!t) throw new HttpError(404, 'Usuario no encontrado', 'not_found');
+  await clearTotp(userId);
+  await revokeUserSessions(userId);
+  return { ok: true };
+}
+
 export async function portalStatus(clientId: string) {
   const { rows: [r] } = await pool.query(
     `SELECT (SELECT count(*)::int FROM client_users WHERE client_id = $1 AND active) AS users,

@@ -5,6 +5,7 @@ import { usePortal } from './auth';
 import { PortalLayout } from './Layout';
 import { PortalLogin } from './pages/Login';
 import { Invitation } from './pages/Invitation';
+import { ResetPassword } from './pages/ResetPassword';
 import { Home } from './pages/Home';
 import { PortalSecurity } from './pages/Security';
 import { Users } from './pages/Users';
@@ -44,6 +45,7 @@ export default function PortalApp() {
         <Route path="/login" element={<PortalLogin />} />
         <Route path="/auth/assist" element={<AssistEntry />} />
         <Route path="/invitacion" element={<Invitation />} />
+        <Route path="/restablecer" element={<ResetPassword />} />
         <Route element={<RequireSession><PortalLayout /></RequireSession>}>
           <Route index element={<Home />} />
           <Route path="cuentas" element={<Accounts />} />

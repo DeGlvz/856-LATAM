@@ -543,39 +543,64 @@ function StatusDialog({ client, open, onOpenChange, onSaved }: { client: TClient
 
 
 type PortalStatus = { users: number; admins: number; pending_invites: number; active_keys: number };
+type PortalUser = { id: string; email: string; name: string; role: string; active: boolean; totp_enabled: boolean; last_login_at: string | null };
+type PortalInvite = { id: string; email: string; role: string; expires_at: string };
+const PORTAL_ROLE: Record<string, string> = { viewer: 'Consulta', operator: 'Operador', approver: 'Aprobador', admin: 'Administrador' };
 
-/** Portal de clientes: 856 solo invita al primer admin; después el cliente administra a su gente y sus llaves. */
+/** Portal de clientes: la tesorería puede invitar admins, reenviar invitaciones y restablecer contraseña o 2FA. */
 function PortalCard({ clientId, disabled }: { clientId: string; disabled: boolean }) {
   const { can } = useAuth();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState('');
-  const [link, setLink] = useState<string | null>(null);
+  const [result, setResult] = useState<{ title: string; link: string; note: string } | null>(null);
+  const manage = can('tesorero') && !disabled;
   const status = useQuery({ queryKey: ['portal-status', clientId], queryFn: () => api<PortalStatus>(`/clients/${clientId}/portal`) });
-  const invite = useMutation({
-    mutationFn: () => api<{ link: string }>(`/clients/${clientId}/portal-invite`, { method: 'POST', json: { email: email.trim() } }),
-    onSuccess: (r) => { setLink(window.location.origin + r.link); qc.invalidateQueries({ queryKey: ['portal-status', clientId] }); },
+  const people = useQuery({
+    queryKey: ['portal-users', clientId], enabled: can('tesorero'),
+    queryFn: () => api<{ users: PortalUser[]; invites: PortalInvite[] }>(`/clients/${clientId}/portal/users`),
   });
-  const close = () => { setOpen(false); setEmail(''); setLink(null); invite.reset(); };
+  const refresh = () => { qc.invalidateQueries({ queryKey: ['portal-status', clientId] }); qc.invalidateQueries({ queryKey: ['portal-users', clientId] }); };
+  const invite = useMutation({
+    mutationFn: () => api<{ link: string }>(`/clients/${clientId}/portal/invites`, { method: 'POST', json: { email: email.trim(), role: 'admin' } }),
+    onSuccess: (r) => {
+      setOpen(false); setEmail(''); invite.reset();
+      setResult({ title: 'Invitación de administrador', link: window.location.origin + r.link, note: 'Vence en 72 h. El admin deberá activar 2FA al entrar.' });
+      refresh();
+    },
+  });
+  const resend = useMutation({
+    mutationFn: (id: string) => api<{ link: string }>(`/clients/${clientId}/portal/invites/${id}/resend`, { method: 'POST', json: {} }),
+    onSuccess: (r) => { setResult({ title: 'Invitación reenviada', link: window.location.origin + r.link, note: 'La invitación anterior quedó revocada. Vence en 72 h.' }); refresh(); },
+  });
+  const resetPw = useMutation({
+    mutationFn: (id: string) => api<{ link: string }>(`/clients/${clientId}/portal/users/${id}/password-reset`, { method: 'POST', json: {} }),
+    onSuccess: (r) => { setResult({ title: 'Restablecer contraseña', link: window.location.origin + r.link, note: 'Vence en 24 h y sirve una sola vez. Al usarlo se cierran las sesiones del usuario.' }); refresh(); },
+  });
+  const resetTotp = useMutation({
+    mutationFn: (id: string) => api(`/clients/${clientId}/portal/users/${id}/totp-reset`, { method: 'POST', json: {} }),
+    onSuccess: refresh,
+  });
   const s = status.data;
+  const pd = people.data;
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><Users className="size-4" />Portal del cliente</CardTitle>
-        <CardDescription>856 invita solo al primer administrador; él invita a su equipo y crea sus llaves de API.</CardDescription>
-        {can('tesorero') && !disabled && s && s.admins === 0 && (
+        <CardDescription>Usuarios del portal: invita administradores, reenvía invitaciones y restablece contraseñas o 2FA.</CardDescription>
+        {manage && (
           <CardAction>
-            <Button size="sm" variant="outline" onClick={() => setOpen(true)}><UserPlus />Invitar primer admin</Button>
+            <Button size="sm" variant="outline" onClick={() => setOpen(true)}><UserPlus />Invitar admin</Button>
           </CardAction>
         )}
       </CardHeader>
-      <CardContent>
+      <CardContent className="grid gap-4">
         {status.isPending && <Skeleton className="h-10" />}
         <ErrorBox error={status.error} />
         {s && s.users > 0 && s.admins < 2 && (
-          <div role="status" className="mb-3 flex items-start gap-2 rounded-md border border-warning/60 bg-warning/10 px-3 py-2 text-sm">
+          <div role="status" className="flex items-start gap-2 rounded-md border border-warning/60 bg-warning/10 px-3 py-2 text-sm">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-            <span>{s.admins === 0 ? 'El portal tiene usuarios pero ningún administrador activo.' : 'El portal tiene un solo administrador.'} Recomiende al cliente invitar a un segundo admin: si el único pierde su acceso, la recuperación pasa por 856.</span>
+            <span>{s.admins === 0 ? 'El portal tiene usuarios pero ningún administrador activo.' : 'El portal tiene un solo administrador.'} Recomiende invitar a un segundo admin: si el único pierde su acceso, la recuperación pasa por 856.</span>
           </div>
         )}
         {s && (
@@ -586,32 +611,82 @@ function PortalCard({ clientId, disabled }: { clientId: string; disabled: boolea
             <div><div className="text-muted-foreground">Llaves de API vigentes</div><div className="text-lg font-semibold">{s.active_keys}</div></div>
           </div>
         )}
+        <ErrorBox error={people.error ?? resend.error ?? resetPw.error ?? resetTotp.error} />
+        {pd && pd.users.length > 0 && (
+          <Table>
+            <TableHeader><TableRow><TableHead>Usuario</TableHead><TableHead>Rol</TableHead><TableHead>2FA</TableHead><TableHead>Estado</TableHead>{manage && <TableHead className="text-right">Acciones</TableHead>}</TableRow></TableHeader>
+            <TableBody>
+              {pd.users.map((u) => (
+                <TableRow key={u.id}>
+                  <TableCell><div className="font-medium">{u.name}</div><div className="text-xs text-muted-foreground">{u.email}</div></TableCell>
+                  <TableCell>{PORTAL_ROLE[u.role] ?? u.role}</TableCell>
+                  <TableCell>{u.totp_enabled ? 'Activo' : 'No'}</TableCell>
+                  <TableCell>{u.active ? 'Activo' : 'Inactivo'}</TableCell>
+                  {manage && (
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button size="sm" variant="outline" disabled={resetPw.isPending}
+                          onClick={() => { if (window.confirm(`¿Generar enlace para restablecer la contraseña de ${u.email}?`)) resetPw.mutate(u.id); }}>
+                          <KeyRound />Contraseña
+                        </Button>
+                        {u.totp_enabled && (
+                          <Button size="sm" variant="outline" disabled={resetTotp.isPending}
+                            onClick={() => { if (window.confirm(`¿Restablecer el 2FA de ${u.email}? Se cerrarán sus sesiones y deberá activarlo de nuevo.`)) resetTotp.mutate(u.id); }}>
+                            <ShieldCheck />2FA
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  )}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+        {pd && pd.invites.length > 0 && (
+          <div className="grid gap-2">
+            <div className="text-sm font-medium">Invitaciones vigentes</div>
+            {pd.invites.map((i) => (
+              <div key={i.id} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
+                <div><div>{i.email} · {PORTAL_ROLE[i.role] ?? i.role}</div><div className="text-xs text-muted-foreground">Vence {fmtDate(i.expires_at)}</div></div>
+                {manage && <Button size="sm" variant="outline" disabled={resend.isPending} onClick={() => resend.mutate(i.id)}><RefreshCw />Reenviar</Button>}
+              </div>
+            ))}
+          </div>
+        )}
       </CardContent>
-      <Dialog open={open} onOpenChange={(o) => !o && close()}>
+      <Dialog open={open} onOpenChange={(o) => { if (!o) { setOpen(false); setEmail(''); invite.reset(); } }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Invitar primer administrador</DialogTitle>
-            <DialogDescription>El enlace se muestra una sola vez y vence en 72 h. Entrégalo por un canal seguro; el admin deberá activar 2FA al entrar.</DialogDescription>
+            <DialogTitle>Invitar administrador</DialogTitle>
+            <DialogDescription>Se genera un enlace de un solo uso. Entrégalo por un canal seguro; el admin deberá activar 2FA al entrar.</DialogDescription>
           </DialogHeader>
-          {!link ? (
-            <form className="grid gap-3" onSubmit={(e: FormEvent) => { e.preventDefault(); invite.mutate(); }}>
-              <Field label="Correo del administrador" htmlFor="pi-email">
-                <Input id="pi-email" type="email" required autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} />
-              </Field>
-              <ErrorBox error={invite.error} />
-              <DialogFooter>
-                <Button type="button" variant="ghost" onClick={close}>Cancelar</Button>
-                <Button type="submit" disabled={invite.isPending || !email.trim()}>{invite.isPending && <Loader2 className="animate-spin" />}Generar enlace</Button>
-              </DialogFooter>
-            </form>
-          ) : (
+          <form className="grid gap-3" onSubmit={(e: FormEvent) => { e.preventDefault(); invite.mutate(); }}>
+            <Field label="Correo del administrador" htmlFor="pi-email">
+              <Input id="pi-email" type="email" required autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} />
+            </Field>
+            <ErrorBox error={invite.error} />
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>
+              <Button type="submit" disabled={invite.isPending || !email.trim()}>{invite.isPending && <Loader2 className="animate-spin" />}Generar enlace</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!result} onOpenChange={(o) => !o && setResult(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{result?.title}</DialogTitle>
+            <DialogDescription>{result?.note} Entrégalo por un canal seguro.</DialogDescription>
+          </DialogHeader>
+          {result && (
             <div className="grid gap-3">
               <div className="flex items-center gap-2 rounded-md border bg-muted/40 p-2">
-                <code className="min-w-0 flex-1 break-all text-xs" data-testid="portal-invite-link">{link}</code>
-                <CopyButton value={link} />
+                <code className="min-w-0 flex-1 break-all text-xs" data-testid="portal-invite-link">{result.link}</code>
+                <CopyButton value={result.link} />
               </div>
-              <p className="text-sm text-muted-foreground">No se volverá a mostrar. Si se pierde, genera otra: la anterior vence sola.</p>
-              <DialogFooter><Button onClick={close}>Listo</Button></DialogFooter>
+              <p className="text-sm text-muted-foreground">No se volverá a mostrar. Si se pierde, genera otro: el anterior queda sin efecto.</p>
+              <DialogFooter><Button onClick={() => setResult(null)}>Listo</Button></DialogFooter>
             </div>
           )}
         </DialogContent>
@@ -619,3 +694,4 @@ function PortalCard({ clientId, disabled }: { clientId: string; disabled: boolea
     </Card>
   );
 }
+
