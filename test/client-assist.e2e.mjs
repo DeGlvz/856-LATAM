@@ -111,6 +111,14 @@ try {
   check('GET estados de cuenta funciona en asistencia', statement.status === 200);
   const obligations = await assistCall('GET', '/obligations');
   check('GET facturas y obligaciones funciona en asistencia', obligations.status === 200);
+  const keys = await assistCall('GET', '/keys');
+  check('GET listado de llaves permite orientar al cliente sin exponer secretos',
+    keys.status === 200 && Array.isArray(keys.body?.keys) && !JSON.stringify(keys.body).includes('"token"'));
+  const deniedKeyWrite = await assistCall('POST', '/keys', { name: 'Assist no-write', kind: 'read_token' });
+  check('bloquea la creación de llaves en asistencia',
+    deniedKeyWrite.status === 403 && deniedKeyWrite.body?.code === 'operation_not_allowed_in_assist_mode');
+  const users = await assistCall('GET', '/users');
+  check('no permite consultar usuarios del cliente en asistencia', users.status === 403);
 
   const before = await db.query(
     `SELECT (SELECT count(*)::int FROM postings p JOIN accounts a ON a.id = p.account_id WHERE a.client_id = $1) AS postings,

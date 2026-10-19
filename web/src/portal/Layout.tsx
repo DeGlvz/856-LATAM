@@ -19,7 +19,7 @@ const NAV = [
   { to: '/obligaciones', label: 'Obligaciones', icon: FileText },
   { to: '/compensacion', label: 'Compensación', icon: Network },
   { to: '/usuarios', label: 'Usuarios', icon: UsersIcon, admin: true },
-  { to: '/llaves', label: 'Llaves de API', icon: KeyRound, admin: true },
+  { to: '/llaves', label: 'Llaves de API', icon: KeyRound, admin: true, assist: true },
   { to: '/seguridad', label: 'Seguridad', icon: ShieldCheck },
 ];
 
@@ -27,7 +27,7 @@ export function PortalLayout() {
   const { me, logout, isAdmin, isAssist } = usePortal();
   const [open, setOpen] = useState(false);
   const enrolling = !!me?.totp_enrollment_required;
-  const items = NAV.filter((n) => (!n.admin || isAdmin) && (!enrolling || n.to === '/seguridad'));
+  const items = NAV.filter((n) => (!n.admin || isAdmin || (isAssist && n.assist)) && (!enrolling || n.to === '/seguridad'));
   const sidebar = (
     <nav className="flex h-full flex-col gap-1 p-3">
       <div className="mb-4 flex items-center gap-2 px-2 pt-1">

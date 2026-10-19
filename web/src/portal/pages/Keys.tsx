@@ -19,7 +19,7 @@ const state = (k: KeyRow) => k.revoked_at ? { t: 'Revocada', v: 'outline' as con
   : k.locked_until && new Date(k.locked_until) > new Date() ? { t: 'Bloqueada', v: 'destructive' as const }
   : { t: 'Activa', v: 'success' as const };
 
-export function Keys() {
+export function Keys({ readOnly = false }: { readOnly?: boolean }) {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['p-keys'], queryFn: () => papi<{ keys: KeyRow[]; max_days: number }>('/keys') });
   const revoke = useMutation({ mutationFn: (id: string) => papi(`/keys/${id}/revoke`, { method: 'POST', json: {} }), onSuccess: () => qc.invalidateQueries({ queryKey: ['p-keys'] }) });
@@ -34,14 +34,19 @@ export function Keys() {
           <h1 className="text-xl font-semibold tracking-tight">Llaves de API</h1>
           <p className="text-sm text-muted-foreground">Para que el ERP o la tesorería de su empresa se conecten. Las fabrica el sistema; 856 nunca conoce su llave privada.</p>
         </div>
-        <Button onClick={() => setCreating(true)}><Plus />Nueva llave</Button>
+        {!readOnly && <Button onClick={() => setCreating(true)}><Plus />Nueva llave</Button>}
       </div>
+      {readOnly && (
+        <div role="note" className="rounded-md border border-amber-500/50 bg-amber-400/10 px-4 py-3 text-sm">
+          Vista de asistencia: puede revisar el tipo, los permisos y el estado de las llaves para orientar al cliente. Por seguridad, aquí no se muestra ni se solicita el secreto de la llave y no se pueden crear, rotar o revocar credenciales. El administrador del cliente debe realizar esos cambios desde su sesión.
+        </div>
+      )}
       <ErrorBox error={q.error ?? revoke.error} />
       <Card className="py-2"><CardContent className="px-3">
         <Table>
-          <TableHeader><TableRow><TableHead>Llave</TableHead><TableHead>Tipo y permisos</TableHead><TableHead>IP</TableHead><TableHead>Vence</TableHead><TableHead>Último uso</TableHead><TableHead>Estado</TableHead><TableHead /></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead>Llave</TableHead><TableHead>Tipo y permisos</TableHead><TableHead>IP</TableHead><TableHead>Vence</TableHead><TableHead>Último uso</TableHead><TableHead>Estado</TableHead>{!readOnly && <TableHead />}</TableRow></TableHeader>
           <TableBody>
-            {!q.isPending && !q.data?.keys.length && <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Aún no hay llaves.</TableCell></TableRow>}
+            {!q.isPending && !q.data?.keys.length && <TableRow><TableCell colSpan={readOnly ? 6 : 7} className="py-8 text-center text-muted-foreground">Aún no hay llaves.</TableCell></TableRow>}
             {q.data?.keys.map((k) => {
               const s = state(k);
               const live = s.t === 'Activa' || s.t === 'Bloqueada';
@@ -53,10 +58,12 @@ export function Keys() {
                   <TableCell className="text-xs">{fmtDate(k.expires_at)}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">{k.last_used_at ? `${fmtDate(k.last_used_at)} · ${k.last_used_ip}` : 'Nunca'}</TableCell>
                   <TableCell><Badge variant={s.v}>{s.t}</Badge></TableCell>
-                  <TableCell className="text-right whitespace-nowrap">
-                    {live && <Button size="sm" variant="ghost" onClick={() => setRotating(k)}><RefreshCw />Rotar</Button>}
-                    {live && <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setConfirmRevoke(k)}><X />Revocar</Button>}
-                  </TableCell>
+                  {!readOnly && (
+                    <TableCell className="text-right whitespace-nowrap">
+                      {live && <Button size="sm" variant="ghost" onClick={() => setRotating(k)}><RefreshCw />Rotar</Button>}
+                      {live && <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setConfirmRevoke(k)}><X />Revocar</Button>}
+                    </TableCell>
+                  )}
                 </TableRow>
               );
             })}
@@ -64,16 +71,20 @@ export function Keys() {
         </Table>
       </CardContent></Card>
       <IntegrationHelp />
-      <KeyDialog open={creating} onClose={() => setCreating(false)} maxDays={q.data?.max_days ?? 90} />
-      <KeyDialog open={!!rotating} rotate={rotating} onClose={() => setRotating(null)} maxDays={q.data?.max_days ?? 90} />
-      <Dialog open={!!confirmRevoke} onOpenChange={(v) => !v && setConfirmRevoke(null)}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Revocar {confirmRevoke?.prefix}</DialogTitle>
-            <DialogDescription>Deja de funcionar al instante. Cualquier integración que la use quedará desconectada.</DialogDescription></DialogHeader>
-          <DialogFooter><Button variant="outline" onClick={() => setConfirmRevoke(null)}>Cancelar</Button>
-            <Button variant="destructive" onClick={() => { revoke.mutate(confirmRevoke!.id); setConfirmRevoke(null); }}>Revocar</Button></DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {!readOnly && (
+        <>
+          <KeyDialog open={creating} onClose={() => setCreating(false)} maxDays={q.data?.max_days ?? 90} />
+          <KeyDialog open={!!rotating} rotate={rotating} onClose={() => setRotating(null)} maxDays={q.data?.max_days ?? 90} />
+          <Dialog open={!!confirmRevoke} onOpenChange={(v) => !v && setConfirmRevoke(null)}>
+            <DialogContent>
+              <DialogHeader><DialogTitle>Revocar {confirmRevoke?.prefix}</DialogTitle>
+                <DialogDescription>Deja de funcionar al instante. Cualquier integración que la use quedará desconectada.</DialogDescription></DialogHeader>
+              <DialogFooter><Button variant="outline" onClick={() => setConfirmRevoke(null)}>Cancelar</Button>
+                <Button variant="destructive" onClick={() => { revoke.mutate(confirmRevoke!.id); setConfirmRevoke(null); }}>Revocar</Button></DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </>
+      )}
     </div>
   );
 }

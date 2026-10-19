@@ -240,7 +240,11 @@ export async function portalRoutes(app: FastifyInstance) {
     public_key: z.string().max(60).optional(), challenge: z.string().max(60).optional(), proof: z.string().max(120).optional(),
     code: code6,
   });
-  app.get('/keys', async (req) => ({ keys: await P.listKeys(requireRole(req, 'admin').client_id), max_days: config.PORTAL_KEY_MAX_DAYS }));
+  app.get('/keys', async (req) => {
+    const p = req.portal!;
+    const clientId = p.kind === 'assist' ? p.clientId : requireRole(req, 'admin').client_id;
+    return { keys: await P.listKeys(clientId), max_days: config.PORTAL_KEY_MAX_DAYS };
+  });
   app.post('/keys/challenge', async (req) => P.keyChallenge(requireRole(req, 'admin')));
   app.post('/keys', async (req, reply) => {
     const u = requireRole(req, 'admin');
