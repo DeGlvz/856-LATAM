@@ -165,11 +165,12 @@ export async function consoleRoutes(app: FastifyInstance) {
   app.get('/clients', async (req) => {
     const f = parse(ClientsQuery, req.query);
     const cur = decodeCursor(f.cursor);
+    // Los cerrados (incluye retirados) solo salen si se piden con status=closed
     const { rows } = await pool.query(
       `SELECT c.id, c.external_id, c.name, c.kind, c.status, c.metadata, c.created_at, c.created_at::text AS _ts,
               (SELECT count(*) FROM accounts a WHERE a.client_id = c.id) AS accounts_count
          FROM clients c
-        WHERE ($1::text IS NULL OR c.status = $1)
+        WHERE (CASE WHEN $1::text IS NULL THEN c.status <> 'closed' ELSE c.status = $1 END)
           AND ($2::text IS NULL OR c.kind = $2)
           AND ($3::text IS NULL OR c.name ILIKE '%' || $3 || '%' OR c.external_id ILIKE '%' || $3 || '%' OR c.id::text = $3)
           AND ($4::timestamptz IS NULL OR (c.created_at, c.id) < ($4::timestamptz, $5::uuid))
