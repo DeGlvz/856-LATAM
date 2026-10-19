@@ -405,6 +405,15 @@ async function badSignature(id: string) {
 export const canonical = (method: string, url: string, ts: string, nonce: string, body: string) =>
   `${method.toUpperCase()}\n${url}\n${ts}\n${nonce}\n${sha(body)}`;
 
+export function verifyCanonicalSignature(publicKey: string, method: string, url: string, ts: string, nonce: string, signature: string, body: string) {
+  try {
+    return edVerify(null, Buffer.from(canonical(method, url, ts, nonce, body)),
+      edKey(Buffer.from(publicKey, 'base64url')), Buffer.from(signature, 'base64url'));
+  } catch {
+    return false;
+  }
+}
+
 export async function authenticateSigned(h: { key: string; ts?: string; nonce?: string; sig?: string }, req: { method: string; url: string; ip: string; rawBody?: string }) {
   if (!/^856k_[0-9a-f]{16}$/.test(h.key)) throw fail(401, 'Llave inválida', 'invalid_key');
   if (!h.ts || !h.nonce || !h.sig || !/^\d{10}$/.test(h.ts) || !/^[A-Za-z0-9_-]{16,64}$/.test(h.nonce)) {
@@ -414,11 +423,7 @@ export async function authenticateSigned(h: { key: string; ts?: string; nonce?: 
   usable(k);
   if (!ipAllowed(req.ip, k.ip_allowlist)) throw fail(403, 'IP no autorizada para esta llave', 'ip_not_allowed');
   if (Math.abs(Date.now() / 1000 - Number(h.ts)) > config.PORTAL_SIG_WINDOW_SEC) throw fail(401, 'Marca de tiempo fuera de la ventana permitida', 'stale_timestamp');
-  let ok = false;
-  try {
-    ok = edVerify(null, Buffer.from(canonical(req.method, req.url, h.ts, h.nonce, req.rawBody ?? '')),
-      edKey(Buffer.from(k.public_key, 'base64url')), Buffer.from(h.sig, 'base64url'));
-  } catch { ok = false; }
+  const ok = verifyCanonicalSignature(k.public_key, req.method, req.url, h.ts, h.nonce, h.sig, req.rawBody ?? '');
   if (!ok) { await badSignature(k.id); throw fail(401, 'Firma inválida', 'invalid_signature'); }
   const n = await pool.query('INSERT INTO client_api_nonces (key_id, nonce) VALUES ($1,$2) ON CONFLICT DO NOTHING', [k.id, h.nonce]);
   if (!n.rowCount) throw fail(401, 'Nonce ya usado (posible repetición)', 'replay');

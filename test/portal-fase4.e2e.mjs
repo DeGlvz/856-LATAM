@@ -32,11 +32,11 @@ const api = async (method, path, body, idem) => {
   const r = await fetch(BASE + path, { method, headers: { 'x-api-key': KEY, 'content-type': 'application/json', ...(idem ? { 'idempotency-key': `${idem}-${R}` } : {}) }, body: body && JSON.stringify(body) });
   return { status: r.status, body: await r.json().catch(() => null) };
 };
-async function signed(priv, prefix, method, path, body) {
+async function signed(priv, prefix, method, path, body, extraHeaders = {}) {
   const raw = body ? JSON.stringify(body) : '';
   const ts = String(Math.floor(Date.now() / 1000)), nonce = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
   const sig = sign(null, Buffer.from(`${method}\n/v1/portal${path}\n${ts}\n${nonce}\n${sha(raw)}`), priv).toString('base64url');
-  const r = await fetch(BASE + '/v1/portal' + path, { method, headers: { 'x-forwarded-for': `${NET}.50`, 'x-856-key': prefix, 'x-856-timestamp': ts, 'x-856-nonce': nonce, 'x-856-signature': sig, ...(body ? { 'content-type': 'application/json' } : {}) }, body: raw || undefined });
+  const r = await fetch(BASE + '/v1/portal' + path, { method, headers: { 'x-forwarded-for': `${NET}.50`, 'x-856-key': prefix, 'x-856-timestamp': ts, 'x-856-nonce': nonce, 'x-856-signature': sig, ...(body ? { 'content-type': 'application/json' } : {}), ...extraHeaders }, body: raw || undefined });
   return { status: r.status, body: await r.json().catch(() => null) };
 }
 
@@ -155,11 +155,32 @@ const mkKey = async (adm, perms) => {
   const k = (await adm.s.call('POST', '/keys', { name: `Llave ${perms.join('+')}`, kind: 'ed25519', permissions: perms,
     public_key: pair.publicKey.export({ format: 'jwk' }).x, challenge: ch.challenge,
     proof: sign(null, Buffer.from(`856-latam/key-proof/v1:${ch.challenge}`), pair.privateKey).toString('base64url'), code: await adm.otp.next() })).body;
-  return (m, p, b) => signed(pair.privateKey, k.prefix, m, p, b);
+  return (m, p, b, headers) => signed(pair.privateKey, k.prefix, m, p, b, headers);
 };
 const keyTradeB = await mkKey(admB, ['read', 'trade']);
 const keyReadB = await mkKey(admB, ['read']);
 const keyWdA = await mkKey(admA, ['read', 'withdraw']);
+const simPath = '/obligations/import';
+const simCsv = `contraparte,activo,monto\n${codeA},${USDC},1.0000001`;
+const invalidSignature = await keyTradeB('POST', simPath, { csv: simCsv }, {
+  'x-856-simulate': 'true', 'x-856-signature': 'invalid',
+});
+check('dry-run rechaza una firma Ed25519 alterada → 401', `${invalidSignature.status} ${invalidSignature.body?.code}`, '401 invalid_signature');
+const importsBeforeSimulation = (await db.query('SELECT count(*)::int AS n FROM obligation_imports WHERE client_id = $1', [B.id])).rows[0].n;
+const invalidDecimals = await keyTradeB('POST', simPath, { csv: simCsv }, { 'x-856-simulate': 'true' });
+check('dry-run informa precisión USDC fuera de 6 decimales → 422',
+  `${invalidDecimals.status} ${invalidDecimals.body?.errors?.[0]?.fila} ${invalidDecimals.body?.errors?.[0]?.campo}`,
+  '422 2 monto');
+check('cada error dry-run contiene solo fila, campo y motivo',
+  Object.keys(invalidDecimals.body.errors[0]).sort().join(','), 'campo,fila,motivo');
+const validSimulation = await keyTradeB('POST', simPath, { csv: `contraparte,activo,monto\n${codeA},${USDC},1.000001` }, { 'x-856-simulate': 'true' });
+check('dry-run válido devuelve huella, cero llamadas y webhook procesado',
+  `${validSimulation.status} ${/^[a-f0-9]{64}$/.test(validSimulation.body?.fingerprint)} ${validSimulation.body?.provider_calls} ${validSimulation.body?.emulation?.webhook?.status}`,
+  '200 true 0 processed');
+check('dry-run exitoso no crea importación durable',
+  (await db.query('SELECT count(*)::int AS n FROM obligation_imports WHERE client_id = $1', [B.id])).rows[0].n, importsBeforeSimulation);
+check('dry-run exitoso deja únicamente su evento de auditoría',
+  (await db.query(`SELECT count(*)::int AS n FROM audit_log WHERE client_id = $1 AND action = 'template_simulation_passed'`, [B.id])).rows[0].n, 1);
 const o6 = (await newOb(oprA.s, { amount: U(10), external_ref: `OC-6-${R}` })).body;
 check('llave solo lectura no acepta → 403', (await keyReadB('POST', `/obligations/${o6.id}/accept`, {})).status, 403);
 check('  …pero consulta obligaciones', (await keyReadB('GET', '/obligations')).status, 200);

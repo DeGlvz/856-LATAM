@@ -111,6 +111,11 @@ check('alta por ejecutivo → 403 (requiere tesorero)', (await ej.call('POST', '
 check('activar cuenta de cliente por ejecutivo → 403 (requiere tesorero)',
   (await ej.call('POST', `/v1/console/fiat/clients/${A.id}/accounts/activate`, { provider: 'mock' })).status, 403);
 check('activar cuenta con API_KEY global → 403', (await api('POST', `/v1/console/fiat/clients/${A.id}/accounts/activate`, { provider: 'mock' })).status, 403);
+const activationWithoutTemplate = await T1.call('POST', `/v1/console/fiat/clients/${A.id}/accounts/activate`, {
+  provider: 'mock', code: await T1.code(),
+});
+check('activar cuenta sin plantilla simulada reciente → 422 simulation_required_before_production',
+  `${activationWithoutTemplate.status} ${activationWithoutTemplate.body?.code}`, '422 simulation_required_before_production');
 check('lista de IBANs por cliente por ejecutivo → 403', (await ej.call('GET', '/v1/console/fiat/accounts')).status, 403);
 check('lista de IBANs por cliente por API_KEY → 403', (await api('GET', '/v1/console/fiat/accounts')).status, 403);
 const su = await T1.call('POST', '/v1/console/fiat/setup', { code: await T1.code() });

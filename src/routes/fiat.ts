@@ -53,6 +53,7 @@ export async function fiatConsoleRoutes(app: FastifyInstance) {
     const clientId = parse(uuid, req.params.clientId);
     const b = parse(z.object({ provider: z.enum(['monerium', 'mock', 'transak', 'circle']), code: code6.optional() }), req.body ?? {});
     const by = await treasurer2fa(req, b.code);
+    await F.assertRecentTemplateSimulation(clientId);
     return reply.code(201).send(await F.activateClientAccount(clientId, b.provider, by, req.log));
   });
 

@@ -14,16 +14,17 @@ export interface AssetInput {
   kind: 'native' | 'erc20' | 'trc20' | 'utxo'; contract_address?: string | null; decimals: number;
 }
 
-export async function createAsset(a: AssetInput) {
-  return tx(async (c) => {
-    const { rows } = await c.query(
+export async function createAsset(a: AssetInput, c?: Tx) {
+  const create = async (connection: Tx) => {
+    const { rows } = await connection.query(
       `INSERT INTO assets (id, symbol, chain, network, kind, contract_address, decimals)
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
       [a.id, a.symbol, a.chain, a.network, a.kind, a.contract_address?.toLowerCase() ?? null, a.decimals],
     );
-    await ensureSystemAccounts(c, a.id);
+    await ensureSystemAccounts(connection, a.id);
     return rows[0];
-  });
+  };
+  return c ? create(c) : tx(create);
 }
 
 export async function listAssets() {
@@ -64,19 +65,20 @@ export async function ensureAllSystemAccounts() {
 // ───────────── Clientes y cuentas ─────────────
 export async function createClient(input: {
   name: string; external_id?: string; kind?: string; metadata?: Record<string, unknown>; assets?: string[];
-}) {
-  return tx(async (c) => {
-    const { rows } = await c.query(
+}, c?: Tx) {
+  const create = async (connection: Tx) => {
+    const { rows } = await connection.query(
       `INSERT INTO clients (name, external_id, kind, metadata) VALUES ($1,$2,COALESCE($3,'corporate'),$4) RETURNING *`,
       [input.name, input.external_id ?? null, input.kind ?? null, input.metadata ?? {}],
     );
     const client = rows[0];
     const accounts = [];
-    for (const assetId of input.assets ?? []) accounts.push(await openClientAccount(c, client.id, assetId));
+    for (const assetId of input.assets ?? []) accounts.push(await openClientAccount(connection, client.id, assetId));
     // Multi-red: activos habilitados = redes por defecto + los pedidos en el alta
-    await enableDefaults(c, client.id, input.assets ?? []);
+    await enableDefaults(connection, client.id, input.assets ?? []);
     return { ...client, accounts };
-  });
+  };
+  return c ? create(c) : tx(create);
 }
 
 export async function getClient(id: string) {

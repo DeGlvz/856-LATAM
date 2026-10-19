@@ -239,10 +239,18 @@ export function toBaseUnits(text: string, decimals: number): string | null {
 
 const COLUMNS = ['contraparte', 'activo', 'monto', 'referencia', 'vencimiento'] as const;
 type RowError = { row: number; field: string; message: string };
+type ImportValidationResult = {
+  id: string | null; filename: string | null; status: string; total_rows: number; valid_rows: number; error_rows: number;
+  errors: RowError[];
+  preview: { row: number; counterparty: string; asset_id: string; amount: string; external_ref: string | null; due_at: string | null }[];
+  created_at: Date | null; decided_at: Date | null;
+};
 
-export async function validateImport(p: PortalPrincipal, filename: string | undefined, csv: string) {
+export async function validateImport(
+  p: PortalPrincipal, filename: string | undefined, csv: string, c: Tx | typeof pool = pool, persist = true,
+): Promise<ImportValidationResult> {
   const origin = tradeOrigin(p);
-  await assertCanRegister(pool, p.clientId);
+  await assertCanRegister(c, p.clientId);
   const table = parseCsv(csv);
   if (!table.length) throw new HttpError(422, 'El archivo está vacío', 'empty_file');
   const header = table[0].map((h) => h.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''));
@@ -253,18 +261,18 @@ export async function validateImport(p: PortalPrincipal, filename: string | unde
   if (data.length > config.OBLIGATION_IMPORT_MAX_ROWS) {
     throw new HttpError(422, `Máximo ${config.OBLIGATION_IMPORT_MAX_ROWS} filas por archivo (trae ${data.length}): divídalo`, 'too_many_rows');
   }
-  const { rows: assets } = await pool.query<{ id: string; decimals: number }>('SELECT id, decimals FROM assets WHERE active');
+  const { rows: assets } = await c.query<{ id: string; symbol: string; decimals: number }>('SELECT id, symbol, decimals FROM assets WHERE active');
   const assetById = new Map(assets.map((a) => [a.id, a]));
   const codes = [...new Set(data.map((r) => normalizeCode(r[idx.contraparte] ?? '')).filter((c) => CODE_RE.test(c)))];
-  const { rows: cps } = await pool.query<{ id: string; status: string; counterparty_code: string; name: string }>(
+  const { rows: cps } = await c.query<{ id: string; status: string; counterparty_code: string; name: string }>(
     'SELECT id, status, counterparty_code, name FROM clients WHERE counterparty_code = ANY($1)', [codes]);
   const cpByCode = new Map(cps.filter((c) => c.id !== p.clientId).map((c) => [c.counterparty_code, c]));
-  const { rows: existing } = await pool.query<{ debtor_id: string; asset_id: string; external_ref: string }>(
+  const { rows: existing } = await c.query<{ debtor_id: string; asset_id: string; external_ref: string }>(
     `SELECT debtor_id, asset_id, external_ref FROM obligations
       WHERE creditor_id = $1 AND external_ref IS NOT NULL AND status IN ('pending_acceptance','open')`, [p.clientId]);
   const seen = new Set(existing.map((e) => `${e.debtor_id}|${e.asset_id}|${e.external_ref}`));
   // Multi-red: activos habilitados del acreedor (recibir) y de las contrapartes (cualquier estado)
-  const { rows: en } = await pool.query<{ client_id: string; asset_id: string; status: string }>(
+  const { rows: en } = await c.query<{ client_id: string; asset_id: string; status: string }>(
     'SELECT client_id, asset_id, status FROM client_assets WHERE client_id = ANY($1)', [[p.clientId, ...cps.map((x) => x.id)]]);
   const enabled = new Map(en.map((e) => [`${e.client_id}|${e.asset_id}`, e.status]));
 
@@ -281,6 +289,11 @@ export async function validateImport(p: PortalPrincipal, filename: string | unde
     const assetId = (r[idx.activo] ?? '').trim().toUpperCase();
     const asset = assetById.get(assetId);
     if (!asset) err('activo', `Activo no disponible: ${assetId || '(vacío)'}`);
+    else {
+      const symbol = asset.symbol.toUpperCase();
+      const expected = symbol === 'USDC' ? 6 : ['EURE', 'ETH'].includes(symbol) ? 18 : null;
+      if (expected !== null && asset.decimals !== expected) err('activo', `${symbol} debe tener ${expected} decimales`);
+    }
     const amount = asset ? toBaseUnits(r[idx.monto] ?? '', asset.decimals) : null;
     if (asset && enabled.get(`${p.clientId}|${asset.id}`) !== 'enabled') err('activo', `No tiene habilitado ${asset.id} para recibir`);
     else if (asset && cp && !enabled.has(`${cp.id}|${asset.id}`)) err('activo', `La contraparte no tiene habilitado ${asset.id}`);
@@ -303,20 +316,35 @@ export async function validateImport(p: PortalPrincipal, filename: string | unde
       valid.push({ row, counterparty_code: code, counterparty_name: cp.name, asset_id: asset.id, amount, external_ref: ref || undefined, due_at: due });
     }
   });
-  const { rows: [imp] } = await pool.query(
+  if (!persist) {
+    return {
+      id: null, filename: filename?.slice(0, 200) ?? null, status: 'simulated', total_rows: data.length,
+      valid_rows: valid.length, error_rows: new Set(errors.map((e) => e.row)).size, errors,
+      preview: valid.slice(0, 20).map((r) => ({
+        row: r.row, counterparty: r.counterparty_name, asset_id: r.asset_id, amount: r.amount,
+        external_ref: r.external_ref ?? null, due_at: r.due_at ?? null,
+      })),
+      created_at: null, decided_at: null,
+    };
+  }
+  const { rows: [imp] } = await c.query(
     `INSERT INTO obligation_imports (client_id, filename, total_rows, valid_rows, rows, errors, created_by)
      VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
     [p.clientId, filename?.slice(0, 200) ?? null, data.length, valid.length, JSON.stringify(valid), JSON.stringify(errors), origin.actor]);
   return importView(imp);
 }
 
-const importView = (i: Record<string, unknown>) => {
+const importView = (i: Record<string, unknown>): ImportValidationResult => {
   const rows = i.rows as (NewObligation & { row: number; counterparty_name: string })[];
   return {
-    id: i.id, filename: i.filename, status: i.status, total_rows: i.total_rows, valid_rows: i.valid_rows,
-    error_rows: new Set((i.errors as RowError[]).map((e) => e.row)).size, errors: i.errors,
-    preview: rows.slice(0, 20).map((r) => ({ row: r.row, counterparty: r.counterparty_name, asset_id: r.asset_id, amount: r.amount, external_ref: r.external_ref ?? null, due_at: r.due_at ?? null })),
-    created_at: i.created_at, decided_at: i.decided_at,
+    id: i.id as string, filename: i.filename as string | null, status: i.status as string, total_rows: i.total_rows as number,
+    valid_rows: i.valid_rows as number, error_rows: new Set((i.errors as RowError[]).map((e) => e.row)).size,
+    errors: i.errors as RowError[],
+    preview: rows.slice(0, 20).map((r) => ({
+      row: r.row, counterparty: r.counterparty_name, asset_id: r.asset_id, amount: r.amount,
+      external_ref: r.external_ref ?? null, due_at: r.due_at ?? null,
+    })),
+    created_at: i.created_at as Date, decided_at: i.decided_at as Date | null,
   };
 };
 

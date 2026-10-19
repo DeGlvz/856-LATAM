@@ -4,6 +4,8 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { HttpError } from '../idempotency.js';
 import * as O from '../portal/obligations.js';
+import { audit } from '../auth/operators.js';
+import { rollbackOnly, simulationFingerprint, simulationResult, type SimulationIssue } from '../simulation.js';
 
 const parse = <S extends z.ZodTypeAny>(s: S, v: unknown): z.infer<S> => {
   const r = s.safeParse(v);
@@ -61,7 +63,51 @@ export async function portalObligationRoutes(app: FastifyInstance) {
     O.cancelObligation(req.portal!, parse(uuid, req.params.id), parse(z.object({ reason }), req.body ?? {}).reason));
 
   // ── Carga masiva: validar (no registra nada) → confirmar o descartar ──
-  app.post('/obligations/import', { bodyLimit: 4 * 1024 * 1024 }, async (req, reply) => {
+  app.post('/obligations/import', {
+    bodyLimit: 4 * 1024 * 1024,
+    preHandler: async (req, reply) => {
+      if (req.headers['x-856-simulate'] !== 'true') return;
+      const p = req.portal!;
+      if (p.kind !== 'client_key' || p.key.kind !== 'ed25519') {
+        return reply.code(422).send({ errors: [{
+          fila: 1, campo: 'firma', motivo: 'La simulación requiere una petición firmada con una llave Ed25519 del cliente',
+        }] satisfies SimulationIssue[] });
+      }
+      const body = z.object({ filename: z.string().max(200).optional(), csv: z.string().min(1).max(4 * 1024 * 1024) }).safeParse(req.body);
+      if (!body.success) {
+        return reply.code(422).send({ errors: body.error.issues.map((i) => ({
+          fila: 1, campo: i.path.join('.') || 'payload', motivo: i.message,
+        })) });
+      }
+      const fingerprint = simulationFingerprint({
+        route: 'POST /v1/portal/obligations/import', client_id: p.clientId, payload: body.data,
+      });
+      let result: Awaited<ReturnType<typeof O.validateImport>>;
+      try {
+        result = await rollbackOnly((c) => O.validateImport(p, body.data.filename, body.data.csv, c, false));
+      } catch (e) {
+        if (e instanceof HttpError) {
+          return reply.code(422).send({ errors: [{
+            fila: 1, campo: e.code === 'bad_header' || e.code === 'empty_file' ? 'encabezado' : 'payload', motivo: e.message,
+          }] satisfies SimulationIssue[] });
+        }
+        throw e;
+      }
+      if (!result.total_rows || result.valid_rows !== result.total_rows || result.error_rows) {
+        const errors = result.errors.map((e) => ({ fila: e.row, campo: e.field, motivo: e.message }));
+        if (!errors.length) errors.push({ fila: 1, campo: 'filas', motivo: 'La plantilla debe contener al menos una fila válida' });
+        return reply.code(422).send({ errors });
+      }
+      await audit({
+        actor: `llave:${p.key.prefix}`, action: 'template_simulation_passed', client_id: p.clientId, status: 200,
+        ip: req.ip, metadata: { fingerprint, rows: result.total_rows, provider_calls: 0 },
+      });
+      return reply.code(200).send(simulationResult(fingerprint, {
+        status: 'validated', client_id: p.clientId, total_rows: result.total_rows,
+        valid_rows: result.valid_rows, error_rows: 0, preview: result.preview,
+      }));
+    },
+  }, async (req, reply) => {
     const b = parse(z.object({ filename: z.string().max(200).optional(), csv: z.string().min(1).max(4 * 1024 * 1024) }), req.body);
     return reply.code(201).send(await O.validateImport(req.portal!, b.filename, b.csv));
   });
