@@ -360,6 +360,8 @@ Ejecutivos y tesoreros pueden abrir el portal en una pestaña separada desde la 
 
 Los tokens se guardan como SHA-256 en PostgreSQL; el vencimiento se comprueba en cada petición y es el límite garantizado de la sesión. El navegador intenta revocar al salir o cerrar la pestaña, pero el cierre abrupto puede impedir que llegue el aviso. La bitácora inmutable registra `client_impersonation_initiated`, el actor `console:<correo>`, el cliente, `success`/`denied` y el origen del inicio. Los rechazos de escritura del portal también quedan auditados con el cliente y el actor operador. La interfaz muestra el banner de asistencia y deshabilita controles de acción; la API sigue siendo la protección autoritativa.
 
+La asistencia muestra también la sección **Llaves de API** para guiar al cliente: permite consultar nombres, prefijos, tipo, permisos, IP autorizadas, vencimiento, último uso y estado, además de la ayuda de integración. Nunca expone secretos; crear, rotar o revocar sigue reservado al administrador del cliente y la API rechaza cualquier mutación. La sección **Usuarios** y el resto de administración no se habilitan.
+
 La consulta de obligaciones del portal (`GET /v1/portal/obligations`) cubre la vista de obligaciones/facturación existente; el sistema no tiene un recurso o endpoint independiente de facturas. También se pueden consultar balances, movimientos, estados de cuenta, depósitos y demás rutas `GET` del portal bajo el mismo contexto y las mismas restricciones.
 
 Prueba E2E: `ORIGIN_RULE=enforce BASE KEY DATABASE_URL node test/client-assist.e2e.mjs` (roles permitidos/denegados, emisión/canje único, balances, movimientos, estado de cuenta y obligaciones, POST/PATCH bloqueados, balance y postings intactos, auditoría y revocación).

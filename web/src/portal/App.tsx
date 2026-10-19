@@ -31,6 +31,10 @@ function AdminOnly({ children }: { children: ReactNode }) {
   const { isAdmin } = usePortal();
   return isAdmin ? <>{children}</> : <Navigate to="/" replace />;
 }
+function AdminOrAssistKeys() {
+  const { isAdmin, isAssist } = usePortal();
+  return isAdmin || isAssist ? <Keys readOnly={isAssist} /> : <Navigate to="/" replace />;
+}
 
 export default function PortalApp() {
   return (
@@ -54,7 +58,7 @@ export default function PortalApp() {
           <Route path="compensacion" element={<Netting />} />
           <Route path="seguridad" element={<PortalSecurity />} />
           <Route path="usuarios" element={<AdminOnly><Users /></AdminOnly>} />
-          <Route path="llaves" element={<AdminOnly><Keys /></AdminOnly>} />
+          <Route path="llaves" element={<AdminOrAssistKeys />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
