@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { Fragment, useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Eye, Loader2, MoreHorizontal, Plus, Search } from 'lucide-react';
@@ -47,7 +47,11 @@ export function Clients() {
     },
     getNextPageParam: (last) => last.next_cursor,
   });
-  const rows = list.data?.pages.flatMap((p) => p.clients) ?? [];
+  const all = list.data?.pages.flatMap((p) => p.clients) ?? [];
+  const openRows = all.filter((c) => c.status !== 'closed');
+  const closedRows = all.filter((c) => c.status === 'closed');
+  const rows = [...openRows, ...closedRows];
+  const separatorAt = openRows.length > 0 && closedRows.length > 0 ? openRows.length : -1;
 
   return (
     <div className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)] gap-6">
@@ -98,8 +102,16 @@ export function Clients() {
               {!list.isPending && rows.length === 0 && (
                 <TableRow><TableCell colSpan={can('ejecutivo') ? 7 : 6} className="py-8 text-center text-muted-foreground">Sin clientes con estos filtros</TableCell></TableRow>
               )}
-              {rows.map((c) => (
-                <TableRow key={c.id} className="cursor-pointer" onClick={() => nav(`/clientes/${c.id}`)}>
+              {rows.map((c, i) => (
+                <Fragment key={c.id}>
+                {i === separatorAt && (
+                  <TableRow className="bg-muted/40 hover:bg-muted/40">
+                    <TableCell colSpan={can('ejecutivo') ? 7 : 6} className="py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Cerrados ({closedRows.length})
+                    </TableCell>
+                  </TableRow>
+                )}
+                <TableRow className={c.status === 'closed' ? 'cursor-pointer opacity-70' : 'cursor-pointer'} onClick={() => nav(`/clientes/${c.id}`)}>
                   <TableCell>
                     <Link to={`/clientes/${c.id}`} className="font-medium hover:underline" onClick={(e) => e.stopPropagation()}>{c.name}</Link>
                     <div className="font-mono text-[11px] text-muted-foreground">{c.id.slice(0, 8)}</div>
@@ -135,6 +147,7 @@ export function Clients() {
                     </TableCell>
                   )}
                 </TableRow>
+                </Fragment>
               ))}
             </TableBody>
           </Table>
