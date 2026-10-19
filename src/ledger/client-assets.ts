@@ -103,8 +103,44 @@ export async function setClientAsset(clientId: string, assetId: string, status: 
   return listClientAssets(clientId);
 }
 
+/** Aplica un mismo estado a varios activos dentro de una sola transacción. */
+export async function setClientAssets(clientId: string, assetIds: string[], status: AssetStatus | 'disabled', by: string) {
+  await tx(async (c) => {
+    const { rows: [cl] } = await c.query('SELECT status FROM clients WHERE id = $1 FOR UPDATE', [clientId]);
+    if (!cl) throw new HttpError(404, 'Cliente no encontrado', 'not_found');
+    const { rows } = await c.query('SELECT id FROM assets WHERE id = ANY($1::text[]) AND active', [assetIds]);
+    if (rows.length !== assetIds.length) throw new HttpError(404, 'Uno o más activos no existen o no están disponibles', 'not_found');
+    for (const id of assetIds) await setClientAsset(clientId, id, status, by, c);
+  });
+  return listClientAssets(clientId);
+}
+
 // ───── Solicitudes del ejecutivo ─────
 const ACTION_TO_STATUS = { enable: 'enabled', exit_only: 'exit_only', disable: 'disabled' } as const;
+
+/** Crea todas las solicitudes en una transacción: no deja una selección aplicada parcialmente. */
+export async function requestChanges(i: { client_id: string; asset_ids: string[]; action: keyof typeof ACTION_TO_STATUS; reason: string; by: string; operatorId: string | null }) {
+  return tx(async (c) => {
+    const { rows: [cl] } = await c.query('SELECT 1 FROM clients WHERE id = $1', [i.client_id]);
+    if (!cl) throw new HttpError(404, 'Cliente no encontrado', 'not_found');
+    const { rows: assets } = await c.query('SELECT id FROM assets WHERE id = ANY($1::text[]) AND active', [i.asset_ids]);
+    if (assets.length !== i.asset_ids.length) throw new HttpError(404, 'Uno o más activos no existen o no están disponibles', 'not_found');
+    const requests = [];
+    try {
+      for (const assetId of i.asset_ids) {
+        const { rows: [request] } = await c.query(
+          `INSERT INTO client_asset_requests (client_id, asset_id, action, reason, requested_by, requested_by_operator)
+           VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+          [i.client_id, assetId, i.action, i.reason.trim(), i.by, i.operatorId]);
+        requests.push(request);
+      }
+    } catch (e) {
+      if ((e as { code?: string }).code === '23505') throw new HttpError(409, 'Ya hay una solicitud pendiente para uno o más activos seleccionados', 'request_pending');
+      throw e;
+    }
+    return { requests };
+  });
+}
 
 export async function requestChange(i: { client_id: string; asset_id: string; action: keyof typeof ACTION_TO_STATUS; reason: string; by: string; operatorId: string | null }) {
   const { rows: [a] } = await pool.query('SELECT id FROM assets WHERE id = $1 AND active', [i.asset_id]);

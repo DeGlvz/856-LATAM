@@ -23,12 +23,20 @@ export function ClientAssetsCard({ clientId, disabled }: { clientId: string; dis
   const nets = useNetworks();
   const q = useQuery({ queryKey: ['client-assets', clientId], queryFn: () => api<{ assets: ClientAssetRow[] }>(`/clients/${clientId}/assets`).then((r) => r.assets) });
   const [edit, setEdit] = useState<{ a: ClientAssetRow; to: ClientAssetStatus } | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [bulkEdit, setBulkEdit] = useState<ClientAssetRow[] | null>(null);
   const groups = useMemo(() => {
     const m = new Map<string, ClientAssetRow[]>();
     for (const a of q.data ?? []) m.set(a.network, [...(m.get(a.network) ?? []), a]);
     return [...m.entries()];
   }, [q.data]);
   const tes = can('tesorero'), eje = can('ejecutivo');
+  const canEdit = !disabled && (tes || eje);
+  const toggleSelected = (assetId: string) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (next.has(assetId)) next.delete(assetId); else next.add(assetId);
+    return next;
+  });
 
   return (
     <Card data-section="client-assets">
@@ -40,17 +48,46 @@ export function ClientAssetsCard({ clientId, disabled }: { clientId: string; dis
       </CardHeader>
       <CardContent className="grid gap-4">
         <ErrorBox error={q.error} />
+        {canEdit && selected.size > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2">
+            <span className="text-sm">{selected.size} activo(s) seleccionado(s)</span>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setSelected(new Set())}>Quitar selección</Button>
+              <Button size="sm" onClick={() => setBulkEdit((q.data ?? []).filter((a) => selected.has(a.asset_id)))}>
+                Editar selección
+              </Button>
+            </div>
+          </div>
+        )}
         {q.isPending && <Skeleton className="h-24" />}
         {groups.map(([network, rows]) => (
           <div key={network} className="grid gap-1.5">
             <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
               <span>{nets.label(network)}</span><span className="font-mono">{network}</span>
               {!rows[0].network_enabled && <Badge variant="outline">Red no encendida</Badge>}
+              {canEdit && <label className="ml-auto flex items-center gap-1.5">
+                <input type="checkbox" aria-label={`Seleccionar activos de ${nets.label(network)}`} className="size-4 accent-primary"
+                  checked={rows.filter((a) => tes || !a.pending_request).length > 0 && rows.filter((a) => tes || !a.pending_request).every((a) => selected.has(a.asset_id))}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setSelected((prev) => {
+                      const next = new Set(prev);
+                      for (const a of rows) if (tes || !a.pending_request) {
+                        if (checked) next.add(a.asset_id); else next.delete(a.asset_id);
+                      }
+                      return next;
+                    });
+                  }} />
+                Seleccionar red
+              </label>}
             </div>
             {rows.map((a) => {
               const s = ASSET_STATUS[a.status];
               return (
                 <div key={a.asset_id} data-asset={a.asset_id} className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-1.5 text-sm">
+                  {canEdit && <input type="checkbox" aria-label={`Seleccionar activo ${a.asset_id}`} className="size-4 accent-primary"
+                    checked={selected.has(a.asset_id)} disabled={!tes && !!a.pending_request}
+                    onChange={() => toggleSelected(a.asset_id)} />}
                   <span className="w-16 font-medium">{a.symbol}</span>
                   <span className="font-mono text-xs text-muted-foreground">{a.asset_id}</span>
                   <Badge variant={s.variant}>{s.label}</Badge>
@@ -70,7 +107,59 @@ export function ClientAssetsCard({ clientId, disabled }: { clientId: string; dis
         ))}
       </CardContent>
       <ChangeDialog clientId={clientId} edit={edit} direct={tes} onClose={() => setEdit(null)} />
+      <BulkChangeDialog clientId={clientId} assets={bulkEdit} direct={tes}
+        onClose={() => setBulkEdit(null)} onSuccess={() => setSelected(new Set())} />
     </Card>
+  );
+}
+
+function BulkChangeDialog({ clientId, assets, direct, onClose, onSuccess }: {
+  clientId: string; assets: ClientAssetRow[] | null; direct: boolean; onClose: () => void; onSuccess: () => void;
+}) {
+  const qc = useQueryClient();
+  const [to, setTo] = useState<ClientAssetStatus>('enabled');
+  const [code, setCode] = useState('');
+  const [reason, setReason] = useState('');
+  const changed = assets?.filter((a) => a.status !== to) ?? [];
+  const m = useMutation({
+    mutationFn: () => direct
+      ? api(`/clients/${clientId}/assets/bulk`, { method: 'PUT', json: { asset_ids: changed.map((a) => a.asset_id), status: to, code } })
+      : api(`/clients/${clientId}/asset-requests/bulk`, { method: 'POST', json: { asset_ids: changed.map((a) => a.asset_id), action: ACTION[to], reason: reason.trim() } }),
+    onSuccess: () => {
+      ['client-assets', 'asset-requests', 'summary'].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+      setCode(''); setReason(''); setTo('enabled'); onSuccess(); onClose();
+    },
+  });
+  if (!assets?.length) return null;
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) { m.reset(); setCode(''); setReason(''); setTo('enabled'); onClose(); } }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{direct ? 'Editar activos seleccionados' : 'Solicitar cambio masivo'}</DialogTitle>
+          <DialogDescription>
+            Cambiarán {changed.length} de {assets.length} activos seleccionados: {changed.map((a) => a.asset_id).join(', ') || 'ninguno; todos ya tienen ese estado'}.{' '}
+            {direct ? 'El cambio se aplica completo o no se aplica.' : 'Se enviará una solicitud por activo para aprobación del tesorero.'}
+            {to === 'disabled' && ' Solo se deshabilitan activos sin saldo ni operaciones abiertas.'}
+            {to === 'exit_only' && ' El cliente podrá retirar o compensar, pero no recibir depósitos nuevos.'}
+          </DialogDescription>
+        </DialogHeader>
+        <Field label="Nuevo estado">
+          <Select aria-label="Nuevo estado para los activos seleccionados" value={to} onChange={(e) => setTo(e.target.value as ClientAssetStatus)}>
+            {(Object.keys(ASSET_STATUS) as ClientAssetStatus[]).map((k) => <option key={k} value={k}>{ASSET_STATUS[k].label}</option>)}
+          </Select>
+        </Field>
+        {direct
+          ? <Field label="Código 2FA"><CodeInput label="Código 2FA para cambiar los activos seleccionados" autoFocus value={code} onChange={setCode} /></Field>
+          : <Textarea aria-label="Motivo de la solicitud" autoFocus rows={2} maxLength={300} placeholder="Motivo (mín. 5 caracteres)" value={reason} onChange={(e) => setReason(e.target.value)} />}
+        <ErrorBox error={m.error} />
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button disabled={changed.length === 0 || m.isPending || (direct ? code.length !== 6 : reason.trim().length < 5)} onClick={() => m.mutate()}>
+            {m.isPending && <Loader2 className="animate-spin" />}{direct ? 'Aplicar a todos' : 'Enviar solicitudes'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

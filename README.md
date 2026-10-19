@@ -404,7 +404,7 @@ Pruebas: `ORIGIN_RULE=enforce` + `node test/portal-fase4.e2e.mjs` (68 verificaci
 - **Quién cambia:** el **Tesorero** aplica el cambio con 2FA; el **Ejecutivo** lo solicita con motivo y lo aprueba un tesorero distinto (`403 same_operator`; una sola solicitud pendiente por cliente y activo, `409 request_pending`). Deshabilitar con saldo u operaciones abiertas no procede (`409 asset_in_use`): se usa «Solo salida».
 - **Depósitos en revisión:** un depósito en un activo no habilitado no se acredita; aparece en Aprobaciones y el Tesorero lo acredita con 2FA (no habilita el activo). En el portal se ve «En revisión».
 - **Compensación:** el acreedor necesita el activo para recibir y el deudor para pagar; si la contraparte no lo tiene → `422 counterparty_asset_not_enabled`. La carga CSV lo marca en el campo «activo».
-- **Consola:** tablero con una fila por red (salud, bloque, gas, conciliación), tarjeta «Activos habilitados» en el cliente, selector de red al generar dirección o dar de alta en lista blanca, columna Red en movimientos, solicitudes y depósitos en revisión en Aprobaciones.
+- **Consola:** tablero con una fila por red (salud, bloque, gas, conciliación), tarjeta «Activos habilitados» en el cliente, selector de red al generar dirección o dar de alta en lista blanca, columna Red en movimientos, solicitudes y depósitos en revisión en Aprobaciones. En «Activos habilitados» se pueden seleccionar varios activos (o todos los de una red) para aplicar el mismo estado en una sola operación; el Tesorero confirma el lote con 2FA y se aplica de forma atómica, mientras que el Ejecutivo envía solicitudes individuales por activo para aprobación.
 - **Portal:** insignia «Solo salida» en saldos, selector de red al generar dirección (con los activos que recibe), red en depósitos y lista blanca, y el asistente de salidas solo ofrece destinos de la misma red que el activo.
 
 | Método y ruta | Quién | Uso |
@@ -412,7 +412,9 @@ Pruebas: `ORIGIN_RULE=enforce` + `node test/portal-fase4.e2e.mjs` (68 verificaci
 | `GET /v1/networks` | lectura | Redes encendidas, chainId, confirmaciones, explorador |
 | `GET /v1/clients/:id/assets` | lectura | Activos del cliente por red, saldo y solicitud pendiente |
 | `PUT /v1/clients/:id/assets/:assetId` `{status, code}` | tesorero (2FA) | `enabled` · `exit_only` · `disabled` |
+| `PUT /v1/clients/:id/assets/bulk` `{asset_ids, status, code}` | tesorero (2FA) | Aplica el mismo estado a varios activos de forma atómica |
 | `POST /v1/clients/:id/asset-requests` `{asset_id, action, reason}` | ejecutivo+ | Solicitar `enable` · `exit_only` · `disable` |
+| `POST /v1/clients/:id/asset-requests/bulk` `{asset_ids, action, reason}` | ejecutivo+ | Solicitar el mismo cambio para varios activos, todo o nada |
 | `GET /v1/asset-requests?status&client_id` | lectura | Solicitudes |
 | `POST /v1/asset-requests/:id/approve` `{code}` · `/reject` `{reason}` | tesorero distinto (2FA al aprobar) | Decidir |
 | `POST /v1/deposits/:id/release` `{code}` | tesorero (2FA) | Acreditar un depósito en revisión |
