@@ -106,6 +106,17 @@ test('activos del cliente: redes por defecto y el Tesorero pasa uno a «Solo sal
   await dlg.getByLabel('Código 2FA para cambiar el activo').fill(await TES.otp.next());
   await dlg.getByRole('button', { name: 'Aplicar' }).click();
   await expect(card.locator('[data-asset="ETH-BASE-SEPOLIA"]')).toContainText('Solo salida');
+  for (const id of ['USDC-ARB-SEPOLIA', 'USDC-AMOY']) {
+    await card.getByLabel(`Seleccionar activo ${id}`).check();
+  }
+  await card.getByRole('button', { name: 'Editar selección' }).click();
+  const bulk = page.getByRole('dialog');
+  await expect(bulk).toContainText('Cambiarán 2 de 2 activos');
+  await bulk.getByLabel('Nuevo estado para los activos seleccionados').selectOption('exit_only');
+  await bulk.getByLabel('Código 2FA para cambiar los activos seleccionados').fill(await TES.otp.next());
+  await bulk.getByRole('button', { name: 'Aplicar a todos' }).click();
+  await expect(card.locator('[data-asset="USDC-ARB-SEPOLIA"]')).toContainText('Solo salida');
+  await expect(card.locator('[data-asset="USDC-AMOY"]')).toContainText('Solo salida');
   await shot(page, 'activos-cliente');
 });
 

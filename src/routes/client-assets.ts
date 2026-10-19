@@ -24,6 +24,15 @@ const confirm = async (req: FastifyRequest, code?: string) => {
 export async function clientAssetRoutes(app: FastifyInstance) {
   app.get<{ Params: { id: string } }>('/clients/:id/assets', async (req) => CA.listClientAssets(parse(uuid, req.params.id)));
 
+  app.put<{ Params: { id: string } }>('/clients/:id/assets/bulk', async (req) => {
+    const b = parse(z.object({
+      asset_ids: z.array(assetId).min(1).max(100).refine((ids) => new Set(ids).size === ids.length, 'No repita activos'),
+      status: z.enum(['enabled', 'exit_only', 'disabled']), code: code6.optional(),
+    }), req.body);
+    await confirm(req, b.code);
+    return CA.setClientAssets(parse(uuid, req.params.id), b.asset_ids, b.status, who(req).email);
+  });
+
   app.put<{ Params: { id: string; assetId: string } }>('/clients/:id/assets/:assetId', async (req) => {
     const b = parse(z.object({ status: z.enum(['enabled', 'exit_only', 'disabled']), code: code6.optional() }), req.body);
     await confirm(req, b.code);
@@ -36,6 +45,15 @@ export async function clientAssetRoutes(app: FastifyInstance) {
       reason: z.string().trim().min(5, 'Indique el motivo (mín. 5 caracteres)').max(300) }), req.body);
     const w = who(req);
     return reply.code(201).send(await CA.requestChange({ client_id: parse(uuid, req.params.id), ...b, by: w.email, operatorId: w.id }));
+  });
+  app.post<{ Params: { id: string } }>('/clients/:id/asset-requests/bulk', async (req, reply) => {
+    const b = parse(z.object({
+      asset_ids: z.array(assetId).min(1).max(100).refine((ids) => new Set(ids).size === ids.length, 'No repita activos'),
+      action: z.enum(['enable', 'exit_only', 'disable']),
+      reason: z.string().trim().min(5, 'Indique el motivo (mín. 5 caracteres)').max(300),
+    }), req.body);
+    const w = who(req);
+    return reply.code(201).send(await CA.requestChanges({ client_id: parse(uuid, req.params.id), ...b, by: w.email, operatorId: w.id }));
   });
   app.get('/asset-requests', async (req) => CA.listRequests(parse(z.object({
     status: z.enum(['pending', 'approved', 'rejected']).optional(), client_id: uuid.optional(),
