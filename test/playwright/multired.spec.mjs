@@ -98,6 +98,7 @@ test('activos del cliente: edición individual y por red conservan 2FA', async (
   const card = page.locator('[data-section="client-assets"]');
   const addressCard = page.locator('[data-section="client-deposit-addresses"]');
   await expect(card).toContainText('Activos habilitados');
+  await expect(card.locator('[data-wallet-visibility="base-sepolia"]')).toHaveText('Billetera visible');
   await expect(addressCard.locator('[data-address-network="base-sepolia"]')).toBeVisible();
   for (const id of ['USDC-ETH-SEPOLIA', 'USDC-BASE-SEPOLIA', 'USDC-ARB-SEPOLIA', 'USDC-AMOY', 'BNB-TESTNET']) {
     await expect(card.locator(`[data-asset="${id}"]`)).toContainText('Habilitado');
@@ -117,11 +118,13 @@ test('activos del cliente: edición individual y por red conservan 2FA', async (
   await group.getByLabel('Código 2FA para cambiar los activos seleccionados').fill(await TES.otp.next());
   await group.getByRole('button', { name: 'Aplicar a todos' }).click();
   await expect(card.locator('[data-asset="USDC-BASE-SEPOLIA"]')).toContainText('Solo salida');
+  await expect(card.locator('[data-wallet-visibility="base-sepolia"]')).toHaveText('Billetera no visible');
   await expect(addressCard.locator('[data-address-network="base-sepolia"]')).toHaveCount(0);
   await card.getByLabel('Cambiar USDC-BASE-SEPOLIA').selectOption('enabled');
   const reopen = page.getByRole('dialog');
   await reopen.getByLabel('Código 2FA para cambiar el activo').fill(await TES.otp.next());
   await reopen.getByRole('button', { name: 'Aplicar' }).click();
+  await expect(card.locator('[data-wallet-visibility="base-sepolia"]')).toHaveText('Billetera visible');
   await expect(addressCard.locator('[data-address-network="base-sepolia"]')).toBeVisible();
   for (const id of ['USDC-ARB-SEPOLIA', 'USDC-AMOY']) {
     await card.getByLabel(`Seleccionar activo ${id}`).check();
