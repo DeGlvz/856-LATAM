@@ -42,5 +42,15 @@ check('reintento → 409 ya retirado', (await call('POST', `/v1/clients/${B.id}/
 const r2 = await call('POST', `/v1/clients/${A.id}/retire`, { reason: 'baja solicitada por el cliente' });
 check('retiro sin operaciones → 200', r2.status, 200);
 
+// Retiro con saldo: se pone en cero y se archiva (anonimiza)
+const D = (await key('POST', '/v1/clients', { name: `Retiro D ${R}`, assets: ['USDC-ETH-SEPOLIA'] }, 'c-D')).body;
+const acct = (await call('GET', `/v1/clients/${D.id}`)).body?.accounts?.[0];
+if (acct) {
+  await call('POST', '/v1/entries', { kind: 'adjustment', postings: [{ account: 'system:USDC-ETH-SEPOLIA:custody', direction: 'debit', amount: '500' }, { account: acct.id ?? acct.code, direction: 'credit', amount: '500' }] }, { 'idempotency-key': `fund-${R}` });
+  const r3 = await call('POST', `/v1/clients/${D.id}/retire`, { reason: 'baja con saldo' });
+  check('retiro con saldo → archivado', r3.body?.action, 'anonymized');
+  check('saldo puesto en cero', r3.body?.resolved?.balances_zeroed?.[0]?.amount, '500');
+}
+
 console.log(`\n${ok} ok, ${fail} fallos`);
 process.exit(fail ? 1 : 0);
