@@ -287,8 +287,8 @@ const EXIT_COLS = `w.id, w.asset_id, s.symbol, s.decimals, s.network, w.to_addre
   w.tx_hash, w.confirmations, w.origin_kind, w.origin_ref, w.simulation_id, w.scope_hash,
   w.client_approved_at, w.approved_at, w.approved2_at, w.rejected_by, w.rejected_reason, w.validation_due_at, w.last_error,
   w.created_at, w.updated_at, w.created_at::text AS _ts,
-  (SELECT u.name FROM client_users u WHERE u.id::text = w.origin_ref) AS origin_user,
-  (SELECT u.name FROM client_users u WHERE u.id = w.client_approved_by) AS client_approver`;
+  COALESCE((SELECT u.name FROM client_users u WHERE u.id::text = w.origin_ref), w.origin_user_name) AS origin_user,
+  COALESCE((SELECT u.name FROM client_users u WHERE u.id = w.client_approved_by), w.client_approved_by_name) AS client_approver`;
 
 const exitView = (w: Record<string, unknown>) => ({
   id: w.id, asset_id: w.asset_id, symbol: w.symbol, decimals: w.decimals, network: w.network, to_address: w.to_address,

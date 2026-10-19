@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link2, Loader2, RotateCcw, UserPlus, X } from 'lucide-react';
+import { Link2, Loader2, RotateCcw, Trash2, UserPlus, X } from 'lucide-react';
 import { papi, ROLE_HELP, ROLE_LABEL, type ClientRole, type InviteRow, type UserRow } from '../api';
 import { usePortal } from '../auth';
 import { CopyButton, ErrorBox, Field, fmtDate } from '@/components/common';
@@ -21,6 +21,11 @@ export function Users() {
   const invites = useQuery({ queryKey: ['p-invites'], queryFn: () => papi<{ invites: InviteRow[] }>('/users/invites').then((r) => r.invites) });
   const refresh = () => ['p-users', 'p-invites'].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
   const patch = useMutation({ mutationFn: (v: { id: string; role?: ClientRole; active?: boolean }) => papi(`/users/${v.id}`, { method: 'PATCH', json: { role: v.role, active: v.active } }), onSuccess: refresh });
+  const [deleting, setDeleting] = useState<UserRow | null>(null);
+  const remove = useMutation({
+    mutationFn: (u: UserRow) => papi(`/users/${u.id}`, { method: 'DELETE', json: { confirm: true } }),
+    onSuccess: () => { refresh(); setDeleting(null); },
+  });
   const revoke = useMutation({ mutationFn: (id: string) => papi(`/users/invites/${id}/revoke`, { method: 'POST', json: {} }), onSuccess: refresh });
   const [inviting, setInviting] = useState(false);
   const [resetting, setResetting] = useState<UserRow | null>(null);
@@ -60,6 +65,7 @@ export function Users() {
                   <TableCell className="text-right whitespace-nowrap">
                     {!self && u.totp_enabled && <Button size="sm" variant="ghost" onClick={() => setResetting(u)}><RotateCcw />Restablecer 2FA</Button>}
                     {!self && <Button size="sm" variant="ghost" onClick={() => patch.mutate({ id: u.id, active: !u.active })}>{u.active ? 'Desactivar' : 'Activar'}</Button>}
+                    {!self && <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => { remove.reset(); setDeleting(u); }}><Trash2 />Eliminar</Button>}
                   </TableCell>
                 </TableRow>
               );
@@ -86,6 +92,19 @@ export function Users() {
       </Card>
       <InviteDialog open={inviting} onOpenChange={setInviting} onDone={refresh} />
       <ResetDialog user={resetting} onClose={() => setResetting(null)} onDone={refresh} />
+      <Dialog open={!!deleting} onOpenChange={(v) => { if (!v) { setDeleting(null); remove.reset(); } }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Eliminar a {deleting?.name}</DialogTitle>
+            <DialogDescription>La eliminación es definitiva. Si tiene obligaciones abiertas o pendientes de aceptación, retiros en curso o avisos fiat abiertos, el servidor la rechazará; en ese caso, resuelva primero esas operaciones. El historial financiero y la bitácora se conservan.</DialogDescription></DialogHeader>
+          <ErrorBox error={remove.error} />
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => { setDeleting(null); remove.reset(); }}>Cancelar</Button>
+            <Button type="button" variant="destructive" disabled={!deleting || remove.isPending} onClick={() => deleting && remove.mutate(deleting)}>
+              {remove.isPending && <Loader2 className="animate-spin" />}Eliminar definitivamente
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

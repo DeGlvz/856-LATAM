@@ -59,7 +59,7 @@ const COLS = `o.id, o.debtor_id, o.creditor_id, o.asset_id, s.symbol, s.decimals
   o.status, o.accept_due_at, o.accepted_at, o.rejected_at, o.rejected_reason, o.cancel_reason, o.cancelled_at,
   o.netting_run_id, o.settled_at, o.origin_kind, o.origin_ref, o.import_id, o.created_at, o.created_at::text AS _ts,
   d.name AS debtor_name, c.name AS creditor_name,
-  (SELECT u.name FROM client_users u WHERE u.id::text = o.origin_ref AND o.origin_kind = 'client_user') AS origin_user,
+  COALESCE((SELECT u.name FROM client_users u WHERE u.id::text = o.origin_ref AND o.origin_kind = 'client_user'), o.origin_user_name) AS origin_user,
   EXISTS (SELECT 1 FROM netting_runs r WHERE r.status = 'pending_approval' AND r.scope->'obligation_ids' ? o.id::text) AS in_pending_run`;
 const FROM = `FROM obligations o JOIN assets s ON s.id = o.asset_id JOIN clients d ON d.id = o.debtor_id JOIN clients c ON c.id = o.creditor_id`;
 

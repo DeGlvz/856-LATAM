@@ -172,8 +172,55 @@ check('B no revoca llaves de A → 404', (await b.call('POST', `/keys/${kIp.id}/
 check('B no rota llaves de A → 404', (await b.call('POST', `/keys/${kIp.id}/rotate`, { code: await otpB.next() })).status, 404);
 const pendA = (await a.call('POST', '/users/invites', { email: `pend-${R}@ejemplo.mx`, role: 'viewer' })).body;
 check('B no revoca invitaciones de A → 404', (await b.call('POST', `/users/invites/${pendA.id}/revoke`, {})).status, 404);
+check('B no elimina un usuario de A → 404', (await b.call('DELETE', `/users/${idO}`, { confirm: true })).status, 404);
 check('la llave de A sigue intacta', (await signed(k2.priv, kIp.prefix, 'GET', '/ping', null, { ip: '192.0.2.44' })).body.client_id, A.id);
 check('la sesión del portal no abre la consola → 401', (await b.call('GET', '/../summary')).status === 401 || (await fetch(BASE + '/v1/summary', { headers: { cookie: `c856p=x` } })).status === 401, true);
+
+// ═════ Eliminación de usuario: bloquea cualquier operación financiera abierta y conserva historial
+const deletionDb = new pg.Client({ connectionString: DATABASE_URL }); await deletionDb.connect();
+const assetId = 'USDC-ETH-SEPOLIA';
+const { rows: [account] } = await deletionDb.query('SELECT id FROM accounts WHERE client_id = $1 AND asset_id = $2 LIMIT 1', [A.id, assetId]);
+if (!account) throw new Error('No hay cuenta de prueba para el cliente A');
+const openObligations = await deletionDb.query(
+  `INSERT INTO obligations (debtor_id, creditor_id, asset_id, amount, status, origin_kind, origin_ref, created_by)
+   SELECT $1,$2,$3,1,status,'client_user',$4,$5 FROM unnest(ARRAY['open','pending_acceptance']) AS statuses(status) RETURNING id`,
+  [B.id, A.id, assetId, idO, `portal:${OPE}`]);
+const openIntent = await deletionDb.query(
+  `INSERT INTO fiat_payment_intents (client_id, reference, expected_amount, expires_at, status, origin_kind, origin_ref, created_by)
+   VALUES ($1,$2,1,now() + interval '1 day','open','client_user',$3,$4) RETURNING id`,
+  [A.id, `856-${R.toUpperCase().padEnd(4, 'A').slice(0, 4)}-${R.toUpperCase().padEnd(4, 'B').slice(0, 4)}-001`, idO, `portal:${OPE}`]);
+const openWithdrawals = await deletionDb.query(
+  `INSERT INTO withdrawals (client_id, account_id, asset_id, to_address, amount, status, origin_kind, origin_ref, network)
+   SELECT $1,$2,$3,$4,1,status,'client_user',$5,'eth-sepolia'
+     FROM unnest(ARRAY['reserved','signed','broadcast']) AS statuses(status) RETURNING id`,
+  [A.id, account.id, assetId, `0x${'a'.repeat(40)}`, idO]);
+const keyPrefix = `856r_${Math.random().toString(16).slice(2, 18).padEnd(16, '0')}`;
+await deletionDb.query(
+  `INSERT INTO client_api_keys (client_id, name, kind, prefix, token_hash, permissions, expires_at, created_by)
+   VALUES ($1,'Usuario de prueba','read_token',$2,$3,ARRAY['read'],now() + interval '1 day',$4)`,
+  [A.id, keyPrefix, sha(`secret-${R}`), idO]);
+await deletionDb.end();
+const blockedDelete = await a.call('DELETE', `/users/${idO}`, { confirm: true });
+check('eliminación se bloquea con todas las categorías abiertas atribuibles', `${blockedDelete.status} ${blockedDelete.body.code} ${blockedDelete.body.error.includes('obligaciones: 2') && blockedDelete.body.error.includes('retiros: 3') && blockedDelete.body.error.includes('avisos fiat: 1')}`,
+  '409 user_has_open_financial_operations true');
+const resolveDb = new pg.Client({ connectionString: DATABASE_URL }); await resolveDb.connect();
+await resolveDb.query('UPDATE obligations SET status = $2 WHERE id = ANY($1::uuid[])', [openObligations.rows.map((o) => o.id), 'cancelled']);
+await resolveDb.query('UPDATE fiat_payment_intents SET status = $2 WHERE id = $1', [openIntent.rows[0].id, 'cancelled']);
+await resolveDb.query('UPDATE withdrawals SET status = $2 WHERE id = ANY($1::uuid[])', [openWithdrawals.rows.map((w) => w.id), 'failed']);
+await resolveDb.end();
+const deleted = await a.call('DELETE', `/users/${idO}`, { confirm: true });
+check('eliminación de usuario sin operaciones abiertas', `${deleted.status} ${deleted.body.deleted}`, '200 true');
+check('la identidad ya no aparece en usuarios', (await a.call('GET', '/users')).body.users.some((u) => u.id === idO), false);
+const deletedActorKey = (await a.call('GET', '/keys')).body.keys.find((k) => k.prefix === keyPrefix);
+check('se revoca y conserva la atribución de llaves creadas por el usuario', `${deletedActorKey?.created_by} ${!!deletedActorKey?.revoked_at}`, `${OPE} true`);
+const historyDb = new pg.Client({ connectionString: DATABASE_URL }); await historyDb.connect();
+const { rows: [history] } = await historyDb.query(
+  `SELECT o.origin_user_name, o.origin_user_email, w.origin_user_name AS withdrawal_name, w.origin_user_email AS withdrawal_email
+     FROM obligations o CROSS JOIN withdrawals w WHERE o.id = $1 AND w.id = $2`,
+  [openObligations.rows[0].id, openWithdrawals.rows[0].id]);
+await historyDb.end();
+check('se conserva la atribución histórica después del borrado', `${history.origin_user_name} ${history.origin_user_email} ${history.withdrawal_name} ${history.withdrawal_email}`,
+  `Omar Operador ${OPE} Omar Operador ${OPE}`);
 
 // ═════ Bitácora con cliente
 const db = new pg.Client({ connectionString: DATABASE_URL }); await db.connect();
@@ -181,6 +228,7 @@ const { rows } = await db.query(`SELECT action, actor FROM audit_log WHERE clien
 await db.end();
 check('bitácora: alta de llave con cliente A', rows.some((r) => r.action === 'PORTAL POST /v1/portal/keys' && r.actor === `portal:${ADM}`), true);
 check('bitácora: login con código de recuperación', rows.some((r) => r.action === 'portal_login'), true);
+check('bitácora conserva al actor de eliminación', rows.some((r) => r.action === 'PORTAL DELETE /v1/portal/users/:id' && r.actor === `portal:${ADM}` && r.status === 200), true);
 check('bitácora: nada de B mezclado en A', rows.every((r) => !r.actor.includes(ADMB)), true);
 
 console.log(`\n${ok} ok, ${fail} fallos`);
