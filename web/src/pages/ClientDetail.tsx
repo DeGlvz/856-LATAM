@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, ArrowLeft, ArrowLeftRight, Eye, ExternalLink, KeyRound, Loader2, Pencil, Plus, RefreshCw, Scale, ShieldCheck, UserPlus, Users, Wallet as WalletIcon } from 'lucide-react';
-import { api, type ClientDetail as TClient, type ClientStatus, type EntryRow, type ObligationRow, type Summary, type Wallet } from '@/lib/api';
+import { api, type ClientAssetRow, type ClientDetail as TClient, type ClientStatus, type EntryRow, type ObligationRow, type Summary, type Wallet } from '@/lib/api';
 import { launchAssistTab, openAssistTab } from '@/lib/assist';
 import { useAuth } from '@/lib/auth';
 import { CLIENT_KIND, CLIENT_STATUS, ENTRY_KIND, useAssets, useConsoleOriginates, useNetworks } from '@/lib/hooks';
@@ -40,6 +40,7 @@ export function ClientDetail() {
 
   const client = useQuery({ queryKey: ['client', id], queryFn: () => api<TClient>(`/clients/${id}`) });
   const wallets = useQuery({ queryKey: ['wallets', id], queryFn: () => api<{ wallets: Wallet[] }>(`/wallets?client_id=${id}`).then((r) => r.wallets) });
+  const clientAssets = useQuery({ queryKey: ['client-assets', id], queryFn: () => api<{ assets: ClientAssetRow[] }>(`/clients/${id}/assets`).then((r) => r.assets) });
   const entries = useQuery({ queryKey: ['entries', { client_id: id }], queryFn: () => api<{ entries: EntryRow[] }>(`/entries?client_id=${id}&limit=20&postings=false`).then((r) => r.entries) });
   // Red y explorador vienen del tablero (misma fuente que el API)
   const summary = useQuery({ queryKey: ['summary'], queryFn: () => api<Summary>('/summary'), staleTime: 60_000 });
@@ -63,9 +64,11 @@ export function ClientDetail() {
   const c = client.data;
   const closed = c.status === 'closed';
   const missing = assets.filter((a) => a.active && !c.accounts.some((x) => x.asset_id === a.id));
-  const deposits = (wallets.data ?? []).filter((w) => w.purpose === 'deposit');
+  const receivableNetworks = new Set((clientAssets.data ?? []).filter((a) => a.status === 'enabled' && a.network_enabled).map((a) => a.network));
+  const depositNetworks = nets.networks.filter((n) => receivableNetworks.has(n.id));
+  const deposits = (wallets.data ?? []).filter((w) => w.purpose === 'deposit' && receivableNetworks.has(w.network));
   const whitelist = (wallets.data ?? []).filter((w) => w.purpose === 'withdrawal_whitelist');
-  const selNet = depNet || network;
+  const selNet = depositNetworks.some((n) => n.id === depNet) ? depNet : depositNetworks[0]?.id ?? '';
   const current = deposits.find((w) => w.active && w.derivation_index != null && w.network === selNet);
 
   return (
@@ -168,15 +171,15 @@ export function ClientDetail() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Direcciones de depósito */}
-        <Card>
+        <Card data-section="client-deposit-addresses">
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><WalletIcon className="size-4" />Direcciones de depósito</CardTitle>
-            <CardDescription>Derivadas (HD) de la semilla de la plataforma; todas siguen acreditando.</CardDescription>
-            {can('ejecutivo') && !closed && (
+            <CardDescription>Derivadas (HD) de la semilla de la plataforma; solo se muestran en redes con activos habilitados para recibir.</CardDescription>
+            {can('ejecutivo') && !closed && depositNetworks.length > 0 && (
               <CardAction className="flex gap-2">
-                {nets.networks.length > 1 && (
+                {depositNetworks.length > 1 && (
                   <Select aria-label="Red de la dirección" className="h-8 w-44 text-xs" value={selNet} onChange={(e) => setDepNet(e.target.value)}>
-                    {nets.networks.map((n) => <option key={n.id} value={n.id}>{n.label}</option>)}
+                    {depositNetworks.map((n) => <option key={n.id} value={n.id}>{n.label}</option>)}
                   </Select>
                 )}
                 <Button size="sm" variant="outline" disabled={depositAddr.isPending} onClick={() => depositAddr.mutate(!!current)}>
@@ -187,15 +190,16 @@ export function ClientDetail() {
           </CardHeader>
           <CardContent className="grid gap-2">
             <ErrorBox error={depositAddr.error} />
-            {wallets.isPending && <Skeleton className="h-10" />}
-            {!wallets.isPending && deposits.length === 0 && <p className="text-sm text-muted-foreground">Sin dirección de depósito.</p>}
+            <ErrorBox error={clientAssets.error} />
+            {(wallets.isPending || clientAssets.isPending) && <Skeleton className="h-10" />}
+            {!wallets.isPending && clientAssets.data && deposits.length === 0 && <p className="text-sm text-muted-foreground">{receivableNetworks.size ? 'Sin dirección de depósito para las redes con activos habilitados.' : 'No hay redes con activos habilitados para recibir.'}</p>}
             {deposits.map((w) => (
               <div key={w.id} className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2">
                 <a className="inline-flex items-center gap-1 font-mono text-xs hover:underline" href={`${nets.explorer(w.network)}/address/${w.address}`} target="_blank" rel="noreferrer noopener" title={w.address}>
                   {shortHex(w.address, 10)}<ExternalLink className="size-3" />
                 </a>
                 <CopyButton value={w.address} />
-                <Badge variant="outline" className="text-[11px]">{nets.label(w.network)}</Badge>
+                <Badge data-address-network={w.network} variant="outline" className="text-[11px]">{nets.label(w.network)}</Badge>
                 {w.id === current?.id && <Badge variant="success">Vigente</Badge>}
                 {!w.active && <Badge variant="secondary">Inactiva</Badge>}
                 <Badge variant={w.webhook_registered ? 'outline' : 'warning'}>{w.webhook_registered ? 'Webhook' : 'Webhook pendiente'}</Badge>

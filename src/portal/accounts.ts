@@ -8,7 +8,7 @@ import { HttpError } from '../idempotency.js';
 import { decodeCursor, page } from '../pagination.js';
 import { getOrCreateDepositAddress } from '../ledger/deposit-addresses.js';
 import { obligationNotices } from './obligations.js';
-import { explorerOf, findNet, KNOWN, primaryNet } from '../chain/networks.js';
+import { explorerOf, findNet, isEnabled, KNOWN, primaryNet } from '../chain/networks.js';
 
 const IN_FLIGHT = ['reserved', 'signed', 'broadcast']; // retiros aún no finales
 const TX_HASH_RE = /^0x[0-9a-f]{64}$/;
@@ -277,8 +277,14 @@ const depositView = (w: { id: string; address: string; network: string; derivati
 export async function listDepositAddresses(clientId: string) {
   const { rows } = await pool.query(
     `SELECT id, address, network, derivation_index, created_at, active FROM wallets
-      WHERE client_id = $1 AND purpose = 'deposit' ORDER BY created_at DESC, id DESC`, [clientId]);
-  return { addresses: rows.map(depositView) };
+      WHERE client_id = $1 AND purpose = 'deposit'
+        AND EXISTS (
+          SELECT 1 FROM client_assets ca JOIN assets s ON s.id = ca.asset_id
+           WHERE ca.client_id = wallets.client_id AND s.network = wallets.network
+             AND s.active AND ca.status = 'enabled'
+        )
+      ORDER BY created_at DESC, id DESC`, [clientId]);
+  return { addresses: rows.filter((w) => isEnabled(w.network)).map(depositView) };
 }
 
 /** Genera una dirección nueva (rotar = generar otra; las anteriores siguen acreditando). Reutiliza la lógica de la consola. */

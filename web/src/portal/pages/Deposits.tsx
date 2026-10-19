@@ -82,7 +82,7 @@ export function Deposits() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Direcciones de depósito</CardTitle>
-          <CardDescription>Exclusivas de su empresa, una por red. Todas siguen acreditando aunque genere una nueva.</CardDescription>
+          <CardDescription>Exclusivas de su empresa. Se muestran solo en redes con activos habilitados para recibir; las anteriores siguen activas cuando genera una nueva.</CardDescription>
           {canGenerate && <CardAction><Button size="sm" onClick={() => setConfirm(true)}><Plus />Generar nueva dirección</Button></CardAction>}
         </CardHeader>
         <CardContent className="grid gap-3">

@@ -92,10 +92,13 @@ test('tablero: una fila por red encendida', async ({ page }) => {
 });
 
 test('activos del cliente: edición individual y por red conservan 2FA', async ({ page }) => {
+  await api('POST', `/v1/clients/${A.id}/deposit-address`, { network: 'base-sepolia' });
   await consoleLogin(page, TES);
   await page.goto(`/console/clientes/${A.id}`);
   const card = page.locator('[data-section="client-assets"]');
+  const addressCard = page.locator('[data-section="client-deposit-addresses"]');
   await expect(card).toContainText('Activos habilitados');
+  await expect(addressCard.locator('[data-address-network="base-sepolia"]')).toBeVisible();
   for (const id of ['USDC-ETH-SEPOLIA', 'USDC-BASE-SEPOLIA', 'USDC-ARB-SEPOLIA', 'USDC-AMOY', 'BNB-TESTNET']) {
     await expect(card.locator(`[data-asset="${id}"]`)).toContainText('Habilitado');
   }
@@ -114,6 +117,12 @@ test('activos del cliente: edición individual y por red conservan 2FA', async (
   await group.getByLabel('Código 2FA para cambiar los activos seleccionados').fill(await TES.otp.next());
   await group.getByRole('button', { name: 'Aplicar a todos' }).click();
   await expect(card.locator('[data-asset="USDC-BASE-SEPOLIA"]')).toContainText('Solo salida');
+  await expect(addressCard.locator('[data-address-network="base-sepolia"]')).toHaveCount(0);
+  await card.getByLabel('Cambiar USDC-BASE-SEPOLIA').selectOption('enabled');
+  const reopen = page.getByRole('dialog');
+  await reopen.getByLabel('Código 2FA para cambiar el activo').fill(await TES.otp.next());
+  await reopen.getByRole('button', { name: 'Aplicar' }).click();
+  await expect(addressCard.locator('[data-address-network="base-sepolia"]')).toBeVisible();
   for (const id of ['USDC-ARB-SEPOLIA', 'USDC-AMOY']) {
     await card.getByLabel(`Seleccionar activo ${id}`).check();
   }
@@ -157,6 +166,7 @@ test('el Ejecutivo solicita y el Tesorero aprueba con 2FA', async ({ page, brows
 
 test('depósito en revisión: el Tesorero lo acredita con 2FA', async ({ page }) => {
   // Dirección del cliente en Base y un depósito que llegó en un activo en «Solo salida» (se simula en la base)
+  await api('PUT', `/v1/clients/${A.id}/assets/USDC-BASE-SEPOLIA`, { status: 'enabled' });
   const w = await api('POST', `/v1/clients/${A.id}/deposit-address`, { network: 'base-sepolia' });
   const wid = sql(`SELECT id FROM wallets WHERE address = '${w.address.toLowerCase()}' AND network = 'base-sepolia'`);
   const tx = '0x' + randomBytes(32).toString('hex');
@@ -172,6 +182,7 @@ test('depósito en revisión: el Tesorero lo acredita con 2FA', async ({ page })
   await row.getByRole('button', { name: 'Acreditar' }).click();
   await expect(row).toHaveCount(0);
   expect(sql(`SELECT status || ' ' || released_by FROM deposits WHERE tx_hash = '${tx}'`)).toBe(`credited ${TES.email}`);
+  await api('PUT', `/v1/clients/${A.id}/assets/USDC-BASE-SEPOLIA`, { status: 'exit_only' });
 });
 
 test('portal: «Solo salida», dirección por red y lista blanca con red', async ({ page }) => {
@@ -180,16 +191,18 @@ test('portal: «Solo salida», dirección por red y lista blanca con red', async
   await expect(page.locator('[data-asset="ETH-BASE-SEPOLIA"]')).toContainText('Base Sepolia');
 
   await page.getByRole('link', { name: 'Depósitos' }).click();
-  await expect(page.locator('[data-address]').first()).toContainText('Base Sepolia');
+  await expect(page.locator('[data-address]')).toHaveCount(0);
   await page.getByRole('button', { name: 'Generar nueva dirección' }).click();
   const dlg = page.getByRole('dialog');
   const sel = dlg.getByLabel('Red de la dirección');
-  await expect(sel.locator('option')).toHaveCount(2); // eth-sepolia y base-sepolia (EURC sigue habilitado en Base)
+  await expect(sel.locator('option')).toHaveCount(1);
+  await expect(sel).not.toContainText('Base Sepolia');
   await sel.selectOption('eth-sepolia');
   await dlg.getByRole('button', { name: 'Generar' }).click();
   await expect(dlg).toHaveCount(0);
   const eth = page.locator('[data-address]', { has: page.getByTestId('address-network').filter({ hasText: 'Ethereum Sepolia' }) });
   await expect(eth).toHaveCount(1);
+  await expect(page.locator('[data-address-network="base-sepolia"]')).toHaveCount(0);
   await expect(eth).toContainText('Recibe:');
   await shot(page, 'portal-depositos');
 
