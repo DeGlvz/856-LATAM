@@ -462,27 +462,33 @@ function StatusDialog({ client, open, onOpenChange, onSaved }: { client: TClient
     onSuccess: () => { onSaved(); onOpenChange(false); },
   });
   const [retireMode, setRetireMode] = useState(false);
-  useEffect(() => { if (open) setRetireMode(false); }, [open]);
+  const [confirmRetire, setConfirmRetire] = useState(false);
+  const [reasonError, setReasonError] = useState(false);
+  useEffect(() => { if (open) { setRetireMode(false); setConfirmRetire(false); setReasonError(false); } }, [open]);
   const reasonShort = reason.trim().length < 5;
   const mustHaveReason = retireMode || needsReason;
-  const submit = () => (retireMode ? retire.mutate() : m.mutate());
   const pending = m.isPending || retire.isPending;
+  const submit = () => {
+    if (mustHaveReason && reasonShort) { setReasonError(true); return; }
+    if (retireMode) setConfirmRetire(true); else m.mutate();
+  };
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Cambiar estado</DialogTitle>
           <DialogDescription>Estado actual: {CLIENT_STATUS[client.status].label}. Suspender bloquea retiros, transferencias y pagos; cerrar es definitivo y exige saldos en cero.</DialogDescription>
         </DialogHeader>
-        <form className="grid gap-4" onSubmit={(e) => { e.preventDefault(); if (mustHaveReason && reasonShort) return; submit(); }}>
+        <form className="grid gap-4" onSubmit={(e) => { e.preventDefault(); submit(); }}>
           <Field label="Nuevo estado" htmlFor="st-new">
             <Select id="st-new" value={status} disabled={retireMode} onChange={(e) => setStatus(e.target.value as ClientStatus)}>
               {options.map((s) => <option key={s} value={s}>{CLIENT_STATUS[s].label}</option>)}
             </Select>
           </Field>
           <Field label={mustHaveReason ? 'Motivo (obligatorio)' : 'Motivo (opcional)'} htmlFor="st-reason"
-            hint={mustHaveReason && reasonShort ? 'Mínimo 5 caracteres. Queda registrado en el cliente y en la bitácora' : 'Queda registrado en el cliente y en la bitácora'}>
-            <Textarea id="st-reason" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
+            hint={mustHaveReason && reasonError && reasonShort ? 'Escriba un motivo de al menos 5 caracteres.' : 'Queda registrado en el cliente y en la bitácora'}>
+            <Textarea id="st-reason" maxLength={500} value={reason} onChange={(e) => { setReason(e.target.value); setReasonError(false); }} />
           </Field>
           {can('tesorero') && client.status !== 'closed' && (
             <div className="grid gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-3">
@@ -490,7 +496,7 @@ function StatusDialog({ client, open, onOpenChange, onSaved }: { client: TClient
                 <AlertTriangle className="size-4" />Sección danger
               </div>
               <p className="text-sm text-muted-foreground">
-                Retirar el cliente bloquea la acción si hay obligaciones, retiros, avisos fiat o saldo activo. Si hubiera historial financiero o de auditoría, se cerrará y se anonimizará el registro para preservar trazabilidad; solo se borrará físicamente si no quedan referencias financieras ni auditables.
+                Retirar el cliente siempre se ejecuta: con historial se cierra y anonimiza; sin referencias financieras ni auditables se borra. Se pedirá una confirmación final.
               </p>
               <label className="flex items-center gap-2 text-sm font-medium">
                 <input type="checkbox" checked={retireMode} onChange={(e) => setRetireMode(e.target.checked)} />
@@ -498,16 +504,39 @@ function StatusDialog({ client, open, onOpenChange, onSaved }: { client: TClient
               </label>
             </div>
           )}
-          <ErrorBox error={m.error ?? retire.error} />
+          <ErrorBox error={m.error} />
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-            <Button             type="submit" variant={needsReason || retireMode ? 'destructive' : 'default'} disabled={(!retireMode && !status) || pending || (mustHaveReason && reasonShort)}>
-                          {pending && <Loader2 className="animate-spin" />}{retireMode ? 'Retirar cliente' : 'Confirmar'}
+            <Button type="submit" variant={needsReason || retireMode ? 'destructive' : 'default'} disabled={(!retireMode && !status) || pending}>
+              {m.isPending && <Loader2 className="animate-spin" />}{retireMode ? 'Continuar con el retiro' : 'Confirmar'}
             </Button>
           </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
+    <Dialog open={open && confirmRetire} onOpenChange={(v) => { if (!retire.isPending) setConfirmRetire(v); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-destructive"><AlertTriangle className="size-5" />Advertencia final: retirar cliente</DialogTitle>
+          <DialogDescription>Esta acción es irreversible y se ejecutará de inmediato. Revise lo que ocurrirá:</DialogDescription>
+        </DialogHeader>
+        <ul className="list-disc space-y-1.5 pl-5 text-sm">
+          <li>Se <b>cancelan</b> las obligaciones abiertas o pendientes, los retiros solo reservados (se revierte la reserva) y los avisos fiat abiertos.</li>
+          <li>Se <b>conservan</b> sin cambios los saldos, retiros ya firmados o enviados, y depósitos o fiat por confirmar: siguen en el ledger y se liquidan por los procesos normales.</li>
+          <li>Se <b>revocan</b> los accesos del cliente: usuarios, sesiones, llaves de API e invitaciones.</li>
+          <li>Con historial financiero o de auditoría, el cliente queda <b>cerrado y anonimizado</b>. Sin ninguna referencia, se <b>borra definitivamente</b>.</li>
+        </ul>
+        <p className="rounded-md bg-muted p-2 text-sm"><b>Motivo:</b> {reason.trim()}</p>
+        <ErrorBox error={retire.error} />
+        <DialogFooter>
+          <Button type="button" variant="outline" disabled={retire.isPending} onClick={() => setConfirmRetire(false)}>Volver</Button>
+          <Button type="button" variant="destructive" disabled={retire.isPending} onClick={() => retire.mutate()}>
+            {retire.isPending && <Loader2 className="animate-spin" />}Sí, retirar cliente
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
 

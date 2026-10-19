@@ -1,7 +1,7 @@
 import { isAddress } from 'viem';
-import { pool, tx } from '../db.js';
+import { pool, tx, type Tx } from '../db.js';
 import { isEnabled } from '../chain/networks.js';
-import { LedgerError } from './service.js';
+import { LedgerError, postEntryIn } from './service.js';
 
 export type ClientStatus = 'pending_kyb' | 'active' | 'suspended' | 'closed';
 export type ClientRetirementSummary = {
@@ -120,24 +120,67 @@ export async function retireClient(id: string, opts: { reason: string; by?: stri
          (SELECT count(*) FROM withdrawals WHERE client_id = $1) AS withdrawals_history,
          (SELECT count(*) FROM deposits WHERE client_id = $1) AS deposits_history`, [id]);
     const summary = summarizeClientRetirement(chk as Record<string, unknown>);
-    if (summary.open_reasons.length) {
-      throw new LedgerError(409,
-        `No se puede retirar el cliente: hay operaciones financieras abiertas (${summary.open_reasons.join(', ')}).`,
-        'client_has_open_financial_operations');
-    }
 
     const reason = opts.reason.trim();
-    if (!reason || reason.length < 5) throw new LedgerError(400, 'Indique el motivo (mín. 5 caracteres) para retirar el cliente', 'reason_required');
+    if (reason.length < 5) throw new LedgerError(400, 'Indique el motivo (mín. 5 caracteres) para retirar el cliente', 'reason_required');
+    if (cl.retired_at) throw new LedgerError(409, 'El cliente ya fue retirado', 'already_retired');
+    const by = opts.by ?? 'console';
+
+    // El retiro se ejecuta siempre. Lo que aún está abierto se resuelve sin tocar el ledger:
+    //  - se cancelan lo que no ha salido a la red (obligaciones, retiros solo reservados —con reverso—, avisos fiat);
+    //  - se conserva tal cual lo que ya está en vuelo o es saldo (retiros firmados/enviados, depósitos y fiat por
+    //    confirmar, saldos): sigue visible en el histórico y se liquida por los procesos normales.
+    const why = `Cliente retirado: ${reason}`;
+    const { rowCount: cancelledObligations } = await c.query(
+      `UPDATE obligations SET status = 'cancelled', cancel_reason = $2, cancelled_at = now(), cancelled_by = $3
+        WHERE (debtor_id = $1 OR creditor_id = $1) AND status IN ('open','pending_acceptance')`, [id, why, by]);
+    const { rows: reserved } = await c.query(
+      `SELECT * FROM withdrawals WHERE client_id = $1 AND status = 'reserved' FOR UPDATE`, [id]);
+    for (const w of reserved) {
+      const rev = await postEntryIn(c, {
+        kind: 'withdrawal', description: `Reverso retiro ${w.id}: ${why}`, external_ref: `withdrawal:${w.id}`,
+        idempotency_key: `wd-reverse:${w.id}`, metadata: { withdrawal_id: w.id, reason: why },
+        postings: [
+          { account: `system:${w.asset_id}:withdrawals_pending`, direction: 'debit', amount: w.amount },
+          { account: w.account_id, direction: 'credit', amount: w.amount },
+        ],
+      });
+      await c.query(
+        `UPDATE withdrawals SET status = 'cancelled', reversal_entry_id = $2, updated_at = now(),
+                approval_status = CASE WHEN approval_status IN ('pending','client_pending') THEN 'rejected' ELSE approval_status END,
+                rejected_by = CASE WHEN approval_status IN ('pending','client_pending') THEN $3 ELSE rejected_by END,
+                rejected_reason = CASE WHEN approval_status IN ('pending','client_pending') THEN $4 ELSE rejected_reason END
+          WHERE id = $1`, [w.id, rev.id, by, why]);
+    }
+    const { rowCount: cancelledIntents } = await c.query(
+      `UPDATE fiat_payment_intents SET status = 'cancelled', cancelled_by = $2, cancelled_at = now(), updated_at = now()
+        WHERE client_id = $1 AND status = 'open'`, [id, by]);
+    const resolved = {
+      obligations_cancelled: cancelledObligations ?? 0,
+      withdrawals_cancelled: reserved.length,
+      fiat_intents_cancelled: cancelledIntents ?? 0,
+    };
+    const preserved = {
+      balance_accounts: Number(chk.balance_accounts), withdrawals_in_flight: Number(chk.withdrawals) - reserved.length,
+      deposits_pending: Number(chk.deposits), fiat_accounts: Number(chk.fiat_accounts), fiat_deposits: Number(chk.fiat_deposits),
+    };
 
     const metadata = {
       ...(cl.metadata && typeof cl.metadata === 'object' ? cl.metadata : {}),
       retired: true,
       retired_at: new Date().toISOString(),
-      retired_by: opts.by ?? 'console',
+      retired_by: by,
       retired_reason: reason,
+      retired_resolved: resolved,
+      retired_preserved: preserved,
     };
 
-    if (!summary.can_hard_delete) {
+    const anonymize = async () => {
+      // Acceso cerrado: sin sesiones, llaves, invitaciones ni usuarios activos
+      await c.query('UPDATE client_sessions SET revoked_at = now() WHERE client_id = $1 AND revoked_at IS NULL', [id]);
+      await c.query('UPDATE client_api_keys SET revoked_at = now() WHERE client_id = $1 AND revoked_at IS NULL', [id]);
+      await c.query('UPDATE client_invites SET revoked_at = now() WHERE client_id = $1 AND revoked_at IS NULL AND used_at IS NULL', [id]);
+      await c.query('UPDATE client_users SET active = false WHERE client_id = $1', [id]);
       const { rows: [u] } = await c.query(
         `UPDATE clients SET
             name = 'Cliente retirado',
@@ -149,24 +192,38 @@ export async function retireClient(id: string, opts: { reason: string; by?: stri
             retired_at = now(),
             retired_by = $4
           WHERE id = $1 RETURNING id, name, status, external_id`,
-        [id, JSON.stringify(metadata), reason, opts.by ?? 'console']);
-      return { action: 'anonymized', client: u };
-    }
+        [id, JSON.stringify(metadata), reason, by]);
+      return { action: 'anonymized' as const, client: u, resolved, preserved };
+    };
 
-    await c.query('DELETE FROM client_api_nonces WHERE key_id IN (SELECT id FROM client_api_keys WHERE client_id = $1)', [id]);
-    await c.query('DELETE FROM client_key_challenges WHERE user_id IN (SELECT id FROM client_users WHERE client_id = $1)', [id]);
-    await c.query('DELETE FROM client_recovery_codes WHERE user_id IN (SELECT id FROM client_users WHERE client_id = $1)', [id]);
-    await c.query('DELETE FROM client_mfa_challenges WHERE user_id IN (SELECT id FROM client_users WHERE client_id = $1)', [id]);
-    await c.query('DELETE FROM client_sessions WHERE user_id IN (SELECT id FROM client_users WHERE client_id = $1)', [id]);
-    await c.query('DELETE FROM client_sessions WHERE client_id = $1', [id]);
-    await c.query('DELETE FROM client_api_keys WHERE client_id = $1', [id]);
-    await c.query('DELETE FROM client_invites WHERE client_id = $1', [id]);
-    await c.query('DELETE FROM client_users WHERE client_id = $1', [id]);
-    await c.query('DELETE FROM wallets WHERE client_id = $1', [id]);
-    await c.query('DELETE FROM accounts WHERE client_id = $1', [id]);
-    await c.query('DELETE FROM clients WHERE id = $1', [id]);
-    return { action: 'deleted', client_id: id };
+    if (!summary.can_hard_delete) return anonymize();
+
+    await c.query('SAVEPOINT hard_delete');
+    try {
+      await hardDeleteClient(c, id);
+      return { action: 'deleted' as const, client_id: id, resolved, preserved };
+    } catch (e) {
+      // Una referencia que no previmos (FK): se conserva el registro anonimizado en vez de fallar
+      if ((e as { code?: string }).code !== '23503') throw e;
+      await c.query('ROLLBACK TO SAVEPOINT hard_delete');
+      return anonymize();
+    }
   });
+}
+
+async function hardDeleteClient(c: Tx, id: string) {
+  await c.query('DELETE FROM client_api_nonces WHERE key_id IN (SELECT id FROM client_api_keys WHERE client_id = $1)', [id]);
+  await c.query('DELETE FROM client_key_challenges WHERE user_id IN (SELECT id FROM client_users WHERE client_id = $1)', [id]);
+  await c.query('DELETE FROM client_recovery_codes WHERE user_id IN (SELECT id FROM client_users WHERE client_id = $1)', [id]);
+  await c.query('DELETE FROM client_mfa_challenges WHERE user_id IN (SELECT id FROM client_users WHERE client_id = $1)', [id]);
+  await c.query('DELETE FROM client_sessions WHERE user_id IN (SELECT id FROM client_users WHERE client_id = $1)', [id]);
+  await c.query('DELETE FROM client_sessions WHERE client_id = $1', [id]);
+  await c.query('DELETE FROM client_api_keys WHERE client_id = $1', [id]);
+  await c.query('DELETE FROM client_invites WHERE client_id = $1', [id]);
+  await c.query('DELETE FROM client_users WHERE client_id = $1', [id]);
+  await c.query('DELETE FROM wallets WHERE client_id = $1', [id]);
+  await c.query('DELETE FROM accounts WHERE client_id = $1', [id]);
+  await c.query('DELETE FROM clients WHERE id = $1', [id]);
 }
 
 export async function setWalletActive(id: string, active: boolean) {
