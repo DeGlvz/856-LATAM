@@ -79,6 +79,6 @@ export async function portalAccountRoutes(app: FastifyInstance) {
 
   app.get('/notices', async (req) => {
     const p = req.portal!;
-    return A.notices(p.clientId, p.kind === 'client_user' ? p.user : undefined);
+    return A.notices(p.clientId, p.kind === 'client_user' ? p.user : undefined, p.kind !== 'assist');
   });
 }

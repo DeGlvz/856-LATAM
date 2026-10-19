@@ -19,7 +19,8 @@ export interface ClientUser { id: string; client_id: string; email: string; name
 export interface ClientKey { id: string; client_id: string; prefix: string; kind: 'ed25519' | 'read_token'; permissions: string[] }
 export type PortalPrincipal =
   | { kind: 'client_user'; clientId: string; user: ClientUser; sessionId: string }
-  | { kind: 'client_key'; clientId: string; key: ClientKey };
+  | { kind: 'client_key'; clientId: string; key: ClientKey }
+  | { kind: 'assist'; clientId: string; operatorId: string; operatorEmail: string; operatorName: string; expiresAt: Date };
 
 declare module 'fastify' {
   interface FastifyRequest { portal?: PortalPrincipal }

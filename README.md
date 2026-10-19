@@ -345,7 +345,24 @@ Pruebas: `ORIGIN_RULE=enforce` + `node test/portal-fase3.e2e.mjs` (regla de orig
 - **Carga CSV** (columnas `contraparte, activo, monto, referencia, vencimiento`; coma o punto y coma; BOM de Excel): primero se valida sin registrar y se devuelve el reporte por fila y campo; al confirmar se registran todas las filas válidas en una sola transacción o ninguna (`409 import_row_failed`). Máximo `OBLIGATION_IMPORT_MAX_ROWS` (5 000).
 - **Compensación (vista del cliente):** posición en la próxima corrida por activo (por cobrar, por pagar, neto, ahorro estimado y faltante de saldo), calculada como la consola pero devolviendo solo lo propio; historial de corridas donde participó con su renglón del asiento (abono o cargo) y sus obligaciones.
 - **Avisos:** el portal avisa las obligaciones por aceptar (y las que vencen en < 24 h); el Tablero de la consola, las que vencen en < 24 h.
-- El worker vence las aceptaciones fuera de plazo; cada lectura o decisión del portal también lo hace.
+- El worker vence las aceptaciones fuera de plazo; cada lectura o decisión del portal también lo hace, salvo las lecturas de asistencia, estrictamente de solo lectura.
+
+### Consola — asistencia de solo lectura («Ver como cliente»)
+Ejecutivos y tesoreros pueden abrir el portal en una pestaña separada desde la lista o el perfil del cliente. El flujo no reutiliza la sesión ni las cookies del cliente: la pestaña mantiene una credencial de asistencia separada en `sessionStorage`, y las peticiones de asistencia omiten cookies. El `client_id` se obtiene del principal autenticado, nunca de parámetros enviados por el navegador. La asistencia no cambia `ORIGIN_RULE=enforce` ni habilita acciones de origen del cliente.
+
+| Método y ruta | Quién | Uso |
+|---|---|---|
+| `POST /v1/console/clients/:id/assist-token` `{origin: "client_list" or "client_detail"}` | Sesión de consola, rol `ejecutivo` o `tesorero`, `x-856-console: 1` | Emite `{token, expires_at}`; token `ast_` de un solo canje y máximo 10 minutos |
+| `GET /v1/portal/auth/assist?token=ast_...` | Token de asistencia | Canjea una vez el enlace por una credencial `asr_`, con el mismo vencimiento |
+| `GET /v1/portal/auth/assist/close` con `x-856-assist-token: asr_...` | Sesión de asistencia | Revoca la credencial al salir o al cerrar la pestaña (intento best-effort del navegador) |
+| `GET` / `HEAD` en rutas de consulta del portal | Sesión de asistencia | Consulta únicamente los datos del cliente ligado al token; la ruta `auth/assist/close` es la excepción de control de sesión |
+| Cualquier otro método HTTP en rutas del portal | Sesión de asistencia | `403 operation_not_allowed_in_assist_mode`; se rechaza antes de ejecutar la ruta |
+
+Los tokens se guardan como SHA-256 en PostgreSQL; el vencimiento se comprueba en cada petición y es el límite garantizado de la sesión. El navegador intenta revocar al salir o cerrar la pestaña, pero el cierre abrupto puede impedir que llegue el aviso. La bitácora inmutable registra `client_impersonation_initiated`, el actor `console:<correo>`, el cliente, `success`/`denied` y el origen del inicio. Los rechazos de escritura del portal también quedan auditados con el cliente y el actor operador. La interfaz muestra el banner de asistencia y deshabilita controles de acción; la API sigue siendo la protección autoritativa.
+
+La consulta de obligaciones del portal (`GET /v1/portal/obligations`) cubre la vista de obligaciones/facturación existente; el sistema no tiene un recurso o endpoint independiente de facturas. También se pueden consultar balances, movimientos, estados de cuenta, depósitos y demás rutas `GET` del portal bajo el mismo contexto y las mismas restricciones.
+
+Prueba E2E: `ORIGIN_RULE=enforce BASE KEY DATABASE_URL node test/client-assist.e2e.mjs` (roles permitidos/denegados, emisión/canje único, balances, movimientos, estado de cuenta y obligaciones, POST/PATCH bloqueados, balance y postings intactos, auditoría y revocación).
 
 | Método y ruta (`/v1/portal`) | Quién | Uso |
 |---|---|---|

@@ -5,12 +5,16 @@ export { ApiError };
 export async function papi<T>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
   const { json, headers, ...rest } = init;
   const method = (rest.method ?? 'GET').toUpperCase();
+  const assistToken = sessionStorage.getItem('c856-assist-session');
+  const isAssistExchange = path === '/auth/assist' || path.startsWith('/auth/assist?');
+  const isAssistEntry = window.location.pathname === '/portal/auth/assist';
   const res = await fetch(`/v1/portal${path}`, {
-    credentials: 'same-origin', ...rest, method,
+    ...rest, credentials: assistToken || isAssistExchange || isAssistEntry ? 'omit' : rest.credentials ?? 'same-origin', method,
     headers: {
       accept: 'application/json',
       ...(json !== undefined ? { 'content-type': 'application/json' } : {}),
       ...(method !== 'GET' ? { 'x-856-portal': '1' } : {}),
+      ...(assistToken && !isAssistExchange ? { 'x-856-assist-token': assistToken } : {}),
       ...headers,
     },
     body: json !== undefined ? JSON.stringify(json) : rest.body,
@@ -27,7 +31,8 @@ export async function papi<T>(path: string, init: RequestInit & { json?: unknown
 export type ClientRole = 'viewer' | 'operator' | 'approver' | 'admin';
 export interface PortalUser { id: string; client_id: string; email: string; name: string; role: ClientRole; totp_enabled: boolean }
 export interface PortalMe {
-  kind: 'user'; user: PortalUser; client: { id: string; name: string; kind: string; status: string }; totp_enrollment_required: boolean;
+  kind: 'user' | 'assist'; assist?: boolean; operator?: { email: string; name: string };
+  user: PortalUser; client: { id: string; name: string; kind: string; status: string }; totp_enrollment_required: boolean;
 }
 export interface UserRow {
   id: string; email: string; name: string; role: ClientRole; active: boolean; totp_enabled: boolean;
@@ -92,7 +97,11 @@ export interface MyAsset { asset_id: string; symbol: string; network: string; ne
 
 /** Descarga autenticada (cookie de sesión) de un CSV del portal; nunca pone la sesión en la URL. */
 export async function downloadPortal(path: string, fallbackName: string) {
-  const res = await fetch(`/v1/portal${path}`, { credentials: 'same-origin', headers: { accept: 'text/csv' } });
+  const assistToken = sessionStorage.getItem('c856-assist-session');
+  const res = await fetch(`/v1/portal${path}`, {
+    credentials: assistToken ? 'omit' : 'same-origin',
+    headers: { accept: 'text/csv', ...(assistToken ? { 'x-856-assist-token': assistToken } : {}) },
+  });
   if (!res.ok) {
     const body = res.headers.get('content-type')?.includes('application/json') ? await res.json() : null;
     throw new ApiError(res.status, body?.error ?? `Error ${res.status}`, body?.code);

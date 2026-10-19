@@ -1,8 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ArrowLeft, ArrowLeftRight, ExternalLink, KeyRound, Loader2, Pencil, Plus, RefreshCw, Scale, ShieldCheck, UserPlus, Users, Wallet as WalletIcon } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ArrowLeftRight, Eye, ExternalLink, KeyRound, Loader2, Pencil, Plus, RefreshCw, Scale, ShieldCheck, UserPlus, Users, Wallet as WalletIcon } from 'lucide-react';
 import { api, type ClientDetail as TClient, type ClientStatus, type EntryRow, type ObligationRow, type Summary, type Wallet } from '@/lib/api';
+import { launchAssistTab, openAssistTab } from '@/lib/assist';
 import { useAuth } from '@/lib/auth';
 import { CLIENT_KIND, CLIENT_STATUS, ENTRY_KIND, useAssets, useConsoleOriginates, useNetworks } from '@/lib/hooks';
 import { ClientAssetsCard } from '@/components/ClientAssets';
@@ -32,6 +33,10 @@ export function ClientDetail() {
   const [obligation, setObligation] = useState<ObligationRow | null>(null);
   const [obStatus, setObStatus] = useState<'open' | 'all'>('open');
   const [runId, setRunId] = useState<string | null>(null);
+  const [assistPopupError, setAssistPopupError] = useState('');
+  const assist = useMutation({
+    mutationFn: ({ tab }: { tab: Window }) => launchAssistTab(id, 'client_detail', tab),
+  });
 
   const client = useQuery({ queryKey: ['client', id], queryFn: () => api<TClient>(`/clients/${id}`) });
   const wallets = useQuery({ queryKey: ['wallets', id], queryFn: () => api<{ wallets: Wallet[] }>(`/wallets?client_id=${id}`).then((r) => r.wallets) });
@@ -84,6 +89,15 @@ export function ClientDetail() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Button asChild variant="outline" size="sm"><Link to={`/movimientos?client_id=${c.id}`}><ArrowLeftRight />Retiros y depósitos</Link></Button>
+          {can('ejecutivo') && <Button variant="outline" size="sm" disabled={assist.isPending} onClick={() => {
+            const tab = openAssistTab();
+            if (tab) {
+              setAssistPopupError('');
+              assist.mutate({ tab });
+            } else {
+              setAssistPopupError('Permita las ventanas emergentes para abrir el portal en otra pestaña.');
+            }
+          }}><Eye />Ver como cliente</Button>}
         {can('ejecutivo') && !closed && (
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => setEditing(true)}><Pencil />Editar</Button>
@@ -92,6 +106,7 @@ export function ClientDetail() {
         )}
         </div>
       </div>
+      <ErrorBox error={assist.error ?? assistPopupError} />
 
       {c.status === 'pending_kyb' && (
         <div className="rounded-lg border border-warning/50 bg-warning/10 px-4 py-3 text-sm">

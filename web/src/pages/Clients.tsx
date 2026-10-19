@@ -1,8 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Plus, Search } from 'lucide-react';
+import { Eye, Loader2, MoreHorizontal, Plus, Search } from 'lucide-react';
 import { api, newIdemKey, type ClientDetail, type ClientKind, type ClientRow, type ClientStatus } from '@/lib/api';
+import { launchAssistTab, openAssistTab } from '@/lib/assist';
 import { useAuth } from '@/lib/auth';
 import { CLIENT_KIND, CLIENT_STATUS, useAssets } from '@/lib/hooks';
 import { ErrorBox, Field, StatusBadge, fmtDate } from '@/components/common';
@@ -27,7 +28,11 @@ export function Clients() {
   const [status, setStatus] = useState<'' | ClientStatus>('');
   const [kind, setKind] = useState<'' | ClientKind>('');
   const [creating, setCreating] = useState(false);
+  const [assistPopupError, setAssistPopupError] = useState('');
   const dq = useDebounced(q.trim());
+  const assist = useMutation({
+    mutationFn: ({ id, tab }: { id: string; tab: Window }) => launchAssistTab(id, 'client_list', tab),
+  });
 
   const list = useInfiniteQuery({
     queryKey: ['clients', { q: dq, status, kind }],
@@ -72,6 +77,7 @@ export function Clients() {
       </Card>
 
       <ErrorBox error={list.error} />
+      <ErrorBox error={assist.error ?? assistPopupError} />
 
       <Card className="py-2">
         <CardContent className="px-3">
@@ -84,12 +90,13 @@ export function Clients() {
                 <TableHead>Estado</TableHead>
                 <TableHead className="text-right">Cuentas</TableHead>
                 <TableHead className="text-right">Alta</TableHead>
+                {can('ejecutivo') && <TableHead className="w-12" />}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {list.isPending && [0, 1, 2].map((i) => <TableRow key={i}><TableCell colSpan={6}><Skeleton className="h-6" /></TableCell></TableRow>)}
+              {list.isPending && [0, 1, 2].map((i) => <TableRow key={i}><TableCell colSpan={can('ejecutivo') ? 7 : 6}><Skeleton className="h-6" /></TableCell></TableRow>)}
               {!list.isPending && rows.length === 0 && (
-                <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">Sin clientes con estos filtros</TableCell></TableRow>
+                <TableRow><TableCell colSpan={can('ejecutivo') ? 7 : 6} className="py-8 text-center text-muted-foreground">Sin clientes con estos filtros</TableCell></TableRow>
               )}
               {rows.map((c) => (
                 <TableRow key={c.id} className="cursor-pointer" onClick={() => nav(`/clientes/${c.id}`)}>
@@ -102,6 +109,31 @@ export function Clients() {
                   <TableCell><StatusBadge status={c.status} /></TableCell>
                   <TableCell className="num text-right">{c.accounts_count}</TableCell>
                   <TableCell className="num text-right text-muted-foreground">{fmtDate(c.created_at)}</TableCell>
+                  {can('ejecutivo') && (
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <details className="relative" onClick={(e) => e.stopPropagation()}>
+                        <summary aria-label={`Acciones de ${c.name}`} className="grid size-8 cursor-pointer list-none place-items-center rounded-md hover:bg-muted [&::-webkit-details-marker]:hidden">
+                          <MoreHorizontal className="size-4" />
+                        </summary>
+                        <div className="absolute right-0 z-20 mt-1 min-w-52 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
+                          <button type="button" className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50"
+                            disabled={assist.isPending} onClick={(e) => {
+                              e.stopPropagation();
+                              const tab = openAssistTab();
+                              if (!tab) {
+                                setAssistPopupError('Permita las ventanas emergentes para abrir el portal en otra pestaña.');
+                                return;
+                              }
+                              setAssistPopupError('');
+                              assist.mutate({ id: c.id, tab });
+                              e.currentTarget.closest('details')?.removeAttribute('open');
+                            }}>
+                            <Eye className="size-4" />Ver como cliente (Asistencia)
+                          </button>
+                        </div>
+                      </details>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
