@@ -121,7 +121,17 @@ export async function ledgerRoutes(app: FastifyInstance) {
     idempotent(req, reply, async () => ({ status: 201, body: await L.createClient(parse(ClientBody, req.body)) })));
   app.get<{ Params: { id: string } }>('/clients/:id', async (req) => {
     const c = await L.getClient(parse(uuid, req.params.id));
-    return { ...c, allowed_transitions: allowedTransitions(c.status) };
+    const { rows: [simulation] } = await pool.query<{ passed: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM audit_log
+          WHERE client_id = $1 AND action = 'template_simulation_passed'
+            AND at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
+       ) AS passed`, [c.id]);
+    return {
+      ...c,
+      metadata: { ...c.metadata, simulation_status: simulation.passed ? 'passed' : 'pending' },
+      allowed_transitions: allowedTransitions(c.status),
+    };
   });
   app.post<{ Params: { id: string } }>('/clients/:id/accounts', async (req, reply) => {
     const { asset_id } = parse(z.object({ asset_id: z.string() }), req.body);

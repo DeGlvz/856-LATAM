@@ -35,6 +35,10 @@ const noSimulationInProduction = () => {
   if (isProduction) throw new HttpError(403, 'La simulación de depósitos no existe en production', 'simulation_disabled');
 };
 
+export function sendClientFiatActivation(reply: import('fastify').FastifyReply, account: unknown) {
+  return reply.code(200).send(account);
+}
+
 export async function fiatConsoleRoutes(app: FastifyInstance) {
   app.get('/console/fiat/status', async () => F.status());
 
@@ -53,8 +57,7 @@ export async function fiatConsoleRoutes(app: FastifyInstance) {
     const clientId = parse(uuid, req.params.clientId);
     const b = parse(z.object({ provider: z.enum(['monerium', 'mock', 'transak', 'circle']), code: code6.optional() }), req.body ?? {});
     const by = await treasurer2fa(req, b.code);
-    await F.assertRecentTemplateSimulation(clientId);
-    return reply.code(201).send(await F.activateClientAccount(clientId, b.provider, by, req.log));
+    return sendClientFiatActivation(reply, await F.activateClientAccount(clientId, b.provider, by, req.log));
   });
 
   app.post<{ Params: { id: string } }>('/console/fiat/accounts/:id/close', async (req) => {

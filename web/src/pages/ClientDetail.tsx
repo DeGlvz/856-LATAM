@@ -77,6 +77,11 @@ export function ClientDetail() {
             <h1 className="truncate text-xl font-semibold tracking-tight">{c.name}</h1>
             <StatusBadge status={c.status} />
             <Badge variant="outline">{CLIENT_KIND[c.kind]}</Badge>
+            <Badge variant={c.metadata.simulation_status === 'passed' ? 'success' : 'warning'}>
+              {c.metadata.simulation_status === 'passed'
+                ? '🟢 Simulación Verificada'
+                : '⚠️ Sin Simulación Previa (Proceder con precaución)'}
+            </Badge>
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1 font-mono">{c.id}<CopyButton value={c.id} /></span>

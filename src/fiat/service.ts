@@ -157,17 +157,6 @@ export async function activateClientAccount(clientId: string, providerId: string
   return result.account;
 }
 
-export async function assertRecentTemplateSimulation(clientId: string, db: Pick<typeof pool, 'query'> = pool) {
-  const { rowCount } = await db.query(
-    `SELECT 1 FROM audit_log
-      WHERE client_id = $1 AND action = 'template_simulation_passed'
-        AND at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
-      LIMIT 1`, [clientId]);
-  if (!rowCount) {
-    throw new HttpError(422, 'Se requiere una simulación de plantilla aprobada en las últimas 24 horas', 'simulation_required_before_production');
-  }
-}
-
 async function provisionAccount(input: {
   mode: 'treasury' | 'per_client'; clientId: string | null; providerId: string; by: string; log?: Log;
 }) {

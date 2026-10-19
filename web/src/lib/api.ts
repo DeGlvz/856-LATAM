@@ -78,6 +78,7 @@ export interface Account {
 }
 export interface ClientDetail extends Omit<ClientRow, 'accounts_count'> {
   status_reason: string | null; status_changed_at: string | null;
+  metadata: Record<string, unknown> & { simulation_status?: 'passed' | 'pending' };
   accounts: Account[]; allowed_transitions: ClientStatus[];
 }
 export interface Wallet {

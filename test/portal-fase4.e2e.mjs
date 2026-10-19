@@ -181,6 +181,8 @@ check('dry-run exitoso no crea importación durable',
   (await db.query('SELECT count(*)::int AS n FROM obligation_imports WHERE client_id = $1', [B.id])).rows[0].n, importsBeforeSimulation);
 check('dry-run exitoso deja únicamente su evento de auditoría',
   (await db.query(`SELECT count(*)::int AS n FROM audit_log WHERE client_id = $1 AND action = 'template_simulation_passed'`, [B.id])).rows[0].n, 1);
+check('el detalle del cliente informa simulación aprobada',
+  (await api('GET', `/v1/clients/${B.id}`)).body?.metadata?.simulation_status, 'passed');
 const o6 = (await newOb(oprA.s, { amount: U(10), external_ref: `OC-6-${R}` })).body;
 check('llave solo lectura no acepta → 403', (await keyReadB('POST', `/obligations/${o6.id}/accept`, {})).status, 403);
 check('  …pero consulta obligaciones', (await keyReadB('GET', '/obligations')).status, 200);

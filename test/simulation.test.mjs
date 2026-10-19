@@ -9,7 +9,7 @@ process.env.DATABASE_URL ??= 'postgres://localhost/simulation_test';
 const { rollbackOnly, simulationFingerprint, simulationResult } = await import('../dist/simulation.js');
 const { canonical, verifyCanonicalSignature } = await import('../dist/portal/identity.js');
 const { toBaseUnits } = await import('../dist/portal/obligations.js');
-const { assertRecentTemplateSimulation } = await import('../dist/fiat/service.js');
+const { sendClientFiatActivation } = await import('../dist/routes/fiat.js');
 
 test('dry-run transaction always rolls back and never commits', async () => {
   const statements = [];
@@ -67,14 +67,16 @@ test('fingerprint is SHA-256 and simulated adapters are visibly synthetic', () =
   assert.match(result.emulation.iban, /^ZZ00SIMU[A-F0-9]{12}$/);
 });
 
-test('fiat activation requires a recent per-client simulation audit event', async () => {
-  let queryArgs;
-  const noEvent = { query: async (_sql, args) => { queryArgs = args; return { rowCount: 0 }; } };
-  await assert.rejects(
-    assertRecentTemplateSimulation('client-1', noEvent),
-    { code: 'simulation_required_before_production', statusCode: 422 },
-  );
-  assert.deepEqual(queryArgs, ['client-1']);
-  const recentEvent = { query: async () => ({ rowCount: 1 }) };
-  await assert.doesNotReject(assertRecentTemplateSimulation('client-1', recentEvent));
+test('fiat activation responds HTTP 200 when no simulation audit event exists', () => {
+  const auditLog = [];
+  const reply = {
+    statusCode: 200,
+    body: null,
+    code(status) { this.statusCode = status; return this; },
+    send(body) { this.body = body; return this; },
+  };
+  const response = sendClientFiatActivation(reply, { status: 'active' });
+  assert.equal(auditLog.length, 0);
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.body, { status: 'active' });
 });

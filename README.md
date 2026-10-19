@@ -34,14 +34,14 @@ Reglas del libro:
 - Idempotencia: misma llave + mismo cuerpo → misma respuesta (`idempotent-replayed: true`); otro cuerpo → 422.
 - Migraciones embebidas, se aplican al arrancar (`MIGRATE_ON_START`), con candado para varias réplicas.
 
-### Simulación obligatoria de cargas S2S
+### Simulación informativa de cargas S2S
 Las rutas `POST /v1/assets`, `POST /v1/clients`, `POST /v1/entries` y `POST /v1/portal/obligations/import` aceptan `x-856-simulate: true`. El payload pasa por la validación de estructura, referencias activas, unidades base y reglas contables aplicables dentro de una transacción PostgreSQL dedicada que siempre termina en `ROLLBACK`; ninguna fila de prueba ni importación queda persistida. La respuesta válida es HTTP 200 con una huella SHA-256 del alcance, `provider_calls: 0` y datos sintéticos de wallet, IBAN `ZZ…` y webhook interno `processed`. Las fallas responden HTTP 422 con `{ "errors": [{ "fila": 2, "campo": "monto", "motivo": "…" }] }`.
 
 Los montos se envían como **string de entero positivo en unidades base**: USDC tiene 6 decimales (por ejemplo, `"1000001"` = 1.000001 USDC), EURe y ETH tienen 18 (por ejemplo, `"1000000000000000001"` = 1.000000000000000001). Los CSV de obligaciones conservan el formato empresarial existente: valor decimal en texto, punto como separador, sin agrupadores ni redondeo; el simulador convierte a unidades base usando los decimales del activo y rechaza precisión excedente.
 
 La importación S2S del portal debe autenticarse con una llave Ed25519 `trade`; la firma cubre método, ruta, timestamp, nonce y SHA-256 del cuerpo crudo, usando los headers `x-856-key`, `x-856-timestamp`, `x-856-nonce` y `x-856-signature`. El aprovisionamiento `/v1` conserva su autenticación existente (`x-api-key` o sesión de operador): esas credenciales globales no tienen una llave Ed25519 de cliente asociada en el diseño actual.
 
-Una importación completa y sin errores escribe, después del rollback, el único dato durable de la simulación: `audit_log.action = template_simulation_passed` con su cliente y huella. La activación de una cuenta fiat por cliente requiere ese evento de auditoría en las últimas 24 horas; por ello una simulación de alta de cliente o activo, que no puede referenciar un cliente durable, no habilita por sí sola producción. Glosario: **unidad base** = entero mínimo del activo; **huella** = SHA-256 de ruta, cliente y payload; **dry-run** = validación transaccional con rollback obligatorio.
+Una importación completa y sin errores escribe, después del rollback, el único dato durable de la simulación: `audit_log.action = template_simulation_passed` con su cliente y huella. El detalle del cliente devuelve `metadata.simulation_status` (`passed` si hay una simulación exitosa en las últimas 24 horas, `pending` si no la hay) y la consola lo presenta como indicador de precaución, no como control de acceso. La activación fiat por cliente no depende de una simulación previa: el tesorero puede proceder cuando corresponda. Glosario: **unidad base** = entero mínimo del activo; **huella** = SHA-256 de ruta, cliente y payload; **dry-run** = validación transaccional con rollback obligatorio.
 
 ### Compensación (fase 2)
 | Método | Ruta | Notas |
