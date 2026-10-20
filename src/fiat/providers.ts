@@ -17,7 +17,7 @@ export interface ProviderInfo {
 const CATALOG: Omit<ProviderInfo, 'configured' | 'active'>[] = [
   { id: 'monerium', label: 'Monerium', currencies: ['EUR'], rail_id: 'monerium-eur', implemented: true, note: 'SEPA → EURe con IBAN dedicado.' },
   { id: 'circle', label: 'Circle', currencies: ['USD'], rail_id: null, implemented: false, note: 'Estrategia definida; integración pendiente.' },
-  { id: 'transak', label: 'Transak', currencies: [], rail_id: null, implemented: false, note: 'Estrategia definida; integración pendiente.' },
+
 ];
 
 export function listProviders(): ProviderInfo[] {

@@ -32,7 +32,7 @@ test('provider lifecycle maps to the domain transaction state machine', () => {
 });
 
 test('providers without a documented API fail explicitly instead of simulating', () => {
-  for (const provider of ['transak', 'circle']) {
+  for (const provider of ['circle']) {
     assert.throws(() => getFiatProvider(provider), { code: 'provider_not_supported', statusCode: 501 });
   }
 });

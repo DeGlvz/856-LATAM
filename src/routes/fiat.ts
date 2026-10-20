@@ -57,7 +57,7 @@ export async function fiatConsoleRoutes(app: FastifyInstance) {
 
   app.post<{ Params: { clientId: string } }>('/console/fiat/clients/:clientId/accounts/activate', async (req, reply) => {
     const clientId = parse(uuid, req.params.clientId);
-    const b = parse(z.object({ provider: z.enum(['monerium', 'mock', 'transak', 'circle']), code: code6.optional() }), req.body ?? {});
+    const b = parse(z.object({ provider: z.enum(['monerium', 'mock', 'circle']), code: code6.optional() }), req.body ?? {});
     const by = await treasurer2fa(req, b.code);
     return sendClientFiatActivation(reply, await F.activateClientAccount(clientId, b.provider, by, req.log));
   });
