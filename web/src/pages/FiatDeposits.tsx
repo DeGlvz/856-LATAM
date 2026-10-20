@@ -2,6 +2,7 @@
 // Estado del alta con el proveedor, bandeja de conciliación y liberación/rechazo por un tesorero con 2FA.
 // El cliente origina los avisos de pago; aquí solo se concilia, se libera o se rechaza.
 import { useState, type FormEvent } from 'react';
+import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ban, CheckCheck, ExternalLink, FlaskConical, Landmark, Loader2, RefreshCw } from 'lucide-react';
 import { api, type ClientRow } from '@/lib/api';
@@ -45,6 +46,33 @@ const ACC: Record<string, string> = { pending_link: 'Dirección sin ligar', link
 const RULE: Record<string, string> = { intent: 'Aviso de pago', counterparty: 'Código de contraparte', manual: 'Asignación manual', account: 'Cuenta del cliente' };
 const EXPL: Record<string, string> = { 'base-mainnet': 'https://basescan.org', 'base-sepolia': 'https://sepolia.basescan.org' };
 const eur = (s: string) => { const [i, d = ''] = s.split('.'); return `${i.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${d.padEnd(2, '0').slice(0, 2)} €`; };
+
+interface ProviderInfo { id: string; label: string; currencies: string[]; rail_id: string | null; implemented: boolean; configured: boolean; active: boolean; note: string }
+
+function ProvidersCard() {
+  const q = useQuery({ queryKey: ['fiat-providers'], queryFn: () => api<{ providers: ProviderInfo[] }>('/console/fiat/providers') });
+  if (!q.data) return null;
+  return (
+    <Card data-testid="fiat-providers">
+      <CardHeader><CardTitle className="text-base">Proveedores</CardTitle></CardHeader>
+      <CardContent className="grid gap-2 text-sm sm:grid-cols-2 xl:grid-cols-3">
+        {q.data.providers.map((p) => (
+          <div key={p.id} className="rounded-lg border p-3">
+            <div className="flex flex-wrap items-center gap-2 font-medium">
+              {p.label}
+              {p.currencies.map((c) => <Badge key={c} variant="outline">{c}</Badge>)}
+              {p.active ? <Badge variant="success">Activo</Badge>
+                : !p.implemented ? <Badge variant="secondary">Próximamente</Badge>
+                : <Badge variant="outline">{p.configured ? 'Apagado' : 'Sin configurar'}</Badge>}
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">{p.note}</p>
+            {p.rail_id && <Link to="/rieles-fiat" className="mt-1 inline-block text-xs underline">Control de Rieles Fiat</Link>}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
 
 export function FiatDeposits() {
   const { can } = useAuth();
@@ -91,8 +119,8 @@ export function FiatDeposits() {
     <div className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)] gap-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Depósitos en euros</h1>
-          <p className="text-sm text-muted-foreground">SEPA → EURe con proveedor regulado. Se concilian solos; solo un tesorero con 2FA libera saldo al cliente.</p>
+          <h1 className="text-xl font-semibold tracking-tight">Fiat automáticos</h1>
+          <p className="text-sm text-muted-foreground">Depósitos fiat con proveedores regulados (hoy Monerium: SEPA → EURe). Se concilian solos; solo un tesorero con 2FA libera saldo al cliente.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {tes && s?.enabled && sandbox && (s.mode === 'treasury' ? s.account?.status === 'active' : targetAccount?.status === 'active') &&
@@ -102,6 +130,7 @@ export function FiatDeposits() {
       </div>
       <ErrorBox error={status.error ?? poll.error} />
 
+      <ProvidersCard />
       {status.isPending ? <Skeleton className="h-28" /> : s && (
         <Card data-testid="fiat-status">
           <CardHeader><CardTitle className="flex flex-wrap items-center gap-2 text-base"><Landmark className="size-4" />Cuenta con el proveedor
