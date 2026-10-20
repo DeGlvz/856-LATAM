@@ -3,6 +3,8 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { networks } from '../chain/networks.js';
 import { detectDeposits } from '../ledger/transfers.js';
 import * as F from '../fiat/service.js';
+import * as OF from '../openfort/webhook.js';
+import { config } from '../config.js';
 
 // Receptor de Alchemy Notify (Address Activity). Multi-red: cada red tiene su webhook y su llave de firma;
 // la red del evento es la de la llave que valida la firma (nunca se confía en el cuerpo para elegirla).
@@ -29,6 +31,21 @@ export async function webhookRoutes(app: FastifyInstance) {
       catch (e) { req.log.warn({ tx: h, network: match.id, err: (e as Error).message }, 'hash del webhook no procesado'); }
     }
     return { ok: true, network: match.id, hashes: hashes.length, deposits: detected };
+  });
+
+  // Openfort (opcional): firma HMAC-SHA256 sobre el cuerpo crudo; solo guarda y concilia, nunca asienta en el libro.
+  app.post('/webhooks/openfort', async (req, reply) => {
+    if (!config.OPENFORT_ENABLED) return reply.code(404).send({ error: 'No encontrado' });
+    if (!config.OPENFORT_WEBHOOK_SECRET) return reply.code(503).send({ error: 'Webhook no configurado' });
+    const raw = (req as unknown as { rawBody?: string }).rawBody ?? '';
+    if (!OF.verifySignature(raw, req.headers[OF.SIGNATURE_HEADER], config.OPENFORT_WEBHOOK_SECRET)) {
+      return reply.code(401).send({ error: 'Firma inválida' });
+    }
+    const evt = OF.parseEvent(raw);
+    if (!evt) return reply.code(400).send({ error: 'Evento inválido' });
+    const r = await OF.ingest(raw, evt);
+    req.log.info({ type: evt.type, duplicate: r.duplicate, matched: r.matched }, 'Evento Openfort recibido');
+    return { ok: true, duplicate: r.duplicate, matched: !!r.matched };
   });
 
   // Ingress genérico: solo confirma después de verificar firma y persistir durablemente el evento.

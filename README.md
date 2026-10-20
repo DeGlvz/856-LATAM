@@ -572,6 +572,19 @@ Pruebas: `node test/gas-funding.e2e.mjs` (barrido detenido por falta de custodia
 
 Pruebas: `bash test/smoke.sh` (libro), `bash test/netting.sh` (compensación), `node test/console-fase4.e2e.mjs` (consola de compensación), `node test/transfers.e2e.mjs` y `node test/deposits-sweep.e2e.mjs` (on-chain, contra cadena local Hardhat/Anvil).
 
+### Openfort (opcional) — conciliación por webhook
+Integración **apagada por defecto** (`OPENFORT_ENABLED=false`: la ruta responde 404 y nada cambia). Para activarla: `OPENFORT_ENABLED=true` y `OPENFORT_WEBHOOK_SECRET` (secreto `whsec_…` de dashboard.openfort.io → Webhooks, solo por variable de entorno). Para volver al comportamiento anterior basta apagar el flag.
+
+- `POST /v1/webhooks/openfort`: valida la cabecera `openfort-signature` (HMAC-SHA256 hex del cuerpo crudo, comparación en tiempo constante; `401` si falta o no coincide). Guarda el evento en `openfort_events` (migración 023, idempotente por huella del cuerpo) y cruza los hashes de transacción con `tx_attempts`, `sweeps` y `withdrawals`.
+- **Solo observa**: no asienta en el libro, no firma ni altera aprobaciones 2FA. La cadena sigue siendo la fuente de verdad; el valor es ver eventos `transaction_*`/`balance.*` conciliados con los movimientos propios.
+
+**Evaluado y descartado** (no optimiza lo existente sin cambiar la custodia):
+- *Patrocinio de gas (paymaster) y gas-bump*: requiere cuentas inteligentes/EIP-7702 gestionadas por Openfort. Las direcciones de depósito son EOA HD locales; usarlo implicaría migrar direcciones y firma (cambio del modelo de custodia). El `gas_topup` y el reemplazo por nonce actuales ya funcionan y están registrados en el libro.
+- *Barridos en batch*: dependen de cuentas inteligentes/delegación; mismo cambio de custodia. El ahorro ya se logra con `SWEEP_MIN_*`.
+- *Login del portal y wallets embebidas*: el portal ya tiene identidad propia con llaves de API; no aportan.
+
+Pruebas: `npm test` (incluye `test/openfort-webhook.test.mjs`: firma, parseo y extracción de hashes).
+
 ## Local
 ```bash
 cp .env.example .env   # completar las variables requeridas; usar credenciales de prueba

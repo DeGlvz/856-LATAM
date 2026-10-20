@@ -21,6 +21,7 @@ import m019 from './019_deposit_wallet_archive.js';
 import m020 from './020_portal_user_deletion.js';
 import m021 from './021_client_retirement.js';
 import m022 from './022_client_password_resets.js';
+import m023 from './023_openfort_events.js';
 
 // Migraciones embebidas en el build (no hay archivos .sql que copiar al contenedor).
 // Nunca editar una ya aplicada: agregar una nueva.
@@ -47,6 +48,7 @@ const migrations: [string, string][] = [
   ['020_portal_user_deletion', m020],
   ['021_client_retirement', m021],
   ['022_client_password_resets', m022],
+  ['023_openfort_events', m023],
 ];
 
 export async function migrate(pool: Pool, log: (msg: string) => void = console.log) {
