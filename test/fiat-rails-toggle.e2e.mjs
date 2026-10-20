@@ -14,7 +14,7 @@ const check = (n, got, want) => { if (String(got) === String(want)) { ok++; cons
 const db = new pg.Pool({ connectionString: DATABASE_URL });
 const PW = 'clave-portal-12345';
 const ASSET = `EURE-R${R.toUpperCase()}`;
-const ACCOUNT = { beneficiary_name: `Beneficiario Ficticio ${R}`, bank_name: 'Banco Ficticio', account_number: '000123456789', aba: '021000021', swift: 'FICTUS33' };
+const ACCOUNT = { beneficiary_name: `Beneficiario Ficticio ${R}`, bank_name: 'Banco Ficticio', bank_address: 'Calle Ficticia 1, Ciudad', account_number: '000123456789', aba: '021000021', swift: 'FICTUS33' };
 const SECRETS = [ACCOUNT.account_number, ACCOUNT.aba, ACCOUNT.swift, ACCOUNT.beneficiary_name];
 
 const api = async (method, path, body) => {
@@ -220,7 +220,39 @@ check('  …borrado de la DB', (await db.query('SELECT count(*)::int AS n FROM f
 const dEv = await audit('fiat_rail_deleted', NEW);
 check('audit_log: fiat_rail_deleted con rail_id, label y motivo', `${dEv?.m.includes(NEW)} ${dEv?.m.includes('Riel editado')} ${dEv?.m.includes('riel nunca usado')}`, 'true true true');
 
-// ═════ 7. Última alerta de moneda y limpieza
+// ═════ 6c. Subtipos de cuenta y cuentas de titular personal
+const PER = `per-${R}`, PERW = `perw-${R}`;
+const acct = (id, account, t = T1) => t.code().then((code) => t.call('POST', `/v1/console/fiat/rails/${id}/accounts`, { code, reason: 'alta de cuenta ficticia', account }));
+const base = { beneficiary_name: `Titular Ficticio ${R}`, bank_name: 'Banco Ficticio', bank_address: 'Calle Ficticia 1, Ciudad', account_number: '000987654321' };
+await post(T1, { ...newBody, rail_id: PER, label: `Riel personal ${R}`, currency: 'MXN', country: 'MX', rail_type: 'ach', code: await T1.code() });
+await post(T1, { ...newBody, rail_id: PERW, label: `Riel wire ${R}`, currency: 'USD', country: 'US', rail_type: 'wire', code: await T1.code() });
+check('ach sin tipo de cuenta → 400', (await acct(PER, { ...base, aba: '021000021' })).status, 400);
+check('wire sin ABA ni SWIFT → 400', (await acct(PERW, base)).status, 400);
+check('wire con ABA inválida → 400', (await acct(PERW, { ...base, aba: '123' })).status, 400);
+check('wire solo con SWIFT (sin ABA) → 201', (await acct(PERW, { ...base, swift: 'SSBAUS32', aba: '' })).status, 201);
+const personalAcc = { ...base, aba: '021000021', account_type: 'checking', account_holder_type: 'persona' };
+const pProp = await acct(PER, personalAcc);
+check('ach sin SWIFT, titular personal → 201', pProp.status, 201);
+const pEv = await audit('fiat_rail_account_proposed', PER);
+check('audit: propuesta personal con account_holder_type y riesgo aceptado', `${pEv?.m.includes('persona')} ${pEv?.m.includes('personal_risk_accepted')} ${pEv?.m.includes('000987654321')}`, 'true true false');
+const approveP = (v) => T2.code().then((code) => T2.call('POST', `/v1/console/fiat/rails/${PER}/accounts/${v}/approve`, { code, reason: 'verificada, acuerdo con el cliente' }));
+const apAll = await approveP(pProp.body.version);
+check('aprobar cuenta personal sobre riel «all» → 409 personal_account_requires_restricted', `${apAll.status} ${apAll.body?.code}`, '409 personal_account_requires_restricted');
+check('riel personal pasa a restringido → 200', (await put(T1, PER, { code: await T1.code(), reason: 'restringir riel personal', visibility: 'restricted' })).status, 200);
+check('aprobar cuenta personal con riel restringido → 200', (await approveP(pProp.body.version)).status, 200);
+check('audit: aprobación personal con account_holder_type', (await audit('fiat_rail_account_approved', PER))?.m.includes('persona'), true);
+const onNone = await put(T1, PER, { code: await T1.code(), reason: 'encender sin clientes', is_enabled: true });
+check('encender riel personal sin clientes → 409 personal_rail_without_clients', `${onNone.status} ${onNone.body?.code}`, '409 personal_rail_without_clients');
+const toAll = await put(T1, PER, { code: await T1.code(), reason: 'publicar a todos', visibility: 'all' });
+check('riel personal no puede pasar a «all» → 409', `${toAll.status} ${toAll.body?.code}`, '409 personal_account_requires_restricted');
+check('asignar cliente A al riel personal → 201', (await T1.call('POST', `/v1/console/fiat/rails/${PER}/clients`, { code: await T1.code(), reason: 'acuerdo con cliente A', client_id: A.id })).status, 201);
+check('encender riel personal con cliente asignado → 200', (await put(T1, PER, { code: await T1.code(), reason: 'abrir riel personal', is_enabled: true })).status, 200);
+check('cliente asignado ve el riel personal', ((await uA.s.call('GET', '/fiat/instructions')).body.active_rails ?? []).some((r) => r.rail_id === PER), true);
+check('cliente no asignado NO ve el riel personal', ((await uB.s.call('GET', '/fiat/instructions')).body.active_rails ?? []).some((r) => r.rail_id === PER), false);
+const unas = await T1.call('POST', `/v1/console/fiat/rails/${PER}/clients/${A.id}/unassign`, { code: await T1.code(), reason: 'quitar último cliente' });
+check('quitar el último cliente de un riel personal encendido → 409', `${unas.status} ${unas.body?.code}`, '409 personal_rail_without_clients');
+
+
 await db.query(`UPDATE fiat_rails SET is_enabled = false WHERE currency = 'USD'`);
 await put(T1, 'monerium-eur', { code: await T1.code(), reason: 'volver a visibilidad total', visibility: 'all' });
 const lastOff = await put(T1, 'monerium-eur', { code: await T1.code(), reason: 'apagar el último riel EUR', is_enabled: false });

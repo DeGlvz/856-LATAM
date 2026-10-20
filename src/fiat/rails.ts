@@ -6,6 +6,7 @@ import { audit, type Operator } from '../auth/operators.js';
 import { config } from '../config.js';
 import { pool, tx } from '../db.js';
 import { HttpError } from '../idempotency.js';
+import { LABELS, schemaFor } from './rail-fields.js';
 
 // ───────────── Cifrado ─────────────
 function key(): Buffer {
@@ -35,40 +36,6 @@ export function decryptDetails(railId: string, version: number, enc: string): Re
 }
 
 // ───────────── Campos por tipo de riel ─────────────
-const txt = (max = 140) => z.string().trim().min(1).max(max);
-const opt = (max = 140) => z.string().trim().min(1).max(max).optional();
-const FIELD_SCHEMAS = {
-  wire: z.object({
-    beneficiary_name: txt(), bank_name: txt(), account_number: txt(40), aba: z.string().regex(/^\d{9}$/, 'ABA de 9 dígitos'),
-    swift: z.string().regex(/^[A-Za-z0-9]{8}([A-Za-z0-9]{3})?$/, 'SWIFT/BIC de 8 u 11 caracteres'),
-    intermediary_bank: opt(), intermediary_swift: opt(20), bank_address: opt(300),
-  }).strict(),
-  ach: z.object({
-    beneficiary_name: txt(), bank_name: txt(), account_number: txt(40), aba: z.string().regex(/^\d{9}$/, 'ABA de 9 dígitos'),
-    account_type: z.enum(['checking', 'savings']).optional(),
-  }).strict(),
-  sepa: z.object({
-    beneficiary_name: txt(), iban: z.string().trim().toUpperCase().regex(/^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/, 'IBAN inválido'),
-    bic: z.string().regex(/^[A-Za-z0-9]{8}([A-Za-z0-9]{3})?$/, 'BIC de 8 u 11 caracteres'), bank_name: opt(),
-  }).strict(),
-  spei: z.object({
-    beneficiary_name: txt(), clabe: z.string().regex(/^\d{18}$/, 'CLABE de 18 dígitos'), bank_name: opt(),
-  }).strict(),
-  pix: z.object({
-    beneficiary_name: txt(), pix_key: txt(77), key_type: z.enum(['cpf_cnpj', 'email', 'phone', 'random']).optional(),
-  }).strict(),
-  generic: z.object({
-    beneficiary_name: txt(), bank_name: opt(), account_number: opt(60), details: opt(500),
-  }).strict(),
-} as const;
-type RailType = keyof typeof FIELD_SCHEMAS;
-const schemaFor = (railType: string) => FIELD_SCHEMAS[(railType === 'otc' ? 'generic' : railType) as RailType];
-
-const LABELS: Record<string, string> = {
-  beneficiary_name: 'Beneficiario', bank_name: 'Banco', account_number: 'Cuenta', aba: 'ABA', swift: 'SWIFT/BIC', bic: 'BIC',
-  intermediary_bank: 'Banco intermediario', intermediary_swift: 'SWIFT intermediario', bank_address: 'Dirección del banco',
-  account_type: 'Tipo de cuenta', iban: 'IBAN', clabe: 'CLABE', pix_key: 'Llave PIX', key_type: 'Tipo de llave', details: 'Detalles',
-};
 const ID_FIELDS = ['account_number', 'iban', 'clabe', 'pix_key'];
 const last4Of = (d: Record<string, string>) => {
   const v = ID_FIELDS.map((f) => d[f]).find(Boolean) ?? d.beneficiary_name ?? '';
@@ -78,7 +45,7 @@ const last4Of = (d: Record<string, string>) => {
 export function parseDetails(railType: string, input: unknown): Record<string, string> {
   const r = schemaFor(railType).safeParse(input);
   if (!r.success) throw new HttpError(400, r.error.issues.map((i) => `${i.path.join('.') || 'cuenta'}: ${i.message}`).join('; '), 'validation_error');
-  return r.data as Record<string, string>;
+  return Object.fromEntries(Object.entries(r.data as Record<string, unknown>).filter(([, v]) => v !== undefined && v !== '')) as Record<string, string>;
 }
 
 // ───────────── Consola ─────────────
@@ -89,7 +56,7 @@ const RAIL_COLS = `rail_id, label, currency, country, rail_type, kind, priority,
 export async function listRails() {
   const { rows: rails } = await pool.query(`SELECT ${RAIL_COLS} FROM fiat_rails ORDER BY currency, priority, rail_id`);
   const { rows: accs } = await pool.query(
-    `SELECT rail_id, version, last4, status, changed_fields, created_by, created_at, approved_by, approved_at, proposal_reason
+    `SELECT rail_id, version, last4, status, changed_fields, created_by, created_at, approved_by, approved_at, proposal_reason, holder_type
        FROM fiat_rail_accounts WHERE status IN ('active','proposed') ORDER BY rail_id, version DESC`);
   return {
     key_configured: railsKeyConfigured(),
@@ -98,13 +65,26 @@ export async function listRails() {
       const active = mine.find((a) => a.status === 'active');
       return {
         ...r,
-        account: active ? { version: active.version, last4: active.last4, approved_by: active.approved_by, approved_at: active.approved_at } : null,
+        account: active ? { version: active.version, last4: active.last4, approved_by: active.approved_by, approved_at: active.approved_at, holder_type: active.holder_type } : null,
         pending_proposal: mine.filter((a) => a.status === 'proposed').map((a) => ({
-          version: a.version, last4: a.last4, changed_fields: a.changed_fields, created_by: a.created_by, created_at: a.created_at, reason: a.proposal_reason,
+          version: a.version, last4: a.last4, changed_fields: a.changed_fields, created_by: a.created_by, created_at: a.created_at, reason: a.proposal_reason, holder_type: a.holder_type,
         }))[0] ?? null,
       };
     }),
   };
+}
+
+/** Cuentas de titular personal: solo visibilidad restringida y, para estar encendido, al menos un cliente asignado. */
+async function assertPersonalRules(c: Pick<typeof pool, 'query'>, railId: string, visibility: string, enabled: boolean) {
+  const { rows: [a] } = await c.query(`SELECT 1 FROM fiat_rail_accounts WHERE rail_id = $1 AND is_active AND holder_type = 'persona'`, [railId]);
+  if (!a) return;
+  if (visibility !== 'restricted') {
+    throw new HttpError(409, 'La cuenta activa es de titular personal: el riel solo puede ser «restringido» (visible únicamente a clientes asignados). Cambie la visibilidad primero', 'personal_account_requires_restricted');
+  }
+  if (enabled) {
+    const { rows: [n] } = await c.query('SELECT count(*)::int AS n FROM fiat_rail_clients WHERE rail_id = $1', [railId]);
+    if (n.n === 0) throw new HttpError(409, 'Un riel con cuenta personal encendido requiere al menos un cliente asignado', 'personal_rail_without_clients');
+  }
 }
 
 export interface RailPatch {
@@ -183,6 +163,7 @@ export async function toggleRail(op: Operator, railId: string, patch: RailPatch,
       const { rows: [a] } = await c.query(`SELECT 1 FROM fiat_rail_accounts WHERE rail_id = $1 AND is_active`, [railId]);
       if (!a) throw new HttpError(409, 'El riel no tiene una cuenta activa: cargue y apruebe una cuenta antes de encenderlo', 'rail_without_account');
     }
+    if (before.kind === 'manual' && (next.is_enabled || patch.visibility)) await assertPersonalRules(c, railId, next.visibility, !!next.is_enabled);
     const { rows: [after] } = await c.query(
       `UPDATE fiat_rails SET is_enabled = $2, maintenance_message = $3, min_amount = $4, max_amount = $5, recommended_for = $6,
               settlement_time = $7, priority = $8, fallback_of = $9, visibility = $11, label = $12, currency = $13, country = $14,
@@ -243,30 +224,33 @@ export async function deleteRail(op: Operator, railId: string, confirm: string, 
   return { deleted: true, rail_id: railId };
 }
 
-export async function proposeAccount(op: Operator, railId: string, input: unknown, reason: string, ip?: string) {
+export async function proposeAccount(op: Operator, railId: string, input: unknown, reason: string, ip?: string, inherit = false) {
   key();
   const { rows: [rail] } = await pool.query('SELECT rail_id, rail_type, kind FROM fiat_rails WHERE rail_id = $1', [railId]);
   if (!rail) throw new HttpError(404, 'Riel no encontrado', 'not_found');
   if (rail.kind !== 'manual') throw new HttpError(409, 'Los rieles automáticos no llevan cuenta cargada', 'rail_not_manual');
-  const details = parseDetails(rail.rail_type, input);
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new HttpError(400, 'cuenta: objeto requerido', 'validation_error');
   const res = await tx(async (c) => {
     await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`fiat_rail_account:${railId}`]);
     const { rows: [v] } = await c.query('SELECT COALESCE(max(version), 0) + 1 AS next FROM fiat_rail_accounts WHERE rail_id = $1', [railId]);
     const { rows: [act] } = await c.query('SELECT version, details_enc FROM fiat_rail_accounts WHERE rail_id = $1 AND is_active', [railId]);
     const prev = act ? decryptDetails(railId, act.version, act.details_enc) : {};
+    // inherit: solo se envían los campos a cambiar; los omitidos se heredan y "" borra un opcional
+    const merged = inherit ? { ...prev, ...(input as Record<string, unknown>) } : input;
+    const details = parseDetails(rail.rail_type, merged);
     const changed = Object.keys({ ...prev, ...details }).filter((k) => prev[k] !== details[k]).sort();
     if (!changed.length) throw new HttpError(409, 'La propuesta no cambia ningún campo de la cuenta activa', 'no_changes');
     await c.query(`UPDATE fiat_rail_accounts SET status = 'superseded', decision_reason = 'sustituida por una propuesta nueva'
                     WHERE rail_id = $1 AND status = 'proposed'`, [railId]);
     const { rows: [row] } = await c.query(
-      `INSERT INTO fiat_rail_accounts (rail_id, version, details_enc, last4, changed_fields, proposal_reason, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING version, last4, changed_fields, status`,
-      [railId, v.next, encryptDetails(railId, v.next, details), last4Of(details), changed, reason, op.email]);
+      `INSERT INTO fiat_rail_accounts (rail_id, version, details_enc, last4, changed_fields, proposal_reason, created_by, holder_type)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING version, last4, changed_fields, status, holder_type`,
+      [railId, v.next, encryptDetails(railId, v.next, details), last4Of(details), changed, reason, op.email, details.account_holder_type ?? null]);
     return row;
   });
   await audit({
     operator_id: op.id, actor: op.email, action: 'fiat_rail_account_proposed', target: railId, status: 201, ip,
-    metadata: { version: res.version, changed_fields: res.changed_fields, last4: res.last4, reason },
+    metadata: { version: res.version, changed_fields: res.changed_fields, last4: res.last4, reason, account_holder_type: res.holder_type, ...(res.holder_type === 'persona' ? { personal_risk_accepted: true } : {}) },
   });
   return res;
 }
@@ -279,14 +263,22 @@ export async function approveAccount(op: Operator, railId: string, version: numb
     if (!p) throw new HttpError(404, 'Propuesta no encontrada', 'not_found');
     if (p.status !== 'proposed') throw new HttpError(409, `La propuesta ya está ${p.status}`, 'proposal_not_pending');
     if (p.created_by === op.email) throw new HttpError(403, 'La cuenta debe aprobarla un tesorero distinto al que la propuso', 'forbidden');
+    if (p.holder_type === 'persona') {
+      const { rows: [st] } = await c.query('SELECT visibility, is_enabled FROM fiat_rails WHERE rail_id = $1', [railId]);
+      if (st.visibility !== 'restricted') {
+        throw new HttpError(409, 'Cuenta de titular personal: cambie primero el riel a «restringido» y asigne los clientes que aceptan este riesgo', 'personal_account_requires_restricted');
+      }
+      const { rows: [n] } = await c.query('SELECT count(*)::int AS n FROM fiat_rail_clients WHERE rail_id = $1', [railId]);
+      if (st.is_enabled && n.n === 0) throw new HttpError(409, 'Un riel con cuenta personal encendido requiere al menos un cliente asignado', 'personal_rail_without_clients');
+    }
     await c.query(`UPDATE fiat_rail_accounts SET status = 'superseded', is_active = false WHERE rail_id = $1 AND is_active`, [railId]);
     await c.query(`UPDATE fiat_rail_accounts SET status = 'active', is_active = true, approved_by = $3, approved_at = now(), decision_reason = $4
                     WHERE rail_id = $1 AND version = $2`, [railId, version, op.email, reason]);
-    return { version, last4: p.last4, changed_fields: p.changed_fields as string[], proposed_by: p.created_by as string };
+    return { version, last4: p.last4, changed_fields: p.changed_fields as string[], proposed_by: p.created_by as string, holder_type: p.holder_type as string | null };
   });
   await audit({
     operator_id: op.id, actor: op.email, action: 'fiat_rail_account_approved', target: railId, status: 200, ip,
-    metadata: { version: res.version, changed_fields: res.changed_fields, last4: res.last4, proposed_by: res.proposed_by, reason },
+    metadata: { version: res.version, changed_fields: res.changed_fields, last4: res.last4, proposed_by: res.proposed_by, reason, account_holder_type: res.holder_type, ...(res.holder_type === 'persona' ? { personal_risk_accepted: true } : {}) },
   });
   return { rail_id: railId, version: res.version, status: 'active', last4: res.last4 };
 }
@@ -308,6 +300,14 @@ export async function rejectAccount(op: Operator, railId: string, version: numbe
 }
 
 // ───────────── Portal ─────────────
+/** Revela la cuenta activa a un tesorero (2FA + motivo) para precargar el formulario de edición; se audita sin valores. */
+export async function revealAccount(op: Operator, railId: string, reason: string, ip?: string) {
+  key();
+  const { rows: [a] } = await pool.query('SELECT version, details_enc, last4 FROM fiat_rail_accounts WHERE rail_id = $1 AND is_active', [railId]);
+  if (!a) throw new HttpError(404, 'El riel no tiene cuenta activa', 'not_found');
+  await audit({ operator_id: op.id, actor: op.email, action: 'fiat_rail_account_revealed', target: railId, status: 200, ip, metadata: { version: a.version, last4: a.last4, reason } });
+  return { rail_id: railId, version: a.version, account: decryptDetails(railId, a.version, a.details_enc) };
+}
 export interface PortalRail {
   rail_id: string; label: string; currency: string; country: string | null; rail_type: string; kind: string;
   recommended_for: string | null; settlement_time: string | null; min_amount: string | null; max_amount: string | null;
@@ -324,6 +324,7 @@ export async function activeRailsFor(clientId: string, amount?: string) {
             a.version, a.details_enc
        FROM fiat_rails r LEFT JOIN fiat_rail_accounts a ON a.rail_id = r.rail_id AND a.is_active
       WHERE NOT r.is_archived AND (r.visibility = 'all' OR EXISTS (SELECT 1 FROM fiat_rail_clients rc WHERE rc.rail_id = r.rail_id AND rc.client_id = $1))
+        AND NOT (r.visibility = 'all' AND a.holder_type = 'persona')
       ORDER BY r.priority, r.rail_id`, [clientId]);
   const amt = amount != null && /^\d{1,15}(\.\d{1,2})?$/.test(amount) ? Number(amount) : null;
   const inRange = (r: { min_amount: string | null; max_amount: string | null }) =>
@@ -399,6 +400,8 @@ export async function assignRailClient(op: Operator, railId: string, clientId: s
     } else {
       const { rowCount } = await c.query('DELETE FROM fiat_rail_clients WHERE rail_id = $1 AND client_id = $2', [railId, clientId]);
       if (!rowCount) throw new HttpError(404, 'El cliente no estaba asignado a este riel', 'not_found');
+      const { rows: [st] } = await c.query('SELECT visibility, is_enabled FROM fiat_rails WHERE rail_id = $1', [railId]);
+      await assertPersonalRules(c, railId, st.visibility, st.is_enabled);
     }
   });
   await audit({

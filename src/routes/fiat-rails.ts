@@ -75,9 +75,15 @@ export async function fiatRailsConsoleRoutes(app: FastifyInstance) {
 
   app.post<{ Params: { rail_id: string } }>('/console/fiat/rails/:rail_id/accounts', async (req, reply) => {
     const id = parse(railId, req.params.rail_id);
-    const b = parse(z.object({ code: code6.optional(), reason, account: z.record(z.string(), z.unknown()) }).strict(), req.body ?? {});
+    const b = parse(z.object({ code: code6.optional(), reason, account: z.record(z.string(), z.unknown()), inherit: z.boolean().optional() }).strict(), req.body ?? {});
     const op = await mutator(req, b.code);
-    return reply.code(201).send(await R.proposeAccount(op, id, b.account, b.reason, req.ip));
+    return reply.code(201).send(await R.proposeAccount(op, id, b.account, b.reason, req.ip, b.inherit));
+  });
+
+  app.post<{ Params: { rail_id: string } }>('/console/fiat/rails/:rail_id/account/reveal', async (req) => {
+    const b = parse(z.object({ code: code6.optional(), reason }).strict(), req.body ?? {});
+    const op = await mutator(req, b.code);
+    return R.revealAccount(op, parse(railId, req.params.rail_id), b.reason, req.ip);
   });
 
   const decision = z.object({ code: code6.optional(), reason }).strict();
