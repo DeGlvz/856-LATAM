@@ -573,7 +573,7 @@ Pruebas: `node test/gas-funding.e2e.mjs` (barrido detenido por falta de custodia
 Pruebas: `bash test/smoke.sh` (libro), `bash test/netting.sh` (compensación), `node test/console-fase4.e2e.mjs` (consola de compensación), `node test/transfers.e2e.mjs` y `node test/deposits-sweep.e2e.mjs` (on-chain, contra cadena local Hardhat/Anvil).
 
 ### Openfort (opcional) — conciliación por webhook
-Integración **apagada por defecto** (`OPENFORT_ENABLED=false`: la ruta responde 404 y nada cambia). Para activarla: `OPENFORT_ENABLED=true` y `OPENFORT_WEBHOOK_SECRET` (secreto `whsec_…` de dashboard.openfort.io → Webhooks, solo por variable de entorno). Para volver al comportamiento anterior basta apagar el flag.
+Integración **apagada por defecto** (`OPENFORT_ENABLED=false`: la ruta responde 404 y nada cambia). Para activarla: `OPENFORT_ENABLED=true` y `OPENFORT_WEBHOOK_SECRET` (secreto `whsec_…` de dashboard.openfort.io → Webhooks, solo por variable de entorno). `OPENFORT_PUBLISHABLE_KEY` y `OPENFORT_SECRET_KEY` se leen del entorno (Railway) y quedan reservadas para la API; el webhook no las necesita. Para volver al comportamiento anterior basta apagar el flag.
 
 - `POST /v1/webhooks/openfort`: valida la cabecera `openfort-signature` (HMAC-SHA256 hex del cuerpo crudo, comparación en tiempo constante; `401` si falta o no coincide). Guarda el evento en `openfort_events` (migración 023, idempotente por huella del cuerpo) y cruza los hashes de transacción con `tx_attempts`, `sweeps` y `withdrawals`.
 - **Solo observa**: no asienta en el libro, no firma ni altera aprobaciones 2FA. La cadena sigue siendo la fuente de verdad; el valor es ver eventos `transaction_*`/`balance.*` conciliados con los movimientos propios.

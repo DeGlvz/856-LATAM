@@ -95,6 +95,8 @@ const Env = z.object({
   FIAT_LIVE_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
   OPENFORT_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
   OPENFORT_WEBHOOK_SECRET: z.preprocess(blank, z.string().optional()),
+  OPENFORT_PUBLISHABLE_KEY: z.preprocess(blank, z.string().optional()),
+  OPENFORT_SECRET_KEY: z.preprocess(blank, z.string().optional()),
   FIAT_POLL_INTERVAL_MS: z.coerce.number().int().min(5_000).default(60_000),
   FIAT_INTENT_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(7),
 });
