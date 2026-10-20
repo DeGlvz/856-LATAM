@@ -15,6 +15,7 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
+import { LayoutGridBoard } from '@/components/LayoutGrid';
 
 const REFRESH_MS = 15_000;
 
@@ -64,23 +65,20 @@ export function Dashboard() {
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {s ? <>
-          <HealthCard s={s} />
-          <GasCard s={s} />
-          <InflightCard s={s} />
-          <ReconCard s={s} />
-        </> : [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-36 rounded-xl" />)}
-      </div>
-
-      {s && <GasLedgerAlert s={s} />}
-
-      {s && (s.networks?.length ?? 0) > 1 && <NetworksTable nets={s.networks!} />}
-
-      <PortalAlertsCard />
-
-      {s ? <ReconTable s={s} /> : <Skeleton className="h-48 rounded-xl" />}
-      {s ? <InflightTable s={s} /> : <Skeleton className="h-48 rounded-xl" />}
+      <LayoutGridBoard
+        storageKey="856.console.layout.dashboard"
+        items={[
+          { id: 'salud', span: 1, node: s ? <HealthCard s={s} /> : <Skeleton className="h-36 rounded-xl" /> },
+          { id: 'gas', span: 1, node: s ? <GasCard s={s} /> : <Skeleton className="h-36 rounded-xl" /> },
+          { id: 'retiros-en-vuelo', span: 1, node: s ? <InflightCard s={s} /> : <Skeleton className="h-36 rounded-xl" /> },
+          { id: 'conciliacion', span: 1, node: s ? <ReconCard s={s} /> : <Skeleton className="h-36 rounded-xl" /> },
+          ...(s ? [{ id: 'gas-sin-registrar', node: <GasLedgerAlert s={s} /> }] : []),
+          ...(s && (s.networks?.length ?? 0) > 1 ? [{ id: 'redes', node: <NetworksTable nets={s.networks!} /> }] : []),
+          { id: 'clientes-un-admin', node: <PortalAlertsCard /> },
+          { id: 'conciliacion-por-activo', node: s ? <ReconTable s={s} /> : <Skeleton className="h-48 rounded-xl" /> },
+          { id: 'retiros-detalle', node: s ? <InflightTable s={s} /> : <Skeleton className="h-48 rounded-xl" /> },
+        ]}
+      />
 
       {s && (
         <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
