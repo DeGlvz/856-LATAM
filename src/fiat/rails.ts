@@ -206,8 +206,11 @@ export async function toggleRail(op: Operator, railId: string, patch: RailPatch,
   if (changed.includes('is_enabled') || !changed.length) {
     await audit({ operator_id: op.id, actor: op.email, action: 'fiat_rail_toggled', target: railId, status: 200, ip, metadata: base });
   }
-  if (changed.some((k) => k !== 'is_enabled')) {
+  if (changed.some((k) => !['is_enabled', 'is_archived'].includes(k))) {
     await audit({ operator_id: op.id, actor: op.email, action: 'fiat_rail_updated', target: railId, status: 200, ip, metadata: base });
+  }
+  if (changed.includes('is_archived')) {
+    await audit({ operator_id: op.id, actor: op.email, action: out.after.is_archived ? 'fiat_rail_archived' : 'fiat_rail_restored', target: railId, status: 200, ip, metadata: base });
   }
   if (out.lastOff) {
     await audit({
@@ -215,7 +218,29 @@ export async function toggleRail(op: Operator, railId: string, patch: RailPatch,
       metadata: { alert: true, currency: out.after.currency, reason },
     });
   }
-  return { rail: out.after, last_active_of_currency_disabled: out.lastOff };
+}
+
+/** Eliminación definitiva: solo rieles manuales archivados y sin historial. Borra propuestas pendientes y asignaciones. */
+export async function deleteRail(op: Operator, railId: string, confirm: string, reason: string, ip?: string) {
+  if (confirm !== railId) throw new HttpError(400, 'La confirmación debe ser el rail_id exacto', 'confirmation_mismatch');
+  const label = await tx(async (c) => {
+    const { rows: [r] } = await c.query('SELECT label, kind, is_archived FROM fiat_rails WHERE rail_id = $1 FOR UPDATE', [railId]);
+    if (!r) throw new HttpError(404, 'Riel no encontrado', 'not_found');
+    if (r.kind !== 'manual') throw new HttpError(409, 'Un riel automático no se elimina', 'rail_locked');
+    if (!r.is_archived) throw new HttpError(409, 'Archive el riel antes de eliminarlo', 'rail_not_archived');
+    const { rows: [h] } = await c.query('SELECT 1 FROM fiat_rail_accounts WHERE rail_id = $1 AND approved_by IS NOT NULL LIMIT 1', [railId]);
+    const { rows: [f] } = await c.query('SELECT 1 FROM fiat_rails WHERE fallback_of = $1 LIMIT 1', [railId]);
+    if (h || f) {
+      throw new HttpError(409, h ? 'El riel tiene historial (cuentas aprobadas): solo puede archivarse, no eliminarse' : 'Otro riel lo usa como alterno: cambie ese alterno antes de eliminarlo', 'rail_has_history');
+    }
+    await c.query(`SELECT set_config('app.rail_delete', 'on', true)`);
+    await c.query('DELETE FROM fiat_rail_accounts WHERE rail_id = $1', [railId]);
+    await c.query('DELETE FROM fiat_rail_clients WHERE rail_id = $1', [railId]);
+    await c.query('DELETE FROM fiat_rails WHERE rail_id = $1', [railId]);
+    return r.label as string;
+  });
+  await audit({ operator_id: op.id, actor: op.email, action: 'fiat_rail_deleted', target: railId, status: 200, ip, metadata: { rail_id: railId, label, reason } });
+  return { deleted: true, rail_id: railId };
 }
 
 export async function proposeAccount(op: Operator, railId: string, input: unknown, reason: string, ip?: string) {

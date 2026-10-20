@@ -24,6 +24,7 @@ import m022 from './022_client_password_resets.js';
 import m023 from './023_openfort_events.js';
 import m024 from './024_fiat_rails.js';
 import m025 from './025_fiat_rails_archive.js';
+import m026 from './026_fiat_rails_delete.js';
 
 // Migraciones embebidas en el build (no hay archivos .sql que copiar al contenedor).
 // Nunca editar una ya aplicada: agregar una nueva.
@@ -53,6 +54,7 @@ const migrations: [string, string][] = [
   ['023_openfort_events', m023],
   ['024_fiat_rails', m024],
   ['025_fiat_rails_archive', m025],
+  ['026_fiat_rails_delete', m026],
 ];
 
 export async function migrate(pool: Pool, log: (msg: string) => void = console.log) {
