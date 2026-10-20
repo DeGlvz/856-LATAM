@@ -21,6 +21,7 @@ interface Rail {
   rail_id: string; label: string; currency: string; country: string | null; rail_type: string; kind: 'manual' | 'automatic';
   priority: number; is_enabled: boolean; visibility: 'all' | 'restricted'; maintenance_message: string | null;
   min_amount: string | null; max_amount: string | null; recommended_for: string | null; settlement_time: string | null;
+  fallback_of: string | null; requires_review: boolean; is_archived: boolean;
   account: { version: number; last4: string; approved_by: string | null } | null; pending_proposal: Proposal | null;
 }
 interface RailsResp { key_configured: boolean; rails: Rail[] }
@@ -51,6 +52,8 @@ export function FiatRails() {
   const [edit, setEdit] = useState<Rail | null>(null);
   const [decide, setDecide] = useState<{ rail: Rail; approve: boolean } | null>(null);
   const [clientsOf, setClientsOf] = useState<Rail | null>(null);
+  const [form, setForm] = useState<{ rail: Rail | null } | null>(null);
+  const [archive, setArchive] = useState<{ rail: Rail; archive: boolean } | null>(null);
   const [visibility, setVisibility] = useState<{ rail: Rail; to: 'all' | 'restricted' } | null>(null);
   const tes = can('tesorero');
   const data = q.data;
@@ -61,6 +64,7 @@ export function FiatRails() {
         <p className="text-sm text-muted-foreground">Encienda o apague cada riel, cargue sus cuentas (propone un tesorero y aprueba otro) y elija a qué clientes se muestra. Los cambios aplican de inmediato en el portal.</p>
       </div>
       <ErrorBox error={q.error} />
+      {tes && <div><Button onClick={() => setForm({ rail: null })}>Nuevo riel manual</Button></div>}
       {data && !data.key_configured && <div role="alert" className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm">FIAT_RAILS_ENC_KEY no está configurada: no se pueden cargar cuentas y los rieles manuales no pueden encenderse.</div>}
       <Card className="py-2"><CardContent className="px-3">
         {q.isPending ? <Skeleton className="h-40" /> : (
@@ -69,8 +73,8 @@ export function FiatRails() {
               <TableHeader><TableRow><TableHead>Riel</TableHead><TableHead>Moneda</TableHead><TableHead>Tipo</TableHead><TableHead>Cuenta</TableHead><TableHead>Visibilidad</TableHead><TableHead>Estado</TableHead><TableHead /></TableRow></TableHeader>
               <TableBody>
                 {data?.rails.map((r) => (
-                  <TableRow key={r.rail_id} data-rail={r.rail_id}>
-                    <TableCell><div className="font-medium">{r.label}</div><code className="text-xs text-muted-foreground">{r.rail_id}</code></TableCell>
+                  <TableRow key={r.rail_id} data-rail={r.rail_id} className={r.is_archived ? 'opacity-50' : undefined}>
+                    <TableCell><div className="font-medium">{r.label}{r.is_archived && <> <Badge variant="outline">Archivado</Badge></>}</div><code className="text-xs text-muted-foreground">{r.rail_id}</code></TableCell>
                     <TableCell>{r.currency}</TableCell>
                     <TableCell className="text-xs">{r.rail_type.toUpperCase()} · {r.kind === 'manual' ? 'manual' : 'automático'}</TableCell>
                     <TableCell className="text-sm">
@@ -90,7 +94,11 @@ export function FiatRails() {
                         disabled={!tes} onClick={() => setToggle(r)}><Power />{r.is_enabled ? 'Encendido' : 'Apagado'}</Button>
                     </TableCell>
                     <TableCell className="text-right">
-                      {tes && r.kind === 'manual' && <Button size="sm" variant="outline" onClick={() => setEdit(r)}><Landmark />{r.account ? 'Editar cuenta' : 'Cargar cuenta'}</Button>}
+                      {tes && !r.is_archived && <Button size="sm" variant="outline" onClick={() => setForm({ rail: r })}>Editar riel</Button>}{' '}
+                      {tes && r.kind === 'manual' && !r.is_archived && <Button size="sm" variant="outline" onClick={() => setEdit(r)}><Landmark />{r.account ? 'Editar cuenta' : 'Cargar cuenta'}</Button>}
+                      {tes && r.kind === 'manual' && (r.is_archived
+                        ? <Button size="sm" variant="outline" onClick={() => setArchive({ rail: r, archive: false })}>Restaurar</Button>
+                        : <Button size="sm" variant="ghost" onClick={() => setArchive({ rail: r, archive: true })}>Archivar</Button>)}
                       {tes && r.pending_proposal && (
                         <div className="mt-1 flex justify-end gap-1">
                           {r.pending_proposal.created_by === operator?.email
@@ -118,11 +126,72 @@ export function FiatRails() {
         </CardContent></Card>
       )}
       <ToggleDialog rail={toggle} onClose={() => setToggle(null)} onDone={refresh} />
+      <RailFormDialog state={form} onClose={() => setForm(null)} onDone={refresh} />
+      <ArchiveDialog state={archive} onClose={() => setArchive(null)} onDone={refresh} />
       <VisibilityDialog state={visibility} onClose={() => setVisibility(null)} onDone={refresh} />
       <AccountDialog rail={edit} onClose={() => setEdit(null)} onDone={refresh} />
       <DecisionDialog state={decide} onClose={() => setDecide(null)} onDone={refresh} />
       <ClientsDialog rail={clientsOf} onClose={() => setClientsOf(null)} />
     </div>
+  );
+}
+
+function RailFormDialog({ state, onClose, onDone }: { state: { rail: Rail | null } | null; onClose: () => void; onDone: () => void }) {
+  const rail = state?.rail ?? null;
+  const locked = rail?.kind === 'automatic';
+  const blank = { rail_id: '', label: '', currency: '', country: '', rail_type: 'wire', priority: '100', fallback_of: '', min_amount: '', max_amount: '', recommended_for: '', settlement_time: '', maintenance_message: '', requires_review: true };
+  const init = rail ? { rail_id: rail.rail_id, label: rail.label, currency: rail.currency, country: rail.country ?? '', rail_type: rail.rail_type, priority: String(rail.priority), fallback_of: rail.fallback_of ?? '',
+    min_amount: rail.min_amount ?? '', max_amount: rail.max_amount ?? '', recommended_for: rail.recommended_for ?? '', settlement_time: rail.settlement_time ?? '', maintenance_message: rail.maintenance_message ?? '', requires_review: rail.requires_review } : blank;
+  const [f, setF] = useState<typeof blank | null>(null);
+  const [reason, setReason] = useState('');
+  const v = f ?? init;
+  const set = (k: keyof typeof blank, val: string | boolean) => setF({ ...v, [k]: val });
+  const nul = (s: string) => (s.trim() ? s.trim() : null);
+  const valid = ok(reason) && (locked || (/^[a-z0-9][a-z0-9_-]{1,39}$/.test(v.rail_id) && v.label.trim().length >= 2 && /^[A-Z]{3}$/.test(v.currency) && (!v.country || /^[A-Z]{2}$/.test(v.country))));
+  const body = () => ({
+    reason: reason.trim(), min_amount: nul(v.min_amount), max_amount: nul(v.max_amount), maintenance_message: nul(v.maintenance_message),
+    ...(locked ? {} : { label: v.label.trim(), currency: v.currency, country: nul(v.country), rail_type: v.rail_type, priority: Number(v.priority) || 0,
+      fallback_of: nul(v.fallback_of), recommended_for: nul(v.recommended_for), settlement_time: nul(v.settlement_time), requires_review: v.requires_review }),
+  });
+  const txt = (k: keyof typeof blank, label: string, extra: { disabled?: boolean; max?: number; hint?: string } = {}) => (
+    <Field label={label} htmlFor={`rf-${k}`} hint={extra.hint}><Input id={`rf-${k}`} autoComplete="off" disabled={extra.disabled} maxLength={extra.max ?? 300} value={String(v[k])} onChange={(e) => set(k, e.target.value)} /></Field>
+  );
+  return (
+    <StepUpDialog open={!!state} title={rail ? `Editar riel ${rail.rail_id}` : 'Nuevo riel manual'} confirmLabel={rail ? 'Guardar' : 'Crear riel'} canSubmit={valid}
+      description={rail ? (locked ? 'Riel automático: solo se editan mensaje y límites.' : 'Los cambios aplican de inmediato en el portal. No incluye la cuenta bancaria (se propone aparte).') : 'El riel nace apagado y sin cuenta: cargue y apruebe una cuenta antes de encenderlo.'}
+      onConfirm={(code) => rail
+        ? api(`/console/fiat/rails/${rail.rail_id}`, { method: 'PUT', json: { code, ...body() } }).then(onDone)
+        : api('/console/fiat/rails', { method: 'POST', json: { code, rail_id: v.rail_id, ...body() } }).then(onDone)}
+      onClose={() => { setF(null); setReason(''); onClose(); }}>
+      <div className="grid gap-3">
+        {!rail && txt('rail_id', 'Identificador (slug) *', { max: 40, hint: 'Minúsculas, números, guion; único e inmutable.' })}
+        {!locked && <>
+          {txt('label', 'Nombre *', { max: 100 })}
+          <div className="grid grid-cols-2 gap-3">{txt('currency', 'Moneda (ISO) *', { max: 3 })}{txt('country', 'País (ISO)', { max: 2 })}</div>
+          <Field label="Tipo de riel" htmlFor="rf-rail_type" hint={rail ? 'No se puede cambiar si ya tiene cuentas.' : undefined}>
+            <Select id="rf-rail_type" value={v.rail_type} onChange={(e) => set('rail_type', e.target.value)}>
+              {['wire', 'ach', 'sepa', 'spei', 'pix', 'otc', 'generic'].map((t) => <option key={t} value={t}>{t.toUpperCase()}</option>)}</Select></Field>
+          <div className="grid grid-cols-2 gap-3">{txt('priority', 'Prioridad')}{txt('fallback_of', 'Alterno de (rail_id)', { max: 40 })}</div>
+          {txt('recommended_for', 'Recomendado para')}{txt('settlement_time', 'Tiempo de liquidación')}
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={v.requires_review} onChange={(e) => set('requires_review', e.target.checked)} />Requiere revisión de tesorería</label>
+        </>}
+        <div className="grid grid-cols-2 gap-3">{txt('min_amount', 'Monto mínimo')}{txt('max_amount', 'Monto máximo')}</div>
+        {txt('maintenance_message', 'Mensaje de mantenimiento')}
+        <ReasonField id="rf-reason" value={reason} onChange={setReason} />
+      </div>
+    </StepUpDialog>
+  );
+}
+
+function ArchiveDialog({ state, onClose, onDone }: { state: { rail: Rail; archive: boolean } | null; onClose: () => void; onDone: () => void }) {
+  const [reason, setReason] = useState('');
+  return (
+    <StepUpDialog open={!!state} title={state?.archive ? 'Archivar riel' : 'Restaurar riel'} confirmLabel={state?.archive ? 'Archivar' : 'Restaurar'} destructive={!!state?.archive} canSubmit={ok(reason)}
+      description={state && (state.archive ? `${state.rail.label} se apagará y dejará de mostrarse; no se borra y su historial se conserva. No se puede si hay avisos de pago abiertos.` : `${state.rail.label} vuelve apagado.`)}
+      onConfirm={(code) => api(`/console/fiat/rails/${state!.rail.rail_id}`, { method: 'PUT', json: { code, reason: reason.trim(), is_archived: state!.archive } }).then(onDone)}
+      onClose={() => { setReason(''); onClose(); }}>
+      <ReasonField id="arc-reason" value={reason} onChange={setReason} />
+    </StepUpDialog>
   );
 }
 

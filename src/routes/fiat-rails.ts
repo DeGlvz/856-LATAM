@@ -17,6 +17,9 @@ const code6 = z.string().regex(/^\d{6}$/, 'código de 6 dígitos');
 const reason = z.string().trim().min(5, 'Indique el motivo (mín. 5 caracteres)').max(500);
 const money = z.string().regex(/^\d{1,15}(\.\d{1,2})?$/, 'monto con hasta 2 decimales');
 const short = z.string().trim().max(300);
+const currency = z.string().regex(/^[A-Z]{3}$/, 'moneda ISO de 3 letras mayúsculas');
+const country = z.string().regex(/^[A-Z]{2}$/, 'país ISO de 2 letras mayúsculas');
+const railType = z.enum(['wire', 'ach', 'sepa', 'spei', 'pix', 'otc', 'generic']);
 
 const forbidden = () => new HttpError(403, 'Requiere sesión de un tesorero o ejecutivo', 'forbidden');
 function viewer(req: FastifyRequest) {
@@ -35,6 +38,19 @@ export async function fiatRailsConsoleRoutes(app: FastifyInstance) {
     return R.listRails();
   });
 
+  app.post('/console/fiat/rails', async (req, reply) => {
+    const b = parse(z.object({
+      code: code6.optional(), reason, rail_id: railId, label: z.string().trim().min(2).max(100), currency, country: country.nullable().optional(),
+      rail_type: railType, priority: z.number().int().min(0).max(1000).optional(), fallback_of: railId.nullable().optional(),
+      min_amount: money.nullable().optional(), max_amount: money.nullable().optional(), recommended_for: short.nullable().optional(),
+      settlement_time: short.nullable().optional(), requires_review: z.boolean().optional(), maintenance_message: short.nullable().optional(),
+      visibility: z.enum(['all', 'restricted']).optional(),
+    }).strict(), req.body ?? {});
+    const op = await mutator(req, b.code);
+    const { code: _c, reason: why, ...input } = b;
+    return reply.code(201).send(await R.createRail(op, input, why, req.ip));
+  });
+
   app.put<{ Params: { rail_id: string } }>('/console/fiat/rails/:rail_id', async (req) => {
     const id = parse(railId, req.params.rail_id);
     const b = parse(z.object({
@@ -43,6 +59,8 @@ export async function fiatRailsConsoleRoutes(app: FastifyInstance) {
       min_amount: money.nullable().optional(), max_amount: money.nullable().optional(),
       recommended_for: short.nullable().optional(), settlement_time: short.nullable().optional(),
       priority: z.number().int().min(0).max(1000).optional(), fallback_of: railId.nullable().optional(),
+      label: z.string().trim().min(2).max(100).optional(), currency: currency.optional(), country: country.nullable().optional(),
+      rail_type: railType.optional(), requires_review: z.boolean().optional(), is_archived: z.boolean().optional(),
     }).strict(), req.body ?? {});
     const op = await mutator(req, b.code);
     const { code: _c, reason: why, ...patch } = b;
