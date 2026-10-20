@@ -24,6 +24,7 @@ import { migrate } from './migrations/index.js';
 import { ensureAllSystemAccounts } from './ledger/service.js';
 import { clientAssetRoutes } from './routes/client-assets.js';
 import { fiatConsoleRoutes } from './routes/fiat.js';
+import { fiatRailsConsoleRoutes } from './routes/fiat-rails.js';
 import { gasRoutes } from './routes/gas.js';
 import { verifyNetworks } from './chain/networks.js';
 import { ensureCatalog } from './chain/catalog.js';
@@ -170,6 +171,7 @@ await app.register(async (v1) => {
   await v1.register(transferRoutes);
   await v1.register(clientAssetRoutes);
   await v1.register(fiatConsoleRoutes);
+  await v1.register(fiatRailsConsoleRoutes);
   await v1.register(gasRoutes);
 }, { prefix: '/v1' });
 

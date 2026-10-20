@@ -186,9 +186,17 @@ export const OB_STATE: Record<ObStatus, { t: string; v: 'warning' | 'success' | 
 };
 
 // ── Fase F1: recibir euros (SEPA → EURe) ──
+export interface PortalRail {
+  rail_id: string; label: string; currency: string; country: string | null; rail_type: string; kind: 'manual' | 'automatic';
+  recommended_for: string | null; settlement_time: string | null; min_amount: string | null; max_amount: string | null;
+  requires_review: boolean; memo: string | null; fields?: { key: string; label: string; value: string }[];
+}
+export interface UnavailableRail { rail_id: string; label: string; currency: string; maintenance_message: string; alternative: { rail_id: string; label: string } | null }
 export interface FiatInstructions {
-  currency: 'EUR'; method: 'SEPA'; iban: string; bic: string | null; beneficiary: string | null; asset_id: string; network: string;
-  intent_ttl_days: number; counterparty_code: string | null; steps: string[];
+  currency?: 'EUR'; method?: 'SEPA'; iban?: string; bic?: string | null; beneficiary?: string | null; asset_id?: string; network?: string;
+  intent_ttl_days?: number; counterparty_code?: string | null; steps?: string[];
+  active_rails: PortalRail[]; unavailable_rails: UnavailableRail[]; notice: string | null;
+  eur_rail: { rail_id: string; enabled: boolean; maintenance_message: string | null } | null;
 }
 export type IntentStatus = 'open' | 'matched' | 'expired' | 'cancelled';
 export interface PaymentIntent {

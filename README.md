@@ -553,6 +553,20 @@ Variables nuevas: `FIAT_LIVE_ENABLED`, `MONERIUM_ENV`, `MONERIUM_CLIENT_ID`, `MO
 
 Pruebas: `node --test test/fiat-domain.test.mjs` (estado de dominio, idempotencia por proveedor/orden/cliente y firma/expiración del webhook); `node test/fiat-f1.e2e.mjs` (flujo legacy y restricciones multi-cliente/proveedor, webhook durable, 2FA y aislamiento; requiere servicios locales según su cabecera) y `npx playwright test fiat.spec.mjs`.
 
+### Rieles fiat múltiples con cuentas cifradas e interruptores
+La consola tiene la pestaña **Control de Rieles Fiat** (tesorero: edita; ejecutivo: solo lectura enmascarada). Cada riel (`fiat_rails`) es genérico: wire/ACH USD, Revolut Business EUR/GBP/USD, contingencia, locales a futuro (SPEI, PIX, PSE, CBU/CCI), más rieles `automatic` como Monerium (`monerium-eur`) y OTC Limitless. La migración 024 solo siembra **interruptores apagados y sin cuenta**; no contiene datos bancarios.
+
+- **Variable `FIAT_RAILS_ENC_KEY`** (≥ 32 caracteres; generar con `openssl rand -hex 32`, guardar en el gestor de secretos y **no cambiarla**: las cuentas cifradas dejarían de poder descifrarse). Cifra con AES-256-GCM los datos de cuenta de `fiat_rail_accounts`. Sin ella el feature de cuentas queda deshabilitado (error `fiat_rails_key_missing`) y no se ofrece ningún riel manual.
+- **Cuentas versionadas e inmutables:** cada cambio es una versión nueva. Doble aprobación: un tesorero propone y **otro distinto** aprueba, ambos con 2FA y motivo. La auditoría (`fiat_rail_account_proposed/approved`) guarda solo campos cambiados y últimos 4, nunca valores completos. Un riel manual no se enciende sin cuenta activa.
+- **Interruptores:** `PUT /v1/console/fiat/rails/:rail_id` (tesorero + TOTP + `x-856-console` + motivo; ejecutivo o API_KEY → 403 `forbidden`). Se audita `fiat_rail_toggled` (antes/después/motivo) y `fiat_rail_last_active_disabled` si se apaga el último riel activo de una moneda. Apagar un riel lo oculta del portal y bloquea avisos de pago nuevos (`rail_disabled`); los avisos ya abiertos siguen vigentes.
+- **Visibilidad por cliente:** `visibility = all | restricted`. En `restricted` solo ven y usan el riel los clientes asignados (`fiat_rail_clients`; auditoría `fiat_rail_client_assigned/unassigned`); los demás reciben `rail_not_available` al crear avisos. El detalle del cliente muestra sus rieles asignados.
+- **Portal:** `GET /v1/portal/fiat/instructions` conserva los campos EUR actuales y suma `active_rails` (cada tarjeta con MEMO = `counterparty_code` del cliente, sin nombres personales), `unavailable_rails` (mensaje de mantenimiento y alterno) y `notice`. `?amount=` filtra por mínimo/máximo.
+- **Aprobaciones:** la doble aprobación de cuentas es propia (proponente ≠ aprobador); no usa `client_approval_thresholds`.
+- **Conciliación manual:** los rieles manuales no se concilian solos. Tesorería identifica el depósito en el banco, lo registra y usa **liberar** (`release`) o **rechazar** (`reject`) de la consola de fiat existente, con 2FA.
+- **Depósito sin identificar (nota):** si llega un depósito sin MEMO o con uno que no coincide con ningún cliente, no se acredita; queda para revisión manual y tesorería lo libera al cliente correcto o lo rechaza/devuelve por el canal bancario.
+
+Pruebas: `node test/fiat-rails-toggle.e2e.mjs` (mismos servicios que `fiat-f1.e2e.mjs` y `FIAT_RAILS_ENC_KEY` en la API; datos ficticios). `fiat-f1.e2e.mjs` y `fiat.spec.mjs` encienden `monerium-eur` antes de crear avisos.
+
 ### Registro de gas en el libro
 Cada fondeo de gas de la hot wallet (moneda nativa enviada desde fuera de la plataforma) debe entrar al libro como **aportación de 856**: cargo `system:<NATIVO>:custody` / abono `system:<NATIVO>:equity`. Sin él, la custodia nativa del libro no alcanza para registrar el gas de barridos y retiros (el asiento dejaría la custodia negativa) y esos movimientos quedan **enviados pero sin liquidar** («Custodia nativa insuficiente…»).
 

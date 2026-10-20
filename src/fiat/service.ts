@@ -19,6 +19,7 @@ import { tradeOrigin } from '../portal/obligations.js';
 import type { PortalPrincipal } from '../portal/identity.js';
 import { getFiatProvider, mockProvider, providerCalls, type FiatOrder, type FiatProvider } from './provider.js';
 import { fiatIdempotencyKey, toFiatTransactionStatus } from './domain.js';
+import { activeRailsFor, assertIntentRailOpen, railState } from './rails.js';
 import type { CryptoCustodyPort } from './ports.js';
 import { EvmFiatCustodyAdapter } from './evm-custody.js';
 
@@ -256,7 +257,26 @@ async function readyAccount(clientId: string) {
   return acc;
 }
 
-export async function instructions(clientId: string) {
+/** Instrucciones del portal. Aditivo: conserva los campos EUR (Monerium) y suma active_rails con los rieles encendidos. */
+export async function instructions(clientId: string, amount?: string) {
+  const rails = await activeRailsFor(clientId, amount);
+  const eur = await railState('monerium-eur', clientId);
+  const eurHidden = !!eur && !eur.visible;
+  let legacy: Awaited<ReturnType<typeof eurInstructions>> | null = null;
+  try {
+    if (eurHidden) throw new HttpError(409, 'La recepción de euros no está disponible para su empresa', 'fiat_not_ready');
+    legacy = await eurInstructions(clientId);
+  } catch (e) {
+    // Sin IBAN de Monerium, pero con otros rieles encendidos, el cliente aún puede ver las instrucciones de esos rieles
+    if (!(e instanceof HttpError) || !rails.active_rails.some((r) => r.kind === 'manual')) throw e;
+  }
+  const { rows: [o] } = await pool.query(`SELECT count(*)::int AS n FROM fiat_payment_intents WHERE client_id = $1 AND status = 'open'`, [clientId]);
+  const notice = eur && eur.visible && !eur.enabled && o.n > 0
+    ? 'El riel SEPA automático está en pausa: los avisos de pago ya abiertos siguen vigentes, pero no se pueden crear avisos nuevos.' : null;
+  return { ...(legacy ?? {}), ...rails, eur_rail: eurHidden || !eur ? null : { rail_id: eur.rail_id, enabled: eur.enabled, maintenance_message: eur.maintenance_message }, notice };
+}
+
+async function eurInstructions(clientId: string) {
   const acc = await readyAccount(clientId);
   const asset = await fiatAsset();
   const { rows: [cl] } = await pool.query('SELECT counterparty_code FROM clients WHERE id = $1', [clientId]);
@@ -283,6 +303,7 @@ const intentAccountScope = config.FIAT_MODE === 'per_client'
 export async function createIntent(p: PortalPrincipal, b: { amount: string; expected_date?: string; note?: string }, meta: { ip: string; signature?: string }) {
   const origin = tradeOrigin(p); // usuario operator+ o llave Ed25519 con permiso trade
   const acc = await readyAccount(p.clientId);
+  await assertIntentRailOpen('monerium-eur', p.clientId);
   const cents = eurToCents(b.amount);
   if (cents == null) throw new HttpError(400, 'Monto inválido: euros con hasta 2 decimales (p. ej. "1250.50")', 'invalid_amount');
   const { rows: [cl] } = await pool.query('SELECT status FROM clients WHERE id = $1', [p.clientId]);
