@@ -123,7 +123,7 @@ test('el tesorero libera con 2FA en la consola y el cliente lo ve acreditado', a
   await page.getByLabel('Código de su app de autenticación').fill(await tesOtp.next());
   await page.getByRole('button', { name: 'Verificar' }).click();
   await expect(page.getByRole('button', { name: 'Salir' })).toBeVisible();
-  await page.getByRole('link', { name: 'Fiat automáticos' }).click();
+  await page.getByRole('link', { name: 'Proveedores regulados' }).click();
   await expect(page.getByTestId('fiat-providers')).toContainText('Monerium');
   await expect(page.getByTestId('fiat-status')).toContainText('Proveedor simulado');
   await expect(page.getByTestId('fiat-status')).toContainText('Activa');
