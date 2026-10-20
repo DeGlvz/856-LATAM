@@ -62,6 +62,7 @@ test.beforeAll(async () => {
     await api('POST', '/v1/assets', { id: ASSET, symbol: 'EURe', chain: 'ethereum', network: 'base-sepolia', kind: 'erc20', contract_address: EURE, decimals: 18 });
     await db.query(`UPDATE assets SET active = false WHERE symbol = 'EURe' AND network = 'base-sepolia' AND id <> $1`, [ASSET]);
   }
+  await db.query(`UPDATE fiat_rails SET is_enabled = true WHERE rail_id = 'monerium-eur'`); // riel automático apagado por defecto
   await db.end();
   execFileSync('node', ['dist/scripts/create-operator.js', TES, 'tesorero'], { cwd: ROOT, input: PW + '\n', env: process.env, stdio: ['pipe', 'pipe', 'ignore'] });
   tes = session('/v1', `${IP}.20`, 'x-856-console');

@@ -130,6 +130,9 @@ check('  …repetir el alta es idempotente (misma dirección)', `${su2.status} $
 check('  …ninguna llamada a Monerium', su2.body.provider_calls, 0);
 
 // ═════ 3. Instrucciones y avisos (solo el cliente)
+const ins0 = (await oprA.s.call('GET', '/fiat/instructions')).body;
+check('instrucciones: conservan campos EUR y suman active_rails (aditivo)', `${Array.isArray(ins0.active_rails)} ${Array.isArray(ins0.unavailable_rails)}`, 'true true');
+await db.query(`UPDATE fiat_rails SET is_enabled = true WHERE rail_id = 'monerium-eur'`); // riel automático apagado por defecto
 const ins = (await oprA.s.call('GET', '/fiat/instructions')).body;
 check('instrucciones: IBAN, beneficiario, EURe en Base Sepolia', `${ins.iban === su.body.account.iban} ${ins.currency} ${ins.asset_id} ${ins.network}`, `true EUR ${ASSET} base-sepolia`);
 check('  …por llave de solo lectura también', (await keyReadA('GET', '/fiat/instructions')).status, 200);

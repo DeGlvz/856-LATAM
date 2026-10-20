@@ -20,7 +20,7 @@ export const FIAT_KEY_READ = [
 export const FIAT_KEY_WRITE = ['POST /v1/portal/fiat/payment-intents', 'POST /v1/portal/fiat/payment-intents/:id/cancel'];
 
 export async function portalFiatRoutes(app: FastifyInstance) {
-  app.get('/fiat/instructions', async (req) => F.instructions(req.portal!.clientId));
+  app.get('/fiat/instructions', async (req) => F.instructions(req.portal!.clientId, parse(z.object({ amount: z.string().max(20).optional() }), req.query).amount));
 
   app.post('/fiat/payment-intents', async (req, reply) => {
     const b = parse(z.object({

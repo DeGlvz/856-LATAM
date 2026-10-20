@@ -17,6 +17,7 @@ import { Security } from './pages/Security';
 import { Operators } from './pages/Operators';
 import { OperatorInvitation } from './pages/OperatorInvitation';
 import { FiatDeposits } from './pages/FiatDeposits';
+import { FiatRails } from './pages/FiatRails';
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { operator, loading } = useAuth();
@@ -46,6 +47,7 @@ export default function App() {
           <Route path="cuentas/:ref" element={<Account />} />
           <Route path="movimientos" element={<Movements />} />
           <Route path="euros" element={<FiatDeposits />} />
+          <Route path="rieles-fiat" element={<RequireRole role="ejecutivo"><FiatRails /></RequireRole>} />
           <Route path="compensacion" element={<Netting />} />
           <Route path="aprobaciones" element={<Approvals />} />
           <Route path="auditoria" element={<Audit />} />

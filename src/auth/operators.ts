@@ -197,6 +197,10 @@ const TESORERO = new Set([
   'POST /v1/console/fiat/setup', 'POST /v1/console/fiat/poll', 'POST /v1/console/fiat/deposits/:id/release',
   'POST /v1/console/fiat/deposits/:id/reject', 'POST /v1/console/fiat/simulate', 'POST /v1/console/fiat/simulate/:orderId/process',
   'POST /v1/console/fiat/clients/:clientId/accounts/activate', 'POST /v1/console/fiat/accounts/:id/close',
+  // Rieles fiat múltiples
+  'PUT /v1/console/fiat/rails/:rail_id', 'POST /v1/console/fiat/rails/:rail_id/accounts',
+  'POST /v1/console/fiat/rails/:rail_id/accounts/:version/approve', 'POST /v1/console/fiat/rails/:rail_id/accounts/:version/reject',
+  'POST /v1/console/fiat/rails/:rail_id/clients', 'POST /v1/console/fiat/rails/:rail_id/clients/:client_id/unassign',
   // Registro de gas en el libro
   'POST /v1/gas-fundings',
 ]);

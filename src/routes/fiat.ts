@@ -19,7 +19,7 @@ const reason = z.string().trim().min(5, 'Indique el motivo (mín. 5 caracteres)'
 const eur = z.string().regex(/^\d{1,15}(\.\d{1,2})?$/, 'euros con hasta 2 decimales');
 
 /** Tesorero con sesión de consola y código 2FA vigente (el rol lo valida el hook de /v1). */
-async function treasurer2fa(req: FastifyRequest, code: string | undefined) {
+export async function treasurer2fa(req: FastifyRequest, code: string | undefined) {
   const p = req.principal;
   if (p?.kind !== 'operator') throw new HttpError(403, 'Requiere sesión de un tesorero en la consola (con 2FA)', 'session_required');
   if (p.operator.role !== 'tesorero') throw new HttpError(403, 'Requiere rol tesorero', 'forbidden');

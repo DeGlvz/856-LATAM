@@ -7,6 +7,7 @@ import { launchAssistTab, openAssistTab } from '@/lib/assist';
 import { useAuth } from '@/lib/auth';
 import { CLIENT_KIND, CLIENT_STATUS, ENTRY_KIND, useAssets, useConsoleOriginates, useNetworks } from '@/lib/hooks';
 import { ClientAssetsCard } from '@/components/ClientAssets';
+import { ClientRailsCard } from '@/pages/FiatRails';
 import { shortHex } from '@/lib/amount';
 import { Amount, CodeInput, CopyButton, ErrorBox, Field, StatusBadge, fmtDate } from '@/components/common';
 import { EntryDialog } from '@/components/EntryDialog';
@@ -269,6 +270,7 @@ export function ClientDetail() {
       <PortalCard clientId={c.id} disabled={closed} />
 
       <ClientAssetsCard clientId={c.id} disabled={closed} />
+      {can('ejecutivo') && <ClientRailsCard clientId={c.id} />}
 
       {/* Obligaciones (compensación) */}
       <Card>

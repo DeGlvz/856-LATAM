@@ -6,7 +6,7 @@ import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ban, ExternalLink, Info, Loader2, Plus } from 'lucide-react';
 import { ApiError, explorerFor, fmtEur, fmtIban, INTENT_STATE, netLabel, papi, roleAtLeast,
-  type FiatDepositRow, type FiatInstructions, type PaymentIntent } from '../api';
+  type FiatDepositRow, type FiatInstructions, type PaymentIntent, type PortalRail } from '../api';
 import { usePortal } from '../auth';
 import { CopyButton, ErrorBox, Field, fmtDate } from '@/components/common';
 import { Badge } from '@/components/ui/badge';
@@ -39,6 +39,27 @@ function Line({ label, value, mono, copy }: { label: string; value: string | nul
 }
 
 // ═════════════ Recibir euros ═════════════
+function RailCard({ rail }: { rail: PortalRail }) {
+  const text = [`${rail.label} (${rail.currency})`, ...(rail.fields ?? []).map((f) => `${f.label}: ${f.value}`), `MEMO: ${rail.memo ?? ''}`].join('\n');
+  const [done, setDone] = useState(false);
+  return (
+    <Card data-testid="rail-card" data-rail={rail.rail_id}>
+      <CardHeader><CardTitle className="flex flex-wrap items-center gap-2 text-base">{rail.label}
+        {rail.recommended_for && <Badge variant="success">{rail.recommended_for}</Badge>}</CardTitle></CardHeader>
+      <CardContent className="grid gap-3">
+        {rail.fields?.map((f) => <Line key={f.key} label={f.label} value={f.value} mono copy={f.value} />)}
+        <Line label="MEMO / referencia" value={rail.memo} mono copy={rail.memo ?? undefined} />
+        {rail.settlement_time && <Line label="Tiempo estimado" value={rail.settlement_time} />}
+        {(rail.min_amount || rail.max_amount) && <Line label="Montos" value={`${rail.min_amount ?? '0'} – ${rail.max_amount ?? 'sin tope'} ${rail.currency}`} />}
+        <p className="text-xs text-muted-foreground">Ponga el MEMO exactamente como aparece, sin nombres ni texto adicional. Tesorería revisa y libera cada depósito.</p>
+        <Button variant="outline" className="justify-self-start" onClick={() => navigator.clipboard?.writeText(text).then(() => { setDone(true); setTimeout(() => setDone(false), 1500); })}>
+          {done ? 'Copiado' : 'Copiar instrucciones'}</Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ═════════════ Recibir euros ═════════════
 export function ReceiveEuros() {
   const ins = useQuery({ queryKey: ['p-fiat-ins'], queryFn: () => papi<FiatInstructions>('/fiat/instructions'), retry: false });
   const deps = useQuery({ queryKey: ['p-fiat-deps'], queryFn: () => papi<{ items: FiatDepositRow[] }>('/fiat/deposits'), refetchInterval: 30_000 });
@@ -50,7 +71,7 @@ export function ReceiveEuros() {
         <p className="text-sm text-muted-foreground">Transfiera euros por SEPA desde su banco: se reciben en su cuenta como EURe (1 EURe = 1 €) cuando tesorería los libera.</p>
       </div>
       {notReady(ins.error) ? <NotReady /> : <ErrorBox error={ins.error} />}
-      {ins.isPending ? <Skeleton className="h-48" /> : i && (
+      {ins.isPending ? <Skeleton className="h-48" /> : i && i.iban && (!i.eur_rail || i.eur_rail.enabled) && (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
           <Card data-testid="fiat-instructions">
             <CardHeader><CardTitle className="text-base">Datos para la transferencia SEPA</CardTitle></CardHeader>
@@ -59,20 +80,30 @@ export function ReceiveEuros() {
               <Line label="IBAN" value={fmtIban(i.iban)} mono copy={i.iban} />
               <Line label="BIC" value={i.bic} mono copy={i.bic ?? undefined} />
               <Line label="Moneda" value="EUR (SEPA)" />
-              <Line label="Se acredita como" value={`${i.asset_id} · ${netLabel(i.network)}`} />
+              <Line label="Se acredita como" value={`${i.asset_id} · ${netLabel(i.network ?? '')}`} />
               <Line label="Concepto" value="La referencia de su aviso de pago (856-XXXX-XXXX-NNN), sin texto adicional" />
             </CardContent>
           </Card>
           <Card>
             <CardHeader><CardTitle className="text-base">Cómo hacerlo</CardTitle></CardHeader>
             <CardContent className="grid gap-3 text-sm">
-              <ol className="grid list-decimal gap-2 pl-5">{i.steps.map((s) => <li key={s}>{s}</li>)}</ol>
+              <ol className="grid list-decimal gap-2 pl-5">{(i.steps ?? []).map((s) => <li key={s}>{s}</li>)}</ol>
               <p className="text-xs text-muted-foreground">Sin aviso, el concepto puede llevar su código de contraparte {i.counterparty_code && <code className="font-mono">{i.counterparty_code}</code>}; el depósito queda en revisión de tesorería si no se puede asignar.</p>
               <Button asChild variant="outline" className="justify-self-start"><Link to="/avisos"><Plus />Crear aviso de pago</Link></Button>
             </CardContent>
           </Card>
         </div>
       )}
+      {i?.notice && <div role="status" className="rounded-md border bg-muted/40 px-3 py-2 text-sm" data-testid="fiat-notice">{i.notice}</div>}
+      {i?.eur_rail && !i.eur_rail.enabled && (
+        <Card data-testid="rail-maintenance"><CardContent className="flex items-start gap-3 py-4 text-sm"><Info className="mt-0.5 size-4 text-muted-foreground" />
+          <div>{i.eur_rail.maintenance_message ?? 'La recepción de euros por SEPA automático está temporalmente en pausa.'}</div></CardContent></Card>
+      )}
+      {i?.unavailable_rails.filter((u) => u.rail_id !== 'monerium-eur').map((u) => (
+        <Card key={u.rail_id} data-testid="rail-maintenance"><CardContent className="flex items-start gap-3 py-4 text-sm"><Info className="mt-0.5 size-4 text-muted-foreground" />
+          <div><strong>{u.label}</strong>: {u.maintenance_message}{u.alternative && <> Alterno sugerido: <strong>{u.alternative.label}</strong>.</>}</div></CardContent></Card>
+      ))}
+      {i?.active_rails.filter((r) => r.kind === 'manual').map((r) => <RailCard key={r.rail_id} rail={r} />)}
       <div className="grid gap-2">
         <h2 className="text-base font-semibold">Depósitos en euros</h2>
         <ErrorBox error={deps.error} />
