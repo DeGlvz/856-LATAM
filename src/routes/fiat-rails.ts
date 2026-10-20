@@ -67,6 +67,12 @@ export async function fiatRailsConsoleRoutes(app: FastifyInstance) {
     return R.toggleRail(op, id, patch, why, req.ip);
   });
 
+  app.post<{ Params: { rail_id: string } }>('/console/fiat/rails/:rail_id/delete', async (req) => {
+    const b = parse(z.object({ code: code6.optional(), reason, confirm: railId }).strict(), req.body ?? {});
+    const op = await mutator(req, b.code);
+    return R.deleteRail(op, parse(railId, req.params.rail_id), b.confirm, b.reason, req.ip);
+  });
+
   app.post<{ Params: { rail_id: string } }>('/console/fiat/rails/:rail_id/accounts', async (req, reply) => {
     const id = parse(railId, req.params.rail_id);
     const b = parse(z.object({ code: code6.optional(), reason, account: z.record(z.string(), z.unknown()) }).strict(), req.body ?? {});

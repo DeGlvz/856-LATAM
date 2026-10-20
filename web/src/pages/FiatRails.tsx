@@ -55,8 +55,11 @@ export function FiatRails() {
   const [form, setForm] = useState<{ rail: Rail | null } | null>(null);
   const [archive, setArchive] = useState<{ rail: Rail; archive: boolean } | null>(null);
   const [visibility, setVisibility] = useState<{ rail: Rail; to: 'all' | 'restricted' } | null>(null);
+  const [del, setDel] = useState<Rail | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
   const tes = can('tesorero');
   const data = q.data;
+  const visibleRails = data?.rails.filter((r) => showArchived || !r.is_archived);
   return (
     <div className="grid gap-6">
       <div>
@@ -64,7 +67,10 @@ export function FiatRails() {
         <p className="text-sm text-muted-foreground">Encienda o apague cada riel, cargue sus cuentas (propone un tesorero y aprueba otro) y elija a qué clientes se muestra. Los cambios aplican de inmediato en el portal.</p>
       </div>
       <ErrorBox error={q.error} />
-      {tes && <div><Button onClick={() => setForm({ rail: null })}>Nuevo riel manual</Button></div>}
+      <div className="flex items-center gap-4">
+        {tes && <Button onClick={() => setForm({ rail: null })}>Nuevo riel manual</Button>}
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />Mostrar archivados</label>
+      </div>
       {data && !data.key_configured && <div role="alert" className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm">FIAT_RAILS_ENC_KEY no está configurada: no se pueden cargar cuentas y los rieles manuales no pueden encenderse.</div>}
       <Card className="py-2"><CardContent className="px-3">
         {q.isPending ? <Skeleton className="h-40" /> : (
@@ -72,7 +78,7 @@ export function FiatRails() {
             <Table aria-label="Rieles fiat">
               <TableHeader><TableRow><TableHead>Riel</TableHead><TableHead>Moneda</TableHead><TableHead>Tipo</TableHead><TableHead>Cuenta</TableHead><TableHead>Visibilidad</TableHead><TableHead>Estado</TableHead><TableHead /></TableRow></TableHeader>
               <TableBody>
-                {data?.rails.map((r) => (
+                {visibleRails?.map((r) => (
                   <TableRow key={r.rail_id} data-rail={r.rail_id} className={r.is_archived ? 'opacity-50' : undefined}>
                     <TableCell><div className="font-medium">{r.label}{r.is_archived && <> <Badge variant="outline">Archivado</Badge></>}</div><code className="text-xs text-muted-foreground">{r.rail_id}</code></TableCell>
                     <TableCell>{r.currency}</TableCell>
@@ -97,7 +103,7 @@ export function FiatRails() {
                       {tes && !r.is_archived && <Button size="sm" variant="outline" onClick={() => setForm({ rail: r })}>Editar riel</Button>}{' '}
                       {tes && r.kind === 'manual' && !r.is_archived && <Button size="sm" variant="outline" onClick={() => setEdit(r)}><Landmark />{r.account ? 'Editar cuenta' : 'Cargar cuenta'}</Button>}
                       {tes && r.kind === 'manual' && (r.is_archived
-                        ? <Button size="sm" variant="outline" onClick={() => setArchive({ rail: r, archive: false })}>Restaurar</Button>
+                        ? <><Button size="sm" variant="outline" onClick={() => setArchive({ rail: r, archive: false })}>Restaurar</Button>{' '}<Button size="sm" variant="destructive" onClick={() => setDel(r)}>Eliminar</Button></>
                         : <Button size="sm" variant="ghost" onClick={() => setArchive({ rail: r, archive: true })}>Archivar</Button>)}
                       {tes && r.pending_proposal && (
                         <div className="mt-1 flex justify-end gap-1">
@@ -128,6 +134,7 @@ export function FiatRails() {
       <ToggleDialog rail={toggle} onClose={() => setToggle(null)} onDone={refresh} />
       <RailFormDialog state={form} onClose={() => setForm(null)} onDone={refresh} />
       <ArchiveDialog state={archive} onClose={() => setArchive(null)} onDone={refresh} />
+      <DeleteDialog rail={del} onClose={() => setDel(null)} onDone={refresh} />
       <VisibilityDialog state={visibility} onClose={() => setVisibility(null)} onDone={refresh} />
       <AccountDialog rail={edit} onClose={() => setEdit(null)} onDone={refresh} />
       <DecisionDialog state={decide} onClose={() => setDecide(null)} onDone={refresh} />
@@ -179,6 +186,21 @@ function RailFormDialog({ state, onClose, onDone }: { state: { rail: Rail | null
         {txt('maintenance_message', 'Mensaje de mantenimiento')}
         <ReasonField id="rf-reason" value={reason} onChange={setReason} />
       </div>
+    </StepUpDialog>
+  );
+}
+
+function DeleteDialog({ rail, onClose, onDone }: { rail: Rail | null; onClose: () => void; onDone: () => void }) {
+  const [reason, setReason] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const close = () => { setReason(''); setConfirm(''); onClose(); };
+  return (
+    <StepUpDialog open={!!rail} title="Eliminar riel definitivamente" confirmLabel="Eliminar" destructive canSubmit={ok(reason) && confirm === rail?.rail_id}
+      description={rail && `${rail.label} se borra de forma permanente junto con sus propuestas pendientes y asignaciones de clientes. Solo es posible si no tiene historial; si lo tiene, solo puede archivarse.`}
+      onConfirm={(code) => api(`/console/fiat/rails/${rail!.rail_id}/delete`, { method: 'POST', json: { code, reason: reason.trim(), confirm } }).then(onDone)}
+      onClose={close}>
+      <ReasonField id="del-reason" value={reason} onChange={setReason} />
+      <Field label={`Escriba ${rail?.rail_id ?? ''} para confirmar`} htmlFor="del-confirm"><Input id="del-confirm" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="off" /></Field>
     </StepUpDialog>
   );
 }

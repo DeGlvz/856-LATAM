@@ -196,6 +196,30 @@ check('restaurar riel → 200, vuelve apagado', `${rest.status} ${rest.body?.rai
 const archOpen = await put(T1, 'revolut-eur', { code: await T1.code(), reason: 'archivo con avisos abiertos', is_archived: true });
 check('archivar con avisos abiertos → 409 rail_has_open_intents', `${archOpen.status} ${archOpen.body?.code}`, '409 rail_has_open_intents');
 
+// ═════ 6b. Eliminación definitiva
+const del = (t, id, body) => t.call('POST', `/v1/console/fiat/rails/${id}/delete`, body);
+const delApi = (id, body) => api('POST', `/v1/console/fiat/rails/${id}/delete`, body);
+check('eliminar riel con ejecutivo → 403', (await del(ej, NEW, { reason: 'prueba', confirm: NEW, code: '000000' })).status, 403);
+check('eliminar riel con API_KEY global → 403 forbidden', (await delApi(NEW, { reason: 'prueba', confirm: NEW, code: '000000' })).body?.code, 'forbidden');
+const delActive = await del(T1, NEW, { code: await T1.code(), reason: 'eliminar sin archivar', confirm: NEW });
+check('eliminar riel no archivado → 409 rail_not_archived', `${delActive.status} ${delActive.body?.code}`, '409 rail_not_archived');
+await put(T1, NEW, { code: await T1.code(), reason: 'archivar para eliminar', is_archived: true });
+check('audit_log: fiat_rail_archived', !!(await audit('fiat_rail_archived', NEW)), true);
+check('audit_log: fiat_rail_restored', !!(await audit('fiat_rail_restored', NEW)), true);
+check('eliminar con confirmación distinta → 400 confirmation_mismatch', (await del(T1, NEW, { code: await T1.code(), reason: 'confirmación errónea', confirm: 'otro' })).body?.code, 'confirmation_mismatch');
+check('eliminar riel automático → 409 rail_locked', (await del(T1, 'monerium-eur', { code: await T1.code(), reason: 'eliminar automático', confirm: 'monerium-eur' })).body?.code, 'rail_locked');
+const DEP = `dep-${R}`;
+await post(T1, { ...newBody, rail_id: DEP, fallback_of: NEW, code: await T1.code() });
+const delHist = await del(T1, NEW, { code: await T1.code(), reason: 'eliminar con dependencia', confirm: NEW });
+check('eliminar riel con historial/dependencias → 409 rail_has_history', `${delHist.status} ${delHist.body?.code}`, '409 rail_has_history');
+check('  …el riel sigue existiendo', (await db.query('SELECT count(*)::int AS n FROM fiat_rails WHERE rail_id = $1', [NEW])).rows[0].n, 1);
+await put(T1, DEP, { code: await T1.code(), reason: 'quitar alterno', fallback_of: null });
+const delOk = await del(T1, NEW, { code: await T1.code(), reason: 'riel nunca usado', confirm: NEW });
+check('eliminar riel archivado sin historial → 200', `${delOk.status} ${delOk.body?.deleted}`, '200 true');
+check('  …borrado de la DB', (await db.query('SELECT count(*)::int AS n FROM fiat_rails WHERE rail_id = $1', [NEW])).rows[0].n, 0);
+const dEv = await audit('fiat_rail_deleted', NEW);
+check('audit_log: fiat_rail_deleted con rail_id, label y motivo', `${dEv?.m.includes(NEW)} ${dEv?.m.includes('Riel editado')} ${dEv?.m.includes('riel nunca usado')}`, 'true true true');
+
 // ═════ 7. Última alerta de moneda y limpieza
 await db.query(`UPDATE fiat_rails SET is_enabled = false WHERE currency = 'USD'`);
 await put(T1, 'monerium-eur', { code: await T1.code(), reason: 'volver a visibilidad total', visibility: 'all' });
