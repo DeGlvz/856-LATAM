@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 
 export type FiatAccountStatus = 'pending_link' | 'linked' | 'iban_requested' | 'active' | 'closed';
 export type FiatTransactionStatus = 'CREATED' | 'PROCESSING' | 'SETTLED' | 'FAILED';
-export type FiatProviderId = 'monerium' | 'mock' | 'transak' | 'circle';
+export type FiatProviderId = 'monerium' | 'mock' | 'circle';
 
 export interface FiatAccount {
   id: string;

@@ -21,7 +21,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 
 type FStatus = 'received' | 'minted' | 'reconciled' | 'released' | 'review' | 'rejected';
 interface FiatAccountRow {
-  id: string; provider: 'monerium' | 'mock' | 'transak' | 'circle'; mode: 'treasury' | 'per_client'; client_id: string | null;
+  id: string; provider: 'monerium' | 'mock' | 'circle'; mode: 'treasury' | 'per_client'; client_id: string | null;
   client_name: string | null; status: 'pending_link' | 'linked' | 'iban_requested' | 'active' | 'closed';
   iban: string | null; bic: string | null; beneficiary: string | null; address: string; network: string; provider_state: string | null;
   updated_at: string;
