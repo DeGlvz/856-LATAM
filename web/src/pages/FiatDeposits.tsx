@@ -119,8 +119,8 @@ export function FiatDeposits() {
     <div className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)] gap-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Fiat automáticos</h1>
-          <p className="text-sm text-muted-foreground">Depósitos fiat con proveedores regulados (hoy Monerium: SEPA → EURe). Se concilian solos; solo un tesorero con 2FA libera saldo al cliente.</p>
+          <h1 className="text-xl font-semibold tracking-tight">Proveedores regulados</h1>
+          <p className="text-sm text-muted-foreground">Depósitos fiat automáticos con proveedores regulados (hoy Monerium: SEPA → EURe). Se concilian solos; solo un tesorero con 2FA libera saldo al cliente.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {tes && s?.enabled && sandbox && (s.mode === 'treasury' ? s.account?.status === 'active' : targetAccount?.status === 'active') &&
