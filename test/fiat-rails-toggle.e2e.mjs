@@ -101,7 +101,7 @@ check('lista de consola enmascarada', JSON.stringify((await T1.call('GET', '/v1/
 const hidden = (await uA.s.call('GET', '/fiat/instructions')).body;
 check('apagado: el cliente no ve el riel wire-usd', (hidden.active_rails ?? []).some((r) => r.rail_id === 'wire-usd'), false);
 const on = await put(T1, 'wire-usd', { code: await T1.code(), reason: 'apertura del riel wire', is_enabled: true, recommended_for: 'Recomendado para montos grandes', settlement_time: '1 día hábil' });
-check('encender con cuenta activa → 200', `${on.status} ${on.body?.is_enabled ?? on.body?.after?.is_enabled}`, '200 true');
+check('encender con cuenta activa → 200', `${on.status} ${on.body?.rail?.is_enabled}`, '200 true');
 const shown = (await uA.s.call('GET', '/fiat/instructions')).body;
 const card = (shown.active_rails ?? []).find((r) => r.rail_id === 'wire-usd');
 check('encendido: el cliente ve el riel con su MEMO (counterparty_code)', `${!!card} ${card?.memo && card.memo.length > 0}`, 'true true');
@@ -155,6 +155,46 @@ check('quitar asignación → 200', un.status, 200);
 check('evento fiat_rail_client_unassigned', (await audit('fiat_rail_client_unassigned', 'monerium-eur'))?.actor, T1.email);
 const intA2 = await uA.s.call('POST', '/fiat/payment-intents', { amount: '12' });
 check('desasignado: ya no puede crear aviso → 409 rail_not_available', `${intA2.status} ${intA2.body?.code}`, '409 rail_not_available');
+
+// ═════ 6b. Crear, editar y archivar rieles manuales
+const NEW = `nuevo-${R}`;
+const newBody = { rail_id: NEW, label: `Riel nuevo ${R}`, currency: 'MXN', country: 'MX', rail_type: 'spei', priority: 50, min_amount: '10', max_amount: '5000', reason: 'alta de riel SPEI' };
+const post = (t, body) => t.call('POST', '/v1/console/fiat/rails', body);
+check('crear riel por ejecutivo → 403', (await post(ej, { ...newBody, code: '000000' })).status, 403);
+const keyCreate = await api('POST', '/v1/console/fiat/rails', newBody);
+check('crear riel con API_KEY global → 403 forbidden', `${keyCreate.status} ${keyCreate.body?.code}`, '403 forbidden');
+check('crear riel sin 2FA → 422 bad_code', (await post(T1, newBody)).body?.code, 'bad_code');
+const created = await post(T1, { ...newBody, code: await T1.code() });
+check('crear riel manual → 201, nace apagado, manual y sin cuenta', `${created.status} ${created.body?.rail?.is_enabled} ${created.body?.rail?.kind}`, '201 false manual');
+check('  …sin cuenta activa en DB', (await db.query('SELECT count(*)::int AS n FROM fiat_rail_accounts WHERE rail_id = $1', [NEW])).rows[0].n, 0);
+const dup = await post(T1, { ...newBody, code: await T1.code() });
+check('rail_id duplicado → 409 rail_exists', `${dup.status} ${dup.body?.code}`, '409 rail_exists');
+check('rail_id inválido → 400', (await post(T1, { ...newBody, rail_id: 'Mal Id!', code: await T1.code() })).status, 400);
+const cEv = await audit('fiat_rail_created', NEW);
+check('audit_log: fiat_rail_created con after', `${cEv?.actor === T1.email} ${cEv?.m.includes('after')} ${cEv?.m.includes('alta de riel SPEI')}`, 'true true true');
+check('encender riel nuevo sin cuenta → 409 rail_without_account', (await put(T1, NEW, { code: await T1.code(), reason: 'encender sin cuenta', is_enabled: true })).body?.code, 'rail_without_account');
+check('editar riel por ejecutivo → 403', (await put(ej, NEW, { label: 'x', reason: 'prueba', code: '000000' })).status, 403);
+check('editar riel con API_KEY global → 403 forbidden', (await api('PUT', `/v1/console/fiat/rails/${NEW}`, { label: 'x', reason: 'prueba', code: '000000' })).body?.code, 'forbidden');
+const upd = await put(T1, NEW, { code: await T1.code(), reason: 'ajuste de metadatos', label: `Riel editado ${R}`, priority: 10, settlement_time: 'mismo día', recommended_for: 'Pagos locales' });
+check('editar metadatos de riel manual → 200', `${upd.status} ${upd.body?.rail?.label}`, `200 Riel editado ${R}`);
+const uEv = await audit('fiat_rail_updated', NEW);
+check('audit_log: fiat_rail_updated con antes/después', `${uEv?.m.includes('before')} ${uEv?.m.includes('Riel editado')} ${uEv?.m.includes('label')}`, 'true true true');
+check('editar un seed manual → 200', (await put(T1, 'revolut-eur', { code: await T1.code(), reason: 'editar seed', label: `Revolut EUR ${R}` })).status, 200);
+const lockedEdit = await put(T1, 'monerium-eur', { code: await T1.code(), reason: 'intento de edición', label: 'Otro nombre' });
+check('riel automático: editar label → 409 rail_locked', `${lockedEdit.status} ${lockedEdit.body?.code}`, '409 rail_locked');
+check('riel automático: editar límites → 200', (await put(T1, 'monerium-eur', { code: await T1.code(), reason: 'ajuste de límites', min_amount: '1', max_amount: '100000' })).status, 200);
+await put(T1, 'monerium-eur', { code: await T1.code(), reason: 'quitar límites', min_amount: null, max_amount: null });
+check('fallback_of a sí mismo → 400', (await put(T1, NEW, { code: await T1.code(), reason: 'ciclo', fallback_of: NEW })).status, 400);
+check('archivar riel automático → 409 rail_locked', (await put(T1, 'monerium-eur', { code: await T1.code(), reason: 'archivar auto', is_archived: true })).body?.code, 'rail_locked');
+const arch = await put(T1, NEW, { code: await T1.code(), reason: 'riel ya no se usará', is_archived: true });
+check('archivar riel manual → 200 (apagado y archivado)', `${arch.status} ${arch.body?.rail?.is_archived} ${arch.body?.rail?.is_enabled}`, '200 true false');
+check('  …sin borrado físico', (await db.query('SELECT count(*)::int AS n FROM fiat_rails WHERE rail_id = $1', [NEW])).rows[0].n, 1);
+check('  …un riel archivado no se edita (409 rail_archived)', (await put(T1, NEW, { code: await T1.code(), reason: 'editar archivado', label: 'otra' })).body?.code, 'rail_archived');
+const rest = await put(T1, NEW, { code: await T1.code(), reason: 'se reactiva el riel', is_archived: false });
+check('restaurar riel → 200, vuelve apagado', `${rest.status} ${rest.body?.rail?.is_archived} ${rest.body?.rail?.is_enabled}`, '200 false false');
+// quedan avisos EUR abiertos de las secciones 5 y 6
+const archOpen = await put(T1, 'revolut-eur', { code: await T1.code(), reason: 'archivo con avisos abiertos', is_archived: true });
+check('archivar con avisos abiertos → 409 rail_has_open_intents', `${archOpen.status} ${archOpen.body?.code}`, '409 rail_has_open_intents');
 
 // ═════ 7. Última alerta de moneda y limpieza
 await db.query(`UPDATE fiat_rails SET is_enabled = false WHERE currency = 'USD'`);

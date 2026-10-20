@@ -83,7 +83,7 @@ export function parseDetails(railType: string, input: unknown): Record<string, s
 
 // ───────────── Consola ─────────────
 const RAIL_COLS = `rail_id, label, currency, country, rail_type, kind, priority, fallback_of, is_enabled, visibility, maintenance_message,
-  min_amount::text AS min_amount, max_amount::text AS max_amount, recommended_for, settlement_time, requires_review, updated_at, updated_by`;
+  min_amount::text AS min_amount, max_amount::text AS max_amount, recommended_for, settlement_time, requires_review, is_archived, updated_at, updated_by`;
 
 /** Vista de consola: la cuenta viaja enmascarada (solo last4, versión y propuestas pendientes con campos cambiados). */
 export async function listRails() {
@@ -110,6 +110,40 @@ export async function listRails() {
 export interface RailPatch {
   is_enabled?: boolean; visibility?: 'all' | 'restricted'; maintenance_message?: string | null; min_amount?: string | null; max_amount?: string | null;
   recommended_for?: string | null; settlement_time?: string | null; priority?: number; fallback_of?: string | null;
+  label?: string; currency?: string; country?: string | null; rail_type?: string; requires_review?: boolean; is_archived?: boolean;
+}
+// Los rieles automáticos (Monerium, OTC) solo admiten interruptor, mensaje, límites y visibilidad.
+const AUTOMATIC_EDITABLE = ['is_enabled', 'maintenance_message', 'min_amount', 'max_amount', 'visibility'];
+
+export async function createRail(op: Operator, input: RailCreate, reason: string, ip?: string) {
+  const out = await tx(async (c) => {
+    const { rows: [dup] } = await c.query('SELECT 1 FROM fiat_rails WHERE rail_id = $1', [input.rail_id]);
+    if (dup) throw new HttpError(409, 'Ya existe un riel con ese rail_id', 'rail_exists');
+    if (input.fallback_of) {
+      const { rows: [f] } = await c.query('SELECT 1 FROM fiat_rails WHERE rail_id = $1', [input.fallback_of]);
+      if (!f) throw new HttpError(400, 'fallback_of no existe', 'validation_error');
+    }
+    if (input.min_amount != null && input.max_amount != null && Number(input.min_amount) > Number(input.max_amount)) {
+      throw new HttpError(400, 'min_amount no puede superar max_amount', 'validation_error');
+    }
+    const { rows: [r] } = await c.query(
+      `INSERT INTO fiat_rails (rail_id, label, currency, country, rail_type, kind, priority, fallback_of, is_enabled, visibility, maintenance_message,
+              min_amount, max_amount, recommended_for, settlement_time, requires_review, updated_by)
+       VALUES ($1,$2,$3,$4,$5,'manual',$6,$7,false,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING ${RAIL_COLS}`,
+      [input.rail_id, input.label, input.currency, input.country ?? null, input.rail_type, input.priority ?? 100, input.fallback_of ?? null,
+        input.visibility ?? 'all', input.maintenance_message ?? null, input.min_amount ?? null, input.max_amount ?? null,
+        input.recommended_for ?? null, input.settlement_time ?? null, input.requires_review ?? true, op.email]);
+    return r;
+  });
+  const { updated_at: _a, updated_by: _b, ...after } = out;
+  await audit({ operator_id: op.id, actor: op.email, action: 'fiat_rail_created', target: input.rail_id, status: 201, ip, metadata: { reason, before: null, after } });
+  return { rail: out };
+}
+
+export interface RailCreate {
+  rail_id: string; label: string; currency: string; country?: string | null; rail_type: string; priority?: number; fallback_of?: string | null;
+  visibility?: 'all' | 'restricted'; maintenance_message?: string | null; min_amount?: string | null; max_amount?: string | null;
+  recommended_for?: string | null; settlement_time?: string | null; requires_review?: boolean;
 }
 
 export async function toggleRail(op: Operator, railId: string, patch: RailPatch, reason: string, ip?: string) {
@@ -117,6 +151,30 @@ export async function toggleRail(op: Operator, railId: string, patch: RailPatch,
     const { rows: [before] } = await c.query(`SELECT ${RAIL_COLS} FROM fiat_rails WHERE rail_id = $1 FOR UPDATE`, [railId]);
     if (!before) throw new HttpError(404, 'Riel no encontrado', 'not_found');
     const next = { ...before, ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) };
+    if (before.kind === 'automatic') {
+      const bad = Object.keys(patch).filter((k) => (patch as Record<string, unknown>)[k] !== undefined && !AUTOMATIC_EDITABLE.includes(k));
+      if (bad.length) throw new HttpError(409, `Un riel automático solo permite editar interruptor, mensaje, límites y visibilidad (${bad.join(', ')})`, 'rail_locked');
+    }
+    if (before.is_archived && patch.is_archived !== false && Object.keys(patch).some((k) => (patch as Record<string, unknown>)[k] !== undefined)) {
+      throw new HttpError(409, 'El riel está archivado: restáurelo antes de editarlo', 'rail_archived');
+    }
+    if (patch.is_archived === true) {
+      next.is_enabled = false;
+      const { rows: [o] } = await c.query(`SELECT count(*)::int AS n FROM fiat_payment_intents WHERE status = 'open' AND currency = $1`, [before.currency]);
+      if (o.n > 0) throw new HttpError(409, 'No se puede archivar: hay avisos de pago abiertos en esa moneda', 'rail_has_open_intents');
+    }
+    if (patch.is_archived === false) next.is_enabled = false; // al restaurar vuelve apagado
+    if (patch.rail_type && patch.rail_type !== before.rail_type) {
+      const { rows: [a] } = await c.query('SELECT 1 FROM fiat_rail_accounts WHERE rail_id = $1 LIMIT 1', [railId]);
+      if (a) throw new HttpError(409, 'No se puede cambiar el tipo de un riel que ya tiene cuentas cargadas', 'rail_has_account');
+    }
+    if (patch.currency && patch.currency !== before.currency && before.is_enabled) {
+      throw new HttpError(409, 'Apague el riel antes de cambiar su moneda', 'rail_enabled');
+    }
+    if (patch.fallback_of) {
+      const { rows: [f] } = await c.query('SELECT 1 FROM fiat_rails WHERE rail_id = $1', [patch.fallback_of]);
+      if (!f) throw new HttpError(400, 'fallback_of no existe', 'validation_error');
+    }
     if (patch.fallback_of === railId) throw new HttpError(400, 'Un riel no puede ser alterno de sí mismo', 'validation_error');
     if (next.min_amount != null && next.max_amount != null && Number(next.min_amount) > Number(next.max_amount)) {
       throw new HttpError(400, 'min_amount no puede superar max_amount', 'validation_error');
@@ -127,10 +185,13 @@ export async function toggleRail(op: Operator, railId: string, patch: RailPatch,
     }
     const { rows: [after] } = await c.query(
       `UPDATE fiat_rails SET is_enabled = $2, maintenance_message = $3, min_amount = $4, max_amount = $5, recommended_for = $6,
-              settlement_time = $7, priority = $8, fallback_of = $9, visibility = $11, updated_at = now(), updated_by = $10
+              settlement_time = $7, priority = $8, fallback_of = $9, visibility = $11, label = $12, currency = $13, country = $14,
+              rail_type = $15, requires_review = $16, is_archived = $17,
+              archived_at = CASE WHEN $17 THEN COALESCE(archived_at, now()) ELSE NULL END, updated_at = now(), updated_by = $10
         WHERE rail_id = $1 RETURNING ${RAIL_COLS}`,
       [railId, next.is_enabled, next.maintenance_message, next.min_amount, next.max_amount, next.recommended_for, next.settlement_time,
-        next.priority, next.fallback_of, op.email, next.visibility]);
+        next.priority, next.fallback_of, op.email, next.visibility, next.label, next.currency, next.country, next.rail_type,
+        next.requires_review, next.is_archived]);
     let lastOff = false;
     if (before.is_enabled && !after.is_enabled) {
       const { rows: [o] } = await c.query(`SELECT count(*)::int AS n FROM fiat_rails WHERE currency = $1 AND is_enabled`, [after.currency]);
@@ -140,13 +201,14 @@ export async function toggleRail(op: Operator, railId: string, patch: RailPatch,
   });
   const pick = (r: Record<string, unknown>) => Object.fromEntries(Object.keys(r).filter((k) => !['updated_at', 'updated_by'].includes(k)).map((k) => [k, r[k]]));
   const changed = Object.keys(pick(out.after)).filter((k) => String(out.before[k] ?? '') !== String(out.after[k] ?? ''));
-  await audit({
-    operator_id: op.id, actor: op.email, action: 'fiat_rail_toggled', target: railId, status: 200, ip,
-    metadata: {
-      reason, changed_fields: changed, before: Object.fromEntries(changed.map((k) => [k, out.before[k]])),
-      after: Object.fromEntries(changed.map((k) => [k, out.after[k]])),
-    },
-  });
+  const meta = (o: Record<string, unknown>) => Object.fromEntries(changed.map((k) => [k, o[k]]));
+  const base = { reason, changed_fields: changed, before: meta(out.before), after: meta(out.after) };
+  if (changed.includes('is_enabled') || !changed.length) {
+    await audit({ operator_id: op.id, actor: op.email, action: 'fiat_rail_toggled', target: railId, status: 200, ip, metadata: base });
+  }
+  if (changed.some((k) => k !== 'is_enabled')) {
+    await audit({ operator_id: op.id, actor: op.email, action: 'fiat_rail_updated', target: railId, status: 200, ip, metadata: base });
+  }
   if (out.lastOff) {
     await audit({
       operator_id: op.id, actor: op.email, action: 'fiat_rail_last_active_disabled', target: railId, status: 200, ip,
@@ -236,7 +298,7 @@ export async function activeRailsFor(clientId: string, amount?: string) {
             r.min_amount::text AS min_amount, r.max_amount::text AS max_amount, r.recommended_for, r.settlement_time, r.requires_review,
             a.version, a.details_enc
        FROM fiat_rails r LEFT JOIN fiat_rail_accounts a ON a.rail_id = r.rail_id AND a.is_active
-      WHERE r.visibility = 'all' OR EXISTS (SELECT 1 FROM fiat_rail_clients rc WHERE rc.rail_id = r.rail_id AND rc.client_id = $1)
+      WHERE NOT r.is_archived AND (r.visibility = 'all' OR EXISTS (SELECT 1 FROM fiat_rail_clients rc WHERE rc.rail_id = r.rail_id AND rc.client_id = $1))
       ORDER BY r.priority, r.rail_id`, [clientId]);
   const amt = amount != null && /^\d{1,15}(\.\d{1,2})?$/.test(amount) ? Number(amount) : null;
   const inRange = (r: { min_amount: string | null; max_amount: string | null }) =>
@@ -296,7 +358,7 @@ export async function listClientRails(clientId: string) {
   const { rows } = await pool.query(
     `SELECT r.rail_id, r.label, r.currency, r.kind, r.is_enabled, r.visibility,
             EXISTS (SELECT 1 FROM fiat_rail_clients rc WHERE rc.rail_id = r.rail_id AND rc.client_id = $1) AS assigned
-       FROM fiat_rails r ORDER BY r.currency, r.priority, r.rail_id`, [clientId]);
+       FROM fiat_rails r WHERE NOT r.is_archived ORDER BY r.currency, r.priority, r.rail_id`, [clientId]);
   return { client_id: clientId, rails: rows.map((r) => ({ ...r, effective: r.visibility === 'all' || r.assigned })) };
 }
 
