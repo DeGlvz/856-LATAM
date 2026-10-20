@@ -7,6 +7,7 @@ import { stepUp } from '../auth/operator-admin.js';
 import { isProduction } from '../config.js';
 import { HttpError } from '../idempotency.js';
 import * as F from '../fiat/service.js';
+import { listProviders } from '../fiat/providers.js';
 
 const parse = <S extends z.ZodTypeAny>(s: S, v: unknown): z.infer<S> => {
   const r = s.safeParse(v);
@@ -41,6 +42,7 @@ export function sendClientFiatActivation(reply: import('fastify').FastifyReply, 
 
 export async function fiatConsoleRoutes(app: FastifyInstance) {
   app.get('/console/fiat/status', async () => F.status());
+  app.get('/console/fiat/providers', async () => ({ providers: listProviders() }));
 
   app.post('/console/fiat/setup', async (req) => {
     const b = parse(z.object({ code: code6.optional() }), req.body ?? {});

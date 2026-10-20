@@ -46,7 +46,8 @@ export default function App() {
           <Route path="clientes/:id" element={<ClientDetail />} />
           <Route path="cuentas/:ref" element={<Account />} />
           <Route path="movimientos" element={<Movements />} />
-          <Route path="euros" element={<FiatDeposits />} />
+          <Route path="fiat-automaticos" element={<FiatDeposits />} />
+          <Route path="euros" element={<Navigate to="/fiat-automaticos" replace />} />
           <Route path="rieles-fiat" element={<RequireRole role="ejecutivo"><FiatRails /></RequireRole>} />
           <Route path="compensacion" element={<Netting />} />
           <Route path="aprobaciones" element={<Approvals />} />
