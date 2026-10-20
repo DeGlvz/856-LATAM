@@ -7,6 +7,7 @@ import { api, type ClientRow } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { ErrorBox, Field, fmtDate } from '@/components/common';
 import { StepUpDialog } from '@/components/StepUpDialog';
+import { fieldsFor, SUBTYPES, validate, WIZARD, type Subtype } from '@/lib/railFields';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -16,28 +17,19 @@ import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
-interface Proposal { version: number; last4: string; changed_fields: string[]; created_by: string; created_at: string; reason: string }
+interface Proposal { version: number; last4: string; changed_fields: string[]; created_by: string; created_at: string; reason: string; holder_type: string | null }
 interface Rail {
   rail_id: string; label: string; currency: string; country: string | null; rail_type: string; kind: 'manual' | 'automatic';
   priority: number; is_enabled: boolean; visibility: 'all' | 'restricted'; maintenance_message: string | null;
   min_amount: string | null; max_amount: string | null; recommended_for: string | null; settlement_time: string | null;
   fallback_of: string | null; requires_review: boolean; is_archived: boolean;
-  account: { version: number; last4: string; approved_by: string | null } | null; pending_proposal: Proposal | null;
+  account: { version: number; last4: string; approved_by: string | null; holder_type: string | null } | null; pending_proposal: Proposal | null;
 }
 interface RailsResp { key_configured: boolean; rails: Rail[] }
 interface RailClients { rail_id: string; visibility: string; clients: { client_id: string; client_name: string; counterparty_code: string; assigned_by: string; created_at: string }[] }
 
-const FIELDS: Record<string, { key: string; label: string; required?: boolean }[]> = {
-  wire: [{ key: 'beneficiary_name', label: 'Beneficiario', required: true }, { key: 'bank_name', label: 'Banco', required: true }, { key: 'account_number', label: 'Cuenta', required: true },
-    { key: 'aba', label: 'ABA (9 dígitos)', required: true }, { key: 'swift', label: 'SWIFT/BIC', required: true }, { key: 'intermediary_bank', label: 'Banco intermediario' },
-    { key: 'intermediary_swift', label: 'SWIFT intermediario' }, { key: 'bank_address', label: 'Dirección del banco' }],
-  ach: [{ key: 'beneficiary_name', label: 'Beneficiario', required: true }, { key: 'bank_name', label: 'Banco', required: true }, { key: 'account_number', label: 'Cuenta', required: true }, { key: 'aba', label: 'ABA (9 dígitos)', required: true }],
-  sepa: [{ key: 'beneficiary_name', label: 'Beneficiario', required: true }, { key: 'iban', label: 'IBAN', required: true }, { key: 'bic', label: 'BIC', required: true }, { key: 'bank_name', label: 'Banco' }],
-  spei: [{ key: 'beneficiary_name', label: 'Beneficiario', required: true }, { key: 'clabe', label: 'CLABE (18 dígitos)', required: true }, { key: 'bank_name', label: 'Banco' }],
-  pix: [{ key: 'beneficiary_name', label: 'Beneficiario', required: true }, { key: 'pix_key', label: 'Llave PIX', required: true }],
-  generic: [{ key: 'beneficiary_name', label: 'Beneficiario', required: true }, { key: 'bank_name', label: 'Banco' }, { key: 'account_number', label: 'Cuenta' }, { key: 'details', label: 'Detalles' }],
-};
-const fieldsFor = (t: string) => FIELDS[t === 'otc' ? 'generic' : t] ?? FIELDS.generic;
+const PERSONAL_RISK = 'Cuenta personal: puede violar los términos del banco y el nombre del titular se muestra al cliente. Solo se publica a clientes asignados explícitamente (acuerdo implícito con ellos).';
+const isPersonal = (r: Rail) => r.account?.holder_type === 'persona';
 const ok = (reason: string) => reason.trim().length >= 5;
 const ReasonField = ({ id, value, onChange }: { id: string; value: string; onChange: (v: string) => void }) => (
   <Field label="Motivo" htmlFor={id} hint="Mín. 5 caracteres; queda en la bitácora."><Input id={id} value={value} onChange={(e) => onChange(e.target.value)} maxLength={500} /></Field>
@@ -89,11 +81,13 @@ export function FiatRails() {
                     </TableCell>
                     <TableCell>
                       {tes ? (
-                        <Select aria-label={`Visibilidad de ${r.rail_id}`} value={r.visibility} onChange={(e) => setVisibility({ rail: r, to: e.target.value as 'all' | 'restricted' })}>
+                        <Select aria-label={`Visibilidad de ${r.rail_id}`} value={isPersonal(r) ? 'restricted' : r.visibility} disabled={isPersonal(r)}
+                          onChange={(e) => setVisibility({ rail: r, to: e.target.value as 'all' | 'restricted' })}>
                           <option value="all">Todos los clientes</option><option value="restricted">Solo asignados</option>
                         </Select>
                       ) : r.visibility === 'all' ? 'Todos' : 'Solo asignados'}
-                      {r.visibility === 'restricted' && <Button size="sm" variant="ghost" onClick={() => setClientsOf(r)}><Users />Clientes</Button>}
+                      {isPersonal(r) && <div className="mt-1 text-xs text-warning" data-personal={r.rail_id}>Cuenta personal: visibilidad bloqueada en «Solo asignados».</div>}
+                      {(r.visibility === 'restricted' || isPersonal(r)) && <Button size="sm" variant="ghost" onClick={() => setClientsOf(r)}><Users />{isPersonal(r) ? 'Asignar clientes' : 'Clientes'}</Button>}
                     </TableCell>
                     <TableCell>
                       <Button size="sm" variant={r.is_enabled ? 'default' : 'outline'} role="switch" aria-checked={r.is_enabled} aria-label={`Riel ${r.rail_id}`}
@@ -127,6 +121,7 @@ export function FiatRails() {
             <div key={r.rail_id} className="rounded-md border p-2" data-proposal={r.rail_id}>
               <strong>{r.label}</strong> · v{r.pending_proposal!.version} · •••• {r.pending_proposal!.last4} · propone {r.pending_proposal!.created_by} · {fmtDate(r.pending_proposal!.created_at)}
               <div className="text-xs text-muted-foreground">Campos cambiados: {r.pending_proposal!.changed_fields.join(', ')} — {r.pending_proposal!.reason}</div>
+              {r.pending_proposal!.holder_type === 'persona' && <div role="alert" className="mt-1 text-xs text-warning">{PERSONAL_RISK}{r.visibility !== 'restricted' && ' Antes de aprobar, cambie el riel a «Solo asignados».'}</div>}
             </div>
           ))}
         </CardContent></Card>
@@ -247,22 +242,92 @@ function VisibilityDialog({ state, onClose, onDone }: { state: { rail: Rail; to:
 function AccountDialog({ rail, onClose, onDone }: { rail: Rail | null; onClose: () => void; onDone: () => void }) {
   const [vals, setVals] = useState<Record<string, string>>({});
   const [reason, setReason] = useState('');
-  const fields = rail ? fieldsFor(rail.rail_type) : [];
-  const valid = ok(reason) && fields.every((f) => !f.required || (vals[f.key] ?? '').trim());
+  const [subtype, setSubtype] = useState<Subtype>('wire_domestic');
+  const [reveal, setReveal] = useState(false);
+  const [revealReason, setRevealReason] = useState('');
+  const [revealed, setRevealed] = useState(false);
+  const editing = !!rail?.account;
+  const fields = rail ? fieldsFor(rail.rail_type, subtype) : [];
+  const errs = validate(fields, vals, editing);
+  const hidden = rail ? fieldsFor(rail.rail_type, subtype === 'wire_intl' ? 'wire_domestic' : 'wire_intl').filter((f) => !fields.some((g) => g.key === f.key)) : [];
+  const wizard = rail ? WIZARD.find((w) => w.railType === rail.rail_type && (!w.subtype || w.subtype === subtype)) : undefined;
+  const hasChange = fields.some((f) => (vals[f.key] ?? '').trim());
+  const valid = ok(reason) && !Object.keys(errs).length && (!editing || hasChange);
+  const personal = vals.account_holder_type === 'persona';
+  const reset = () => { setVals({}); setReason(''); setSubtype('wire_domestic'); setRevealed(false); setRevealReason(''); };
+  // Al editar solo se envían los campos tocados (el servidor hereda el resto); "" borra un opcional
+  const payload = () => {
+    const out: Record<string, string> = {};
+    for (const f of fields) { const v = (vals[f.key] ?? '').trim(); if (v || (editing && revealed)) out[f.key] = v; }
+    if (editing) for (const f of hidden) out[f.key] = '';
+    return out;
+  };
   return (
-    <StepUpDialog open={!!rail} title={rail?.account ? 'Proponer cambio de cuenta' : 'Proponer cuenta'} confirmLabel="Enviar propuesta" canSubmit={valid}
-      description="Propone una versión nueva (cifrada). Debe aprobarla otro tesorero con 2FA; hasta entonces la cuenta vigente no cambia. Escriba la cuenta completa."
-      onConfirm={(code) => api(`/console/fiat/rails/${rail!.rail_id}/accounts`, { method: 'POST', json: { code, reason: reason.trim(),
-        account: Object.fromEntries(fields.map((f) => [f.key, (vals[f.key] ?? '').trim()]).filter(([, v]) => v)) } }).then(onDone)}
-      onClose={() => { setVals({}); setReason(''); onClose(); }}>
-      <div className="grid gap-3">
-        {fields.map((f) => (
-          <Field key={f.key} label={f.label + (f.required ? ' *' : '')} htmlFor={`acc-${f.key}`}>
-            <Input id={`acc-${f.key}`} autoComplete="off" value={vals[f.key] ?? ''} onChange={(e) => setVals({ ...vals, [f.key]: e.target.value })} maxLength={500} /></Field>
-        ))}
-        <ReasonField id="acc-reason" value={reason} onChange={setReason} />
-      </div>
-    </StepUpDialog>
+    <>
+      <StepUpDialog open={!!rail && !reveal} title={editing ? 'Proponer cambio de cuenta' : 'Proponer cuenta'} confirmLabel="Enviar propuesta" canSubmit={valid}
+        description="Propone una versión nueva (cifrada). Debe aprobarla otro tesorero con 2FA; hasta entonces la cuenta vigente no cambia."
+        onConfirm={(code) => api(`/console/fiat/rails/${rail!.rail_id}/accounts`, { method: 'POST', json: { code, reason: reason.trim(), inherit: editing, account: payload() } }).then(onDone)}
+        onClose={() => { reset(); onClose(); }}>
+        <div className="grid gap-3">
+          <div role="note" className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
+            Una cuenta personal puede violar los términos del banco, y el titular se muestra al cliente. Prefiera cuentas de empresa.
+          </div>
+          {rail && (
+            <Field label="¿Qué tipo de riel elijo?" htmlFor="acc-wizard" hint="Según el dato que tenga, se preselecciona el tipo y se ocultan los campos que no aplican.">
+              <Select id="acc-wizard" value={wizard?.intent ?? ''} onChange={(e) => {
+                const w = WIZARD.find((x) => x.intent === e.target.value);
+                if (w?.subtype) setSubtype(w.subtype);
+              }}>
+                <option value="">Elija según el dato que tiene…</option>
+                {WIZARD.map((w) => <option key={w.intent} value={w.intent}>{w.label}</option>)}
+              </Select>
+            </Field>
+          )}
+          {wizard && wizard.railType !== rail!.rail_type && <p role="alert" className="text-xs text-warning">Este riel es de tipo {rail!.rail_type.toUpperCase()}; use «Editar riel» para cambiar el tipo a {wizard.railType.toUpperCase()} antes de cargar la cuenta.</p>}
+          {WIZARD.some((w) => w.railType === rail?.rail_type && w.subtype) && (
+            <Field label="Subtipo de wire" htmlFor="acc-subtype" hint="Nacional: ABA/ruta, SWIFT opcional. Internacional: SWIFT/BIC obligatorio, ABA opcional.">
+              <Select id="acc-subtype" value={subtype} onChange={(e) => setSubtype(e.target.value as Subtype)}>
+                {SUBTYPES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </Select>
+            </Field>
+          )}
+          {editing && (
+            <div className="rounded-md border p-2 text-xs">
+              Cuenta vigente: •••• {rail!.account!.last4} (v{rail!.account!.version}). Deje en blanco lo que no cambia; solo se envían los campos que escriba.
+              {!revealed
+                ? <> <Button size="sm" variant="outline" type="button" onClick={() => setReveal(true)}>Revelar cuenta actual (2FA)</Button></>
+                : <> Valores actuales cargados; edite lo necesario.</>}
+            </div>
+          )}
+          {fields.map((f) => (
+            <Field key={f.key} label={f.label + (f.required ? ' *' : '')} htmlFor={`acc-${f.key}`} hint={`${f.help} Ejemplo: ${f.example}`}>
+              {f.select ? (
+                <Select id={`acc-${f.key}`} value={vals[f.key] ?? ''} onChange={(e) => setVals({ ...vals, [f.key]: e.target.value })}>
+                  {f.select.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </Select>
+              ) : (
+                <Input id={`acc-${f.key}`} autoComplete="off" value={vals[f.key] ?? ''} aria-invalid={!!errs[f.key]} placeholder={editing && !revealed ? '(sin cambios)' : undefined}
+                  onChange={(e) => setVals({ ...vals, [f.key]: e.target.value })} maxLength={500} />
+              )}
+              {errs[f.key] && vals[f.key] !== undefined && <p role="alert" className="text-xs text-destructive">{errs[f.key]}</p>}
+            </Field>
+          ))}
+          {personal && (
+            <div role="alert" className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs" data-personal-warning>
+              {PERSONAL_RISK} Al enviar acepta el riesgo; el riel quedará forzado a «Solo asignados» y requiere al menos un cliente asignado para encenderse.
+            </div>
+          )}
+          <ReasonField id="acc-reason" value={reason} onChange={setReason} />
+        </div>
+      </StepUpDialog>
+      <StepUpDialog open={reveal} title="Revelar cuenta actual" confirmLabel="Revelar" canSubmit={ok(revealReason)}
+        description="Muestra los valores completos de la cuenta vigente para precargar el formulario. Queda en la bitácora (sin valores)."
+        onConfirm={(code) => api<{ account: Record<string, string> }>(`/console/fiat/rails/${rail!.rail_id}/account/reveal`, { method: 'POST', json: { code, reason: revealReason.trim() } })
+          .then((r) => { setVals(r.account); setRevealed(true); if (r.account.swift && !r.account.aba) setSubtype('wire_intl'); })}
+        onClose={() => { setReveal(false); setRevealReason(''); }}>
+        <ReasonField id="rev-reason" value={revealReason} onChange={setRevealReason} />
+      </StepUpDialog>
+    </>
   );
 }
 
@@ -271,7 +336,8 @@ function DecisionDialog({ state, onClose, onDone }: { state: { rail: Rail; appro
   const p = state?.rail.pending_proposal;
   return (
     <StepUpDialog open={!!state && !!p} title={state?.approve ? 'Aprobar cuenta' : 'Rechazar propuesta'} confirmLabel={state?.approve ? 'Aprobar' : 'Rechazar'} destructive={!state?.approve} canSubmit={ok(reason)}
-      description={state && p && <>{state.rail.label}: versión {p.version}, •••• {p.last4}. Campos cambiados: {p.changed_fields.join(', ')}.</>}
+      description={state && p && <>{state.rail.label}: versión {p.version}, •••• {p.last4}. Campos cambiados: {p.changed_fields.join(', ')}.
+        {p.holder_type === 'persona' && <span role="alert" className="mt-2 block text-warning">{PERSONAL_RISK} Al aprobar acepta este riesgo (queda en la bitácora).{state.approve && state.rail.visibility !== 'restricted' && ' El riel debe estar en «Solo asignados» antes de aprobar.'}</span>}</>}
       onConfirm={(code) => api(`/console/fiat/rails/${state!.rail.rail_id}/accounts/${p!.version}/${state!.approve ? 'approve' : 'reject'}`, { method: 'POST', json: { code, reason: reason.trim() } }).then(onDone)}
       onClose={() => { setReason(''); onClose(); }}>
       <ReasonField id="dec-reason" value={reason} onChange={setReason} />
