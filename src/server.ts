@@ -29,6 +29,7 @@ import { clientAssetRoutes } from './routes/client-assets.js';
 import { fiatConsoleRoutes } from './routes/fiat.js';
 import { fiatRailsConsoleRoutes } from './routes/fiat-rails.js';
 import { gasRoutes } from './routes/gas.js';
+import { accessRequestRoutes, PUBLIC_ACCESS_REQUEST_PATH } from './routes/access-requests.js';
 import { verifyNetworks } from './chain/networks.js';
 import { ensureCatalog } from './chain/catalog.js';
 import { assertTreasuryAtBoot, configErrors, foreignNetworks, SETUP_ALLOWED, setupRequired } from './environment.js';
@@ -101,7 +102,7 @@ app.get('/health', async () => {
 });
 
 // /v1: API key (integraciones) o sesión de operador (consola). Webhooks validan firma; login es público.
-const PUBLIC = new Set(['/v1/meta', '/v1/auth/login', '/v1/auth/login/totp', '/v1/auth/invites/lookup', '/v1/auth/invites/accept']);
+const PUBLIC = new Set(['/v1/meta', '/v1/auth/login', '/v1/auth/login/totp', '/v1/auth/invites/lookup', '/v1/auth/invites/accept', PUBLIC_ACCESS_REQUEST_PATH]);
 await app.register(async (v1) => {
   v1.addHook('onRequest', async (req, reply) => {
     const path = req.url.split('?')[0];
@@ -178,6 +179,7 @@ await app.register(async (v1) => {
   await v1.register(configDraftRoutes);
   await v1.register(usageRoutes);
   await v1.register(gasRoutes);
+  await v1.register(accessRequestRoutes);
 }, { prefix: '/v1' });
 
 // Portal de clientes: autenticación propia y aislada (no hereda los hooks de /v1)
@@ -198,6 +200,10 @@ if (existsSync(webDist)) {
   const portal = (_: unknown, reply: import('fastify').FastifyReply) => reply.header('cache-control', 'no-cache').sendFile('portal.html');
   app.get('/portal', portal);
   app.get('/portal/*', portal);
+  // Página pública de 856 (tercera entrada del build: landing.html) en la raíz del dominio
+  const landing = (_: unknown, reply: import('fastify').FastifyReply) => reply.header('cache-control', 'no-cache').sendFile('landing.html');
+  app.get('/', landing);
+  app.get('/index.html', (_, reply) => reply.redirect('/'));
 } else {
   app.log.warn('web/dist no existe: la consola no se sirve (compilar con npm run build:web)');
 }
