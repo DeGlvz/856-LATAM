@@ -56,7 +56,7 @@ if (form && ok && err && submit) {
     const prev = label?.textContent;
     if (label) label.textContent = 'Enviando…';
     try {
-      const res = await fetch('/v1/public/access-requests', {
+      const res = await fetch(`${import.meta.env.VITE_API_URL ?? ''}/v1/public/access-requests`, {
         method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(data),
       });
       if (res.status === 429) throw new Error('Recibimos varias solicitudes desde tu red. Intenta de nuevo en una hora.');

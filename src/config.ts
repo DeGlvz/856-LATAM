@@ -30,6 +30,8 @@ const Env = z.object({
   SWEEP_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
   // Ahorro de RPC: clientes con sesión del portal, API key en uso, retiros/depósitos abiertos o recientes dentro de la ventana se barren
   // en cada ciclo; los demás solo cada SWEEP_IDLE_INTERVAL_MS (igualarlo a WORKER_INTERVAL_MS desactiva el ahorro)
+  // Orígenes de la página pública (alojada aparte, p. ej. Vercel) autorizados a enviar «Solicitar acceso»; vacío = mismo origen
+  LANDING_ORIGINS: z.string().default('').transform((v) => new Set(v.split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean))),
   SWEEP_ACTIVE_WINDOW_MIN: z.coerce.number().int().min(1).default(30),
   SWEEP_IDLE_INTERVAL_MS: z.coerce.number().int().min(1000).default(900_000),
   CONFIRMATIONS: z.coerce.number().int().min(1).default(3),

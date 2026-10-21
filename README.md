@@ -656,6 +656,14 @@ La raíz del dominio (`/`) sirve la página pública de 856: tercera entrada del
 - Contenido: solo hechos en producción (4 redes main, 14 activos, compensación en el libro, portal y consola, entrada SEPA); sin cifras, clientes, testimonios ni licencias.
 - Pendiente: aviso de privacidad y términos (la página no enlaza textos legales hasta tenerlos).
 
+**Landing separada de la aplicación (Vercel + Railway).** La página puede alojarse aparte para que siga publicada aunque la aplicación esté detenida:
+1. Vercel: importar el repositorio con *Root Directory* `web` (usa `web/vercel.json` y `npm run build:landing`, salida `dist-landing`).
+2. Variables de Vercel: `VITE_APP_URL` (URL de la aplicación, p. ej. `https://app.856latam.com`; enlaces a portal y consola) y `VITE_API_URL` (URL del API; normalmente la misma).
+3. Railway: variable `LANDING_ORIGINS` con el origen de la landing (p. ej. `https://856latam.com`, varios separados por coma). Habilita CORS solo para `POST /v1/public/access-requests`; el resto del API sigue de mismo origen.
+4. Cloudflare (DNS en modo solo DNS, nube gris): dominio raíz y `www` hacia Vercel; `app` hacia Railway. No usar redirección 301 hacia Vercel.
+
+Sin esas variables, la landing sigue sirviéndose desde Fastify en `/` como antes.
+
 ## Local
 ```bash
 cp .env.example .env   # completar las variables requeridas; usar credenciales de prueba

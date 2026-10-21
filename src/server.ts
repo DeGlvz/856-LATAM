@@ -84,6 +84,18 @@ await app.register(helmet);
 await app.register(rateLimit, { max: config.RATE_LIMIT_PER_MIN, timeWindow: '1 minute' });
 await app.register(cookie);
 
+// CORS solo para el formulario público de la landing (otros orígenes); el resto del API sigue siendo de mismo origen
+app.addHook('onRequest', async (req, reply) => {
+  if (req.url.split('?')[0] !== PUBLIC_ACCESS_REQUEST_PATH) return;
+  const origin = req.headers.origin;
+  if (!origin || !config.LANDING_ORIGINS.has(origin)) return;
+  reply.header('access-control-allow-origin', origin).header('vary', 'Origin').header('cross-origin-resource-policy', 'cross-origin');
+  if (req.method === 'OPTIONS') {
+    return reply.header('access-control-allow-methods', 'POST, OPTIONS').header('access-control-allow-headers', 'content-type, accept')
+      .header('access-control-max-age', '600').code(204).send();
+  }
+});
+
 // Modo de alta (production sin tesorero con 2FA): solo login y 2FA de la consola
 app.addHook('onRequest', async (req, reply) => {
   const path = req.url.split('?')[0];
