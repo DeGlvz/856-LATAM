@@ -203,12 +203,14 @@ const TESORERO = new Set([
   'POST /v1/console/fiat/rails/:rail_id/clients', 'POST /v1/console/fiat/rails/:rail_id/clients/:client_id/unassign',
   // Configuración de cliente preparada por el ejecutivo: solo tesorería la libera o rechaza
   'POST /v1/config-drafts/:id/release', 'POST /v1/config-drafts/:id/reject',
+  // Topes de consumo por proveedor
+  'PUT /v1/usage/:provider',
   // Registro de gas en el libro
   'POST /v1/gas-fundings',
 ]);
 // Consultas restringidas: la bitácora (IPs, intentos) y la lista de operadores solo para tesorería
 const GET_TESORERO = new Set([
-  'GET /v1/audit', 'GET /v1/audit/actions', 'GET /v1/operators', 'GET /v1/operators/invites',
+  'GET /v1/audit', 'GET /v1/audit/actions', 'GET /v1/usage', 'GET /v1/operators', 'GET /v1/operators/invites',
     'GET /v1/operators/:id/activity',
     'GET /v1/console/fiat/accounts',
 ]);

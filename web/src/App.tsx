@@ -16,6 +16,7 @@ import { Audit } from './pages/Audit';
 import { Security } from './pages/Security';
 import { Operators } from './pages/Operators';
 import { OperatorDetail } from './pages/OperatorDetail';
+import { Usage } from './pages/Usage';
 import { OperatorInvitation } from './pages/OperatorInvitation';
 import { FiatDeposits } from './pages/FiatDeposits';
 import { FiatRails } from './pages/FiatRails';
@@ -56,6 +57,7 @@ export default function App() {
           <Route path="seguridad" element={<Security />} />
           <Route path="operadores" element={<RequireRole role="tesorero"><Operators /></RequireRole>} />
           <Route path="operadores/:id" element={<RequireRole role="tesorero"><OperatorDetail /></RequireRole>} />
+          <Route path="consumos" element={<RequireRole role="tesorero"><Usage /></RequireRole>} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

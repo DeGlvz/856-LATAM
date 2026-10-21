@@ -311,6 +311,19 @@ El ejecutivo prepara la configuración de un cliente como **borrador** y el teso
 
 Migración `031_client_config_drafts`. Bitácora: `config_draft_created|submitted|cancelled|released|rejected`.
 
+### Consola — consumos y topes de gasto
+Página **Consumos y topes** (`/console/consumos`, solo tesorero) para evitar sorpresas en la factura: consumo del mes por proveedor contra un tope mensual, con umbral de alerta (80 % por defecto), proyección al cierre de mes y contador de alertas en el menú.
+
+- **Medido automáticamente:** llamadas RPC a Alchemy por red (`usage_daily`, se guardan en lotes cada minuto; una cadena local no cuenta). En el log queda un aviso al pasar al umbral y al superar el tope.
+- **Captura manual:** Railway, Circle, Monerium, Openfort, dominio y DNS (y los que se agreguen). El tesorero registra lo gastado y el tope; se guarda quién y cuándo.
+- **Gas de la plataforma** del mes por activo y conteo de barridos (`gas_topup` incluido), con el costo simulado de un gas patrocinado con recargo de 8 % (por ejemplo Gas Manager de Alchemy con cuentas inteligentes). Es solo información para decidir; no cambia los barridos.
+
+| Método y ruta | Rol | Uso |
+|---|---|---|
+| `GET /v1/usage` | tesorero | Consumos, estados, proyección y gas |
+| `PUT /v1/usage/:provider` `{monthly_limit?, warn_pct?, manual_value?, notes?, label?, unit?}` | tesorero | Tope, umbral y captura manual; proveedor nuevo requiere `label` y `unit` |
+
+Migración `033_usage_budgets`. Bitácora: `usage_budget_updated`.
 ### Portal de clientes — fase 2: inicio, cuentas y depósitos
 Pantallas **Inicio** (avisos, saldos por activo y movimientos recientes), **Cuentas** (historial paginado, filtro por fechas, CSV y estado de cuenta mensual) y **Depósitos** (direcciones con QR y depósitos recibidos). Todo se filtra por el cliente de la sesión o la llave; un activo o recurso ajeno responde `404`.
 

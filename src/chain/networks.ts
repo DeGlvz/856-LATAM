@@ -10,6 +10,7 @@
 //   ALCHEMY_WEBHOOK_ID_<RED>            webhook Address Activity de esa red
 //   ALCHEMY_WEBHOOK_SIGNING_KEY_<RED>   su llave de firma (para la red principal se aceptan las variables sin sufijo)
 import { createPublicClient, http, type PublicClient } from 'viem';
+import { recordUsage } from '../usage.js';
 import { config } from '../config.js';
 import { HttpError } from '../idempotency.js';
 
@@ -53,7 +54,7 @@ function build(id: string): Net {
   const rpcUrl = override ?? `https://${id}.g.alchemy.com/v2/${config.ALCHEMY_API_KEY}`;
   return {
     id, label: k?.label ?? id, primary, rpcUrl, local: !!override,
-    client: createPublicClient({ transport: http(rpcUrl, { retryCount: 2, timeout: 15_000 }) }) as PublicClient,
+    client: createPublicClient({ transport: http(rpcUrl, { retryCount: 2, timeout: 15_000, onFetchRequest: override ? undefined : () => recordUsage('alchemy', `rpc:${id}`) }) }) as PublicClient,
     // Con RPC propio (cadena local de pruebas) no se exige el chainId público, salvo en production (M1): ahí siempre
     expectedChainId: override && config.ENVIRONMENT !== 'production' ? null : k?.chainId ?? null, chainId: null, healthy: true, error: null,
     confirmations: Number(env(`CONFIRMATIONS_${S}`) ?? config.CONFIRMATIONS),
