@@ -100,7 +100,7 @@ export function Operators() {
                 const tip = self ? SELF_TIP : !has2fa ? 'Active su 2FA para administrar operadores' : undefined;
                 return (
                   <TableRow key={o.id} className={o.active ? undefined : 'opacity-70'} data-email={o.email}>
-                    <TableCell><div className="text-sm font-medium">{o.name}{self && <span className="text-muted-foreground"> (usted)</span>}</div><div className="text-xs text-muted-foreground">{o.email}</div></TableCell>
+                    <TableCell><div className="text-sm font-medium"><Link to={`/operadores/${o.id}`} className="hover:underline" title="Ver actividad">{o.name}</Link>{self && <span className="text-muted-foreground"> (usted)</span>}</div><div className="text-xs text-muted-foreground">{o.email}</div></TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <span title={tip}>

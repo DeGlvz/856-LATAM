@@ -285,6 +285,7 @@ Página **Operadores** (`/console/operadores`, solo tesorero). El alta deja de d
 | `POST /v1/operators/invites/:id/resend` `{code}` | tesorero + 2FA | Revoca la invitación y devuelve un enlace nuevo |
 | `POST /v1/operators/:id/access-link` `{code}` | tesorero + 2FA | Enlace de un solo uso para restablecer el acceso de un operador |
 | `PATCH /v1/operators/:id` `{role?, active?, code}` | tesorero + 2FA | Rol y activación |
+| `GET /v1/operators/:id/activity?limit&cursor&action` | tesorero | Tablero del operador: perfil, resumen de 30 dias y bitacora de lo que hizo y de lo hecho sobre su cuenta (/console/operadores/:id, clic en el nombre) |
 | `POST /v1/auth/invites/lookup` · `/accept` | pública (límite por IP) | Aceptar invitación |
 | `GET /v1/clients/portal-alerts` | lectura | Clientes con menos de 2 admins en el portal |
 

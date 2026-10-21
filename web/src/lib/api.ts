@@ -196,6 +196,12 @@ export interface AuditEntry {
   id: string; at: string; operator_id: string | null; actor: string; action: string; target: string | null;
   status: number | null; ip: string | null; metadata: Record<string, unknown>;
 }
+export interface OperatorActivity {
+  operator: { id: string; email: string; name: string; role: Role; active: boolean; totp_enabled: boolean; last_login_at: string | null;
+    created_at: string; deactivated_at: string | null; active_sessions: number };
+  summary: { actions_30d: number; logins_30d: number; denied_30d: number; last_action_at: string | null };
+  entries: AuditEntry[]; next_cursor: string | null;
+}
 export interface OperatorRow {
   id: string; email: string; name: string; role: Role; active: boolean; totp_enabled: boolean; totp_enabled_at: string | null;
   last_login_at: string | null; locked_until: string | null; created_at: string;

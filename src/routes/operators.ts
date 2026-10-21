@@ -3,6 +3,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { HttpError } from '../idempotency.js';
+import { pool } from '../db.js';
 import { audit, ROLES, type Operator, type Role, normalizeRole } from '../auth/operators.js';
 import {
   acceptOperatorInvite, createOperatorInvite, listOperatorInvites, lookupOperatorInvite, portalAlerts,
@@ -100,6 +101,37 @@ export async function operatorRoutes(app: FastifyInstance) {
         metadata: { id, sessions_revoked: r.changes.role_changed ? 0 : r.sessions_revoked } });
     }
     return { operator: r.operator, sessions_revoked: r.sessions_revoked };
+  });
+
+  // ───────────── Actividad de un operador (tesorero): lo que hizo y lo que se hizo sobre su cuenta ─────────────
+  const ActivityQuery = z.object({
+    limit: z.coerce.number().int().min(1).max(500).default(100),
+    cursor: z.coerce.number().int().positive().optional(),
+    action: z.string().trim().min(1).max(200).optional(),
+  });
+  app.get<{ Params: { id: string } }>('/operators/:id/activity', async (req) => {
+    const id = parse(uuid, req.params.id);
+    const f = parse(ActivityQuery, req.query);
+    const { rows: [op] } = await pool.query(
+      `SELECT id, email, name, role, active, totp_enabled_at IS NOT NULL AS totp_enabled, last_login_at, created_at, deactivated_at,
+              (SELECT count(*)::int FROM operator_sessions s WHERE s.operator_id = o.id AND s.revoked_at IS NULL AND s.expires_at > now()) AS active_sessions
+         FROM operators o WHERE id = $1`, [id]);
+    if (!op) throw new HttpError(404, 'Operador no encontrado', 'not_found');
+    const { rows } = await pool.query(
+      `SELECT id, at, operator_id, actor, action, target, status, ip, metadata FROM audit_log
+        WHERE (operator_id = $1 OR lower(actor) IN ($2, 'operador:' || $2) OR (target = $3 AND action LIKE 'operator\\_%'))
+          AND ($4::bigint IS NULL OR id < $4) AND ($5::text IS NULL OR action = $5)
+        ORDER BY id DESC LIMIT $6`,
+      [id, String(op.email).toLowerCase(), op.email, f.cursor ?? null, f.action ?? null, f.limit + 1]);
+    const { rows: [sum] } = await pool.query(
+      `SELECT count(*) FILTER (WHERE operator_id = $1 AND at > now() - interval '30 days')::int AS actions_30d,
+              count(*) FILTER (WHERE operator_id = $1 AND action = 'login' AND at > now() - interval '30 days')::int AS logins_30d,
+              count(*) FILTER (WHERE operator_id = $1 AND (status = 403 OR action LIKE '%failed') AND at > now() - interval '30 days')::int AS denied_30d,
+              max(at) FILTER (WHERE operator_id = $1) AS last_action_at
+         FROM audit_log WHERE operator_id = $1`, [id]);
+    const more = rows.length > f.limit;
+    const items = rows.slice(0, f.limit);
+    return { operator: op, summary: sum, entries: items, next_cursor: more ? String(items[items.length - 1].id) : null };
   });
 
   // ───────────── Alta pública por enlace (sin sesión, con límite como el login) ─────────────

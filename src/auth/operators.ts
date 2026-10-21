@@ -209,7 +209,8 @@ const TESORERO = new Set([
 // Consultas restringidas: la bitácora (IPs, intentos) y la lista de operadores solo para tesorería
 const GET_TESORERO = new Set([
   'GET /v1/audit', 'GET /v1/audit/actions', 'GET /v1/operators', 'GET /v1/operators/invites',
-  'GET /v1/console/fiat/accounts',
+    'GET /v1/operators/:id/activity',
+    'GET /v1/console/fiat/accounts',
 ]);
 // POST que solo consultan (no escriben): basta con rol lectura
 const CUALQUIERA = new Set([
