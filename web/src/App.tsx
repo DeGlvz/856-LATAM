@@ -20,6 +20,7 @@ import { Usage } from './pages/Usage';
 import { OperatorInvitation } from './pages/OperatorInvitation';
 import { FiatDeposits } from './pages/FiatDeposits';
 import { FiatRails } from './pages/FiatRails';
+import { AccessRequests } from './pages/AccessRequests';
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { operator, loading } = useAuth();
@@ -58,6 +59,7 @@ export default function App() {
           <Route path="operadores" element={<RequireRole role="tesorero"><Operators /></RequireRole>} />
           <Route path="operadores/:id" element={<RequireRole role="tesorero"><OperatorDetail /></RequireRole>} />
           <Route path="consumos" element={<RequireRole role="tesorero"><Usage /></RequireRole>} />
+          <Route path="solicitudes" element={<RequireRole role="ejecutivo"><AccessRequests /></RequireRole>} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
