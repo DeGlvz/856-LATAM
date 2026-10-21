@@ -219,7 +219,7 @@ test('portal: «Solo salida», dirección por red y lista blanca con red', async
   await expect(page.locator('[data-asset="ETH-BASE-SEPOLIA"]')).toContainText('Solo salida');
   await expect(page.locator('[data-asset="ETH-BASE-SEPOLIA"]')).toContainText('Base Sepolia');
 
-  await page.getByRole('link', { name: 'Depósitos' }).click();
+  await page.getByRole('link', { name: 'Depósitos a Wallet' }).click();
   await expect(page.locator('[data-address]')).toHaveCount(0);
   await page.getByRole('button', { name: 'Generar nueva dirección' }).click();
   const dlg = page.getByRole('dialog');

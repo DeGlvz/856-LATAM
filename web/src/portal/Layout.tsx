@@ -11,8 +11,8 @@ import { cn } from '@/lib/utils';
 const NAV = [
   { to: '/', label: 'Inicio', icon: HomeIcon },
   { to: '/cuentas', label: 'Cuentas', icon: Landmark },
-  { to: '/depositos', label: 'Depósitos', icon: ArrowDownToLine },
-  { to: '/euros', label: 'Operaciones fiat', icon: Euro },
+  { to: '/depositos', label: 'Depósitos a Wallet', icon: ArrowDownToLine },
+  { to: '/euros', label: 'Depósitos a Fiat', icon: Euro },
   { to: '/avisos', label: 'Avisos de pago', icon: ReceiptText },
   { to: '/salidas', label: 'Salidas', icon: ArrowUpFromLine },
   { to: '/lista-blanca', label: 'Lista blanca', icon: ListChecks },
