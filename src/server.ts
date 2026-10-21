@@ -15,6 +15,7 @@ import { portalRoutes } from './routes/portal.js';
 import { transferRoutes } from './routes/transfers.js';
 import { authRoutes } from './routes/auth.js';
 import { consoleRoutes } from './routes/console.js';
+import { configDraftRoutes } from './routes/config-drafts.js';
 import { operatorRoutes } from './routes/operators.js';
 import { audit, bootstrapOperator, hasRole, requiredRole, sessionFromRequest } from './auth/operators.js';
 import { ensureHotWalletRegistered, startWorker } from './ledger/transfers.js';
@@ -172,6 +173,7 @@ await app.register(async (v1) => {
   await v1.register(clientAssetRoutes);
   await v1.register(fiatConsoleRoutes);
   await v1.register(fiatRailsConsoleRoutes);
+  await v1.register(configDraftRoutes);
   await v1.register(gasRoutes);
 }, { prefix: '/v1' });
 

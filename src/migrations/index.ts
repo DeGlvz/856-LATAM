@@ -29,6 +29,7 @@ import m027 from './027_fiat_rails_holder_type.js';
 import m028 from './028_fiat_remove_transak.js';
 import m029 from './029_fiat_rails_cleanup.js';
 import m030 from './030_fiat_intent_report.js';
+import m031 from './031_client_config_drafts.js';
 
 // Migraciones embebidas en el build (no hay archivos .sql que copiar al contenedor).
 // Nunca editar una ya aplicada: agregar una nueva.
@@ -63,6 +64,7 @@ const migrations: [string, string][] = [
   ['028_fiat_remove_transak', m028],
   ['029_fiat_rails_cleanup', m029],
   ['030_fiat_intent_report', m030],
+  ['031_client_config_drafts', m031],
 ];
 
 export async function migrate(pool: Pool, log: (msg: string) => void = console.log) {
