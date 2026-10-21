@@ -202,6 +202,7 @@ export type IntentStatus = 'open' | 'matched' | 'expired' | 'cancelled';
 export interface PaymentIntent {
   id: string; reference: string; expected_amount: string; expected_amount_eur: string; currency: 'EUR'; expected_date: string | null; note: string | null;
   expires_at: string; status: IntentStatus; origin_kind: 'client_user' | 'client_key' | 'delegate'; created_by: string; created_at: string; cancelled_at: string | null;
+  reported_at: string | null; reported_date: string | null; reported_bank_ref: string | null; reported_note: string | null;
 }
 export interface FiatDepositRow {
   id: string; amount_eur: string; amount_cents: string; asset_id: string; reference: string | null; payer_name: string | null; network: string; tx_hash: string | null;

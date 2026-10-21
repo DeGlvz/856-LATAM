@@ -37,6 +37,10 @@ interface FiatDeposit {
   match_rule: 'intent' | 'counterparty' | 'manual' | 'account' | null; review_reason: string | null; status: FStatus; released_by: string | null; released_at: string | null;
   reason: string | null; received_at: string;
 }
+interface ReportedIntent {
+  id: string; reference: string; client_name: string; expected_amount_eur: string;
+  reported_at: string | null; reported_date: string | null; reported_bank_ref: string | null; reported_note: string | null;
+}
 const ST: Record<FStatus, { t: string; v: 'warning' | 'success' | 'destructive' | 'secondary' | 'outline' | 'default' }> = {
   received: { t: 'Recibida (sin acuñar)', v: 'secondary' }, minted: { t: 'Acuñada, por verificar', v: 'default' },
   reconciled: { t: 'Conciliada', v: 'warning' }, review: { t: 'En revisión', v: 'destructive' },
@@ -102,9 +106,14 @@ export function FiatDeposits() {
     queryKey: ['fiat-deposits', filter],
     queryFn: () => api<{ items: FiatDeposit[] }>(`/console/fiat/deposits?limit=100${filter ? `&status=${filter}` : ''}`), refetchInterval: 30_000,
   });
+  const intents = useQuery({
+    queryKey: ['fiat-intents-open'],
+    queryFn: () => api<{ items: ReportedIntent[] }>('/console/fiat/payment-intents?limit=100'), refetchInterval: 30_000,
+  });
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['fiat-status'] });
     qc.invalidateQueries({ queryKey: ['fiat-deposits'] });
+    qc.invalidateQueries({ queryKey: ['fiat-intents-open'] });
     qc.invalidateQueries({ queryKey: ['fiat-client-accounts'] });
   };
   const poll = useMutation({ mutationFn: () => api('/console/fiat/poll', { method: 'POST', json: {} }), onSettled: refresh });
@@ -180,6 +189,29 @@ export function FiatDeposits() {
             )}
             {s.account && s.account.status !== 'active' && tes && <Button variant="outline" className="justify-self-start" onClick={() => setSetup(true)}>Continuar alta / refrescar IBAN</Button>}
             {s.enabled && <div className="flex flex-wrap gap-2 text-xs"><Badge variant="warning">{s.queue.reconciled} por liberar</Badge><Badge variant="destructive">{s.queue.review} en revisión</Badge><Badge variant="secondary">{s.queue.in_flight} en curso</Badge></div>}
+          </CardContent>
+        </Card>
+      )}
+
+      {!!intents.data?.items.length && (
+        <Card data-testid="fiat-open-intents">
+          <CardHeader><CardTitle className="text-base">Avisos de pago abiertos</CardTitle></CardHeader>
+          <CardContent className="overflow-x-auto">
+            <Table aria-label="Avisos de pago abiertos">
+              <TableHeader><TableRow><TableHead>Cliente</TableHead><TableHead>Referencia</TableHead><TableHead className="text-right">Monto</TableHead><TableHead>Pago reportado</TableHead></TableRow></TableHeader>
+              <TableBody>
+                {intents.data.items.map((i) => (
+                  <TableRow key={i.id} data-intent={i.reference}>
+                    <TableCell className="text-sm">{i.client_name}</TableCell>
+                    <TableCell><code className="font-mono text-xs">{i.reference}</code></TableCell>
+                    <TableCell className="text-right font-medium tabular-nums whitespace-nowrap">{eur(i.expected_amount_eur)}</TableCell>
+                    <TableCell className="text-xs whitespace-normal">{i.reported_at
+                      ? <><Badge variant="warning">Reportado {i.reported_date}</Badge><div className="mt-1 text-muted-foreground">{[i.reported_bank_ref, i.reported_note].filter(Boolean).join(' · ')}</div></>
+                      : <span className="text-muted-foreground">—</span>}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
       )}

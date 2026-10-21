@@ -292,7 +292,8 @@ async function eurInstructions(clientId: string) {
 }
 
 const INTENT_COLS = `i.id, i.fiat_account_id, i.provider, i.reference, i.expected_amount::text AS expected_amount, i.currency, i.expected_date, i.note, i.expires_at,
-  i.status, i.origin_kind, i.origin_ref, i.created_by, i.matched_deposit_id, i.cancelled_by, i.cancelled_at, i.created_at, i.created_at::text AS _ts`;
+  i.status, i.origin_kind, i.origin_ref, i.created_by, i.matched_deposit_id, i.cancelled_by, i.cancelled_at, i.created_at, i.created_at::text AS _ts,
+  i.reported_at, i.reported_by, i.reported_date::text AS reported_date, i.reported_bank_ref, i.reported_note`;
 const intentView = (r: Record<string, any>) => ({ ...r, expected_amount_eur: centsToEur(r.expected_amount) });
 const intentAccountScope = config.FIAT_MODE === 'per_client'
   ? `EXISTS (SELECT 1 FROM fiat_accounts a WHERE a.id = i.fiat_account_id AND a.mode = 'per_client'
@@ -361,6 +362,34 @@ export async function cancelIntent(p: PortalPrincipal, id: string) {
     throw new HttpError(409, `El aviso no está abierto (estado: ${x.status})`, 'intent_not_open');
   }
   return getIntent(p.clientId, id);
+}
+
+// El cliente informa que ya transfirió. Solo informativo: no cambia el estado ni acredita; se puede corregir mientras siga abierto.
+export async function reportIntent(p: PortalPrincipal, id: string, b: { transfer_date: string; bank_reference?: string; note?: string }) {
+  const origin = tradeOrigin(p);
+  const { rows: [r] } = await pool.query(
+    `UPDATE fiat_payment_intents i SET reported_at = now(), reported_by = $3, reported_date = $4, reported_bank_ref = $5, reported_note = $6, updated_at = now()
+      WHERE i.id = $1 AND i.client_id = $2 AND i.status = 'open' AND ${intentAccountScope} RETURNING i.id`,
+    [id, p.clientId, origin.actor, b.transfer_date, b.bank_reference || null, b.note || null]);
+  if (!r) {
+    await expireIntents();
+    const { rows: [x] } = await pool.query(
+      `SELECT status FROM fiat_payment_intents i WHERE i.id = $1 AND i.client_id = $2 AND ${intentAccountScope}`, [id, p.clientId]);
+    if (!x) throw new HttpError(404, 'Aviso no encontrado', 'not_found');
+    throw new HttpError(409, `El aviso no está abierto (estado: ${x.status})`, 'intent_not_open');
+  }
+  return getIntent(p.clientId, id);
+}
+
+// Consola: avisos abiertos (los reportados primero) para que tesorería sepa qué transferencias esperar.
+export async function listIntentsConsole(f: { reported?: boolean; limit: number }) {
+  await expireIntents();
+  const { rows } = await pool.query(
+    `SELECT ${INTENT_COLS}, c.name AS client_name FROM fiat_payment_intents i JOIN clients c ON c.id = i.client_id
+      WHERE i.status = 'open' AND ($1::boolean IS NOT TRUE OR i.reported_at IS NOT NULL) AND ${intentAccountScope}
+      ORDER BY (i.reported_at IS NULL), i.reported_at DESC, i.created_at DESC, i.id DESC LIMIT $2`,
+    [f.reported ?? null, f.limit]);
+  return { items: rows.map(({ _ts, ...r }) => intentView(r)) };
 }
 
 export async function expireIntents(c: Tx | typeof pool = pool) {

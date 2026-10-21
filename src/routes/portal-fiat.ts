@@ -17,7 +17,7 @@ const page = { limit: z.coerce.number().int().min(1).max(200).default(50), curso
 export const FIAT_KEY_READ = [
   'GET /v1/portal/fiat/instructions', 'GET /v1/portal/fiat/payment-intents', 'GET /v1/portal/fiat/payment-intents/:id', 'GET /v1/portal/fiat/deposits',
 ];
-export const FIAT_KEY_WRITE = ['POST /v1/portal/fiat/payment-intents', 'POST /v1/portal/fiat/payment-intents/:id/cancel'];
+export const FIAT_KEY_WRITE = ['POST /v1/portal/fiat/payment-intents', 'POST /v1/portal/fiat/payment-intents/:id/cancel', 'POST /v1/portal/fiat/payment-intents/:id/report'];
 
 export async function portalFiatRoutes(app: FastifyInstance) {
   app.get('/fiat/instructions', async (req) => F.instructions(req.portal!.clientId, parse(z.object({ amount: z.string().max(20).optional() }), req.query).amount));
@@ -36,6 +36,15 @@ export async function portalFiatRoutes(app: FastifyInstance) {
   }), req.query)));
   app.get<{ Params: { id: string } }>('/fiat/payment-intents/:id', async (req) => F.getIntent(req.portal!.clientId, parse(uuid, req.params.id)));
   app.post<{ Params: { id: string } }>('/fiat/payment-intents/:id/cancel', async (req) => F.cancelIntent(req.portal!, parse(uuid, req.params.id)));
+
+  app.post<{ Params: { id: string } }>('/fiat/payment-intents/:id/report', async (req) => {
+    const b = parse(z.object({
+      transfer_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'fecha AAAA-MM-DD'),
+      bank_reference: z.string().trim().max(100).optional(),
+      note: z.string().trim().max(300).optional(),
+    }), req.body);
+    return F.reportIntent(req.portal!, parse(uuid, req.params.id), b);
+  });
 
   app.get('/fiat/deposits', async (req) => F.listDepositsPortal(req.portal!.clientId, parse(z.object(page), req.query)));
 }

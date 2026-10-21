@@ -88,6 +88,10 @@ export async function fiatConsoleRoutes(app: FastifyInstance) {
     return F.reject(parse(uuid, req.params.id), by, b.reason);
   });
 
+  app.get('/console/fiat/payment-intents', async (req) => F.listIntentsConsole(parse(z.object({
+    reported: z.enum(['true', 'false']).transform((v) => v === 'true').optional(), limit: z.coerce.number().int().min(1).max(200).default(50),
+  }), req.query)));
+
   // El aviso de pago lo crea solo el cliente (portal o su llave): la consola y las API_KEYS globales no lo originan
   app.post('/console/fiat/payment-intents', async () => {
     throw new HttpError(403, 'Solo el cliente crea avisos de pago (portal o su llave de API); la consola solo concilia y libera', 'origin_not_client');
