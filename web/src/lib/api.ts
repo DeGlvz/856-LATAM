@@ -264,3 +264,11 @@ export const ASSET_STATUS: Record<ClientAssetStatus, { label: string; variant: '
   enabled: { label: 'Habilitado', variant: 'success' }, exit_only: { label: 'Solo salida', variant: 'warning' }, disabled: { label: 'No habilitado', variant: 'outline' },
 };
 export const REQUEST_ACTION: Record<AssetRequest['action'], string> = { enable: 'Habilitar', exit_only: 'Pasar a solo salida', disable: 'Deshabilitar' };
+
+export type AccessRequestStatus = 'new' | 'contacted' | 'closed';
+export interface AccessRequest {
+  id: string; full_name: string; company: string; email: string; country: string;
+  volume: 'lt_100k' | '100k_1m' | '1m_10m' | 'gt_10m'; message: string | null;
+  status: AccessRequestStatus; handled_by: string | null; handled_at: string | null; created_at: string;
+}
+export interface AccessRequestList { items: AccessRequest[]; counts: { new: number } }
