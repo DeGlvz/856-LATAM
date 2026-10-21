@@ -12,7 +12,7 @@ const NAV = [
   { to: '/', label: 'Inicio', icon: HomeIcon },
   { to: '/cuentas', label: 'Cuentas', icon: Landmark },
   { to: '/depositos', label: 'Depósitos', icon: ArrowDownToLine },
-  { to: '/euros', label: 'Recibir euros', icon: Euro },
+  { to: '/euros', label: 'Operaciones fiat', icon: Euro },
   { to: '/avisos', label: 'Avisos de pago', icon: ReceiptText },
   { to: '/salidas', label: 'Salidas', icon: ArrowUpFromLine },
   { to: '/lista-blanca', label: 'Lista blanca', icon: ListChecks },
