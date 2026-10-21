@@ -641,6 +641,21 @@ Integración **apagada por defecto** (`OPENFORT_ENABLED=false`: la ruta responde
 
 Pruebas: `npm test` (incluye `test/openfort-webhook.test.mjs`: firma, parseo y extracción de hashes).
 
+### Página pública (856latam.com) y solicitudes de acceso
+La raíz del dominio (`/`) sirve la página pública de 856: tercera entrada del build de Vite (`web/landing.html`, estilos en `web/src/landing/`), con Tailwind compilado y sin CDN ni scripts en línea (compatible con la CSP de helmet). Diseño de referencia exportado de Stitch en `docs/design/landing-stitch.html` (no se publica).
+
+| Método | Ruta | Auth |
+|---|---|---|
+| GET | `/` | pública (página) |
+| POST | `/v1/public/access-requests` | pública; 5 por hora por IP; campo trampa `website` contra bots |
+| GET | `/v1/console/access-requests?status=new\|contacted\|closed` | ejecutivo o tesorero |
+| POST | `/v1/console/access-requests/:id/status` | ejecutivo o tesorero (bitácora `access_request_status`) |
+
+- Migración 034 (`access_requests`): nombre, empresa, correo, país, rango de volumen (`lt_100k`, `100k_1m`, `1m_10m`, `gt_10m`), mensaje opcional, IP y agente; estado `new → contacted → closed`.
+- Consola: pantalla **Solicitudes de acceso** (`/console/solicitudes`), visible para ejecutivo y tesorero.
+- Contenido: solo hechos en producción (4 redes main, 14 activos, compensación en el libro, portal y consola, entrada SEPA); sin cifras, clientes, testimonios ni licencias.
+- Pendiente: aviso de privacidad y términos (la página no enlaza textos legales hasta tenerlos).
+
 ## Local
 ```bash
 cp .env.example .env   # completar las variables requeridas; usar credenciales de prueba
