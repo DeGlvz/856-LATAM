@@ -31,6 +31,7 @@ import m029 from './029_fiat_rails_cleanup.js';
 import m030 from './030_fiat_intent_report.js';
 import m031 from './031_client_config_drafts.js';
 import m032 from './032_operator_access_links.js';
+import m033 from './033_usage_budgets.js';
 
 // Migraciones embebidas en el build (no hay archivos .sql que copiar al contenedor).
 // Nunca editar una ya aplicada: agregar una nueva.
@@ -67,6 +68,7 @@ const migrations: [string, string][] = [
   ['030_fiat_intent_report', m030],
   ['031_client_config_drafts', m031],
   ['032_operator_access_links', m032],
+  ['033_usage_budgets', m033],
 ];
 
 export async function migrate(pool: Pool, log: (msg: string) => void = console.log) {

@@ -16,6 +16,8 @@ import { transferRoutes } from './routes/transfers.js';
 import { authRoutes } from './routes/auth.js';
 import { consoleRoutes } from './routes/console.js';
 import { configDraftRoutes } from './routes/config-drafts.js';
+import { usageRoutes } from './routes/usage.js';
+import { startUsageFlush } from './usage.js';
 import { operatorRoutes } from './routes/operators.js';
 import { audit, bootstrapOperator, hasRole, requiredRole, sessionFromRequest } from './auth/operators.js';
 import { ensureHotWalletRegistered, startWorker } from './ledger/transfers.js';
@@ -174,6 +176,7 @@ await app.register(async (v1) => {
   await v1.register(fiatConsoleRoutes);
   await v1.register(fiatRailsConsoleRoutes);
   await v1.register(configDraftRoutes);
+  await v1.register(usageRoutes);
   await v1.register(gasRoutes);
 }, { prefix: '/v1' });
 
@@ -202,6 +205,7 @@ if (existsSync(webDist)) {
 for (const s of ['SIGINT', 'SIGTERM'] as const) process.on(s, () => app.close().then(() => pool.end()).then(() => process.exit(0)));
 
 await app.listen({ port: config.PORT, host: config.HOST });
+startUsageFlush(app.log);
 
 if (config.WORKER_ENABLED) {
   const signer = getSigner();

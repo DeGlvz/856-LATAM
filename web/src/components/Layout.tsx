@@ -2,10 +2,10 @@ import { useState } from 'react';
 import { EnvBadge } from '@/components/EnvBanner';
 import { NavLink, Outlet } from 'react-router';
 import {
-  ArrowLeftRight, Building2, Euro, CheckCheck, FileClock, Gauge, KeyRound, Landmark, LogOut, Menu, Network, ShieldCheck, UsersRound, X,
+  ArrowLeftRight, Building2, Euro, CheckCheck, FileClock, Gauge, KeyRound, Landmark, LogOut, Menu, Network, ShieldCheck, UsersRound, Wallet, X,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { api, type Summary } from '@/lib/api';
+import { api, type Summary, type UsageOverview } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -21,6 +21,7 @@ const NAV = [
   { to: '/aprobaciones', label: 'Aprobaciones', icon: CheckCheck, phase: 5 },
   { to: '/auditoria', label: 'Auditoría', icon: FileClock, phase: 5, tesorero: true },
   { to: '/operadores', label: 'Operadores', icon: UsersRound, phase: 5, tesorero: true },
+  { to: '/consumos', label: 'Consumos y topes', icon: Wallet, phase: 5, tesorero: true },
   { to: '/seguridad', label: 'Seguridad', icon: KeyRound, phase: 5 },
 ] as const;
 const CURRENT_PHASE = 5;
@@ -31,6 +32,8 @@ export function Layout() {
   const { operator, logout, can } = useAuth();
   const [open, setOpen] = useState(false);
   const summary = useQuery({ queryKey: ['summary'], queryFn: () => api<Summary>('/summary'), refetchInterval: 15_000, enabled: !!operator });
+  const usage = useQuery({ queryKey: ['usage'], queryFn: () => api<UsageOverview>('/usage'), refetchInterval: 60_000, enabled: !!operator && can('tesorero') });
+  const usageAlerts = usage.data?.alerts ?? 0;
   const ap = summary.data?.approvals_pending;
   const pending = (ap?.withdrawals ?? 0) + (ap?.netting_runs ?? 0) + (ap?.asset_requests ?? 0) + (ap?.deposits_held ?? 0);
   const nav: readonly (typeof NAV)[number][] = NAV.filter((n: (typeof NAV)[number]) => (!('tesorero' in n) || can('tesorero')) && (!('ejecutivo' in n) || can('ejecutivo')));
@@ -50,6 +53,7 @@ export function Layout() {
             isActive && 'bg-sidebar-accent font-medium text-white')}>
           <Icon className="size-4" /><span className="flex-1">{label}</span>
           {to === '/aprobaciones' && pending > 0 && <span className="num rounded bg-warning px-1.5 text-[11px] font-semibold text-black" aria-label={`${pending} pendientes`}>{pending}</span>}
+          {to === '/consumos' && usageAlerts > 0 && <span className="num rounded bg-warning px-1.5 text-[11px] font-semibold text-black" aria-label={`${usageAlerts} alertas de consumo`}>{usageAlerts}</span>}
         </NavLink>
       ) : (
         <div key={to} aria-disabled className="flex cursor-not-allowed items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-sidebar-muted/70">

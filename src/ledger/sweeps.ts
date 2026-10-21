@@ -28,6 +28,25 @@ export function sweepMin(assetId: string, fallback: bigint): bigint {
   return BigInt(v);
 }
 
+const lastScan = new Map<string, number>(); // wallet_id -> último escaneo de saldo (memoria; al reiniciar se escanea una vez)
+
+/** Saldos ERC-20 de una dirección en una sola llamada (multicall); si la red no lo soporta, cae a lecturas individuales. */
+async function tokenBalances(client: Net['client'], tokens: { contract_address: string }[], addr: Address): Promise<bigint[]> {
+  if (!tokens.length) return [];
+  const one = (t: { contract_address: string }) =>
+    client.readContract({ address: t.contract_address as Address, abi: erc20Abi, functionName: 'balanceOf', args: [addr] }).catch(() => 0n);
+  if (tokens.length === 1) return [await one(tokens[0])];
+  try {
+    const res = await client.multicall({
+      contracts: tokens.map((t) => ({ address: t.contract_address as Address, abi: erc20Abi, functionName: 'balanceOf' as const, args: [addr] as const })),
+      allowFailure: true,
+    });
+    return res.map((r) => (r.status === 'success' ? (r.result as bigint) : 0n));
+  } catch {
+    return Promise.all(tokens.map(one));
+  }
+}
+
 export async function sweepStep(n: Net, log: Log) {
   const hot = getSigner();
   const keyring = getDepositKeyring();
@@ -43,22 +62,38 @@ export async function sweepStep(n: Net, log: Log) {
   const nativeId = native[0].id as string;
   const { rows: tokens } = await pool.query(
     `SELECT id, contract_address FROM assets WHERE network = $1 AND kind = 'erc20' AND active ORDER BY id`, [network]);
-  const { rows: wallets } = await pool.query(
-    `SELECT w.id, w.address, w.derivation_index FROM wallets w
+  const { rows: allWallets } = await pool.query(
+    `SELECT w.id, w.address, w.derivation_index,
+            (w.client_id IS NULL
+             OR EXISTS (SELECT 1 FROM client_sessions s WHERE s.client_id = w.client_id AND s.revoked_at IS NULL AND s.expires_at > now()
+                         AND s.last_seen_at > now() - make_interval(mins => $2))
+             OR EXISTS (SELECT 1 FROM client_api_keys k WHERE k.client_id = w.client_id AND k.revoked_at IS NULL
+                         AND k.last_used_at > now() - make_interval(mins => $2))
+             OR EXISTS (SELECT 1 FROM withdrawals x WHERE x.client_id = w.client_id
+                         AND (x.status IN ('reserved','signed','broadcast') OR x.created_at > now() - make_interval(mins => $2)))
+             OR EXISTS (SELECT 1 FROM deposits d WHERE d.client_id = w.client_id
+                         AND (d.status = 'pending' OR d.created_at > now() - make_interval(mins => $2)))) AS hot
+       FROM wallets w
       WHERE w.network = $1 AND w.purpose IN ('deposit','fiat_treasury','fiat_client') AND w.derivation_index IS NOT NULL AND w.active
         AND NOT EXISTS (SELECT 1 FROM sweeps s WHERE s.wallet_id = w.id AND s.status IN ('signed','broadcast'))
-      ORDER BY w.derivation_index`, [network]);
+      ORDER BY w.derivation_index`, [network, config.SWEEP_ACTIVE_WINDOW_MIN]);
+  // Clientes con actividad reciente: cada ciclo. Sin actividad: solo cada SWEEP_IDLE_INTERVAL_MS (ahorra consultas RPC)
+  const now = Date.now();
+  const wallets = allWallets.filter((w) => w.hot || now - (lastScan.get(w.id) ?? 0) >= config.SWEEP_IDLE_INTERVAL_MS);
   if (!wallets.length) return;
   const fees = await client.estimateFeesPerGas();
   const chainId = await chainIdOf(n);
 
   for (const w of wallets) {
     try {
+      lastScan.set(w.id, now);
       const depSigner = keyring.derive(w.derivation_index);
       const eth = await client.getBalance({ address: w.address as Address });
       let token: { id: string; contract_address: string; bal: bigint } | null = null;
-      for (const t of tokens) {
-        const bal = await client.readContract({ address: t.contract_address, abi: erc20Abi, functionName: 'balanceOf', args: [w.address as Address] }).catch(() => 0n);
+      const bals = await tokenBalances(client, tokens, w.address as Address);
+      for (let i = 0; i < tokens.length; i++) {
+        const t = tokens[i];
+        const bal = bals[i];
         // Fase M1: solo se barre al superar el mínimo del activo (en Ethereum el gas hace incosteable barrer montos chicos)
         if (bal > 0n && bal >= sweepMin(t.id, 1n)) { token = { ...t, bal }; break; }
       }

@@ -202,6 +202,15 @@ export interface OperatorActivity {
   summary: { actions_30d: number; logins_30d: number; denied_30d: number; last_action_at: string | null };
   entries: AuditEntry[]; next_cursor: string | null;
 }
+export interface UsageProvider {
+  provider: string; label: string; unit: string; source: 'metered' | 'manual'; monthly_limit: number | null; warn_pct: number;
+  used: number; pct: number | null; projected: number | null; status: 'ok' | 'warn' | 'over' | 'none';
+  manual_updated_at: string | null; manual_updated_by: string | null; notes: string | null; breakdown: { metric: string; qty: number }[];
+}
+export interface UsageOverview {
+  month: string; alerts: number; providers: UsageProvider[];
+  gas: { by_asset: { asset_id: string; symbol: string; decimals: number; spent: string }[]; sweeps: Record<string, number> };
+}
 export interface OperatorRow {
   id: string; email: string; name: string; role: Role; active: boolean; totp_enabled: boolean; totp_enabled_at: string | null;
   last_login_at: string | null; locked_until: string | null; created_at: string;

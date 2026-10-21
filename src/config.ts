@@ -28,6 +28,10 @@ const Env = z.object({
   // Barrido: ETH m铆nimo (wei) para barrer saldo nativo de una direcci贸n de dep贸sito
   SWEEP_MIN_NATIVE_WEI: z.coerce.bigint().default(1_000_000_000_000_000n), // 0.001 ETH
   SWEEP_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
+  // Ahorro de RPC: clientes con sesi贸n del portal, API key en uso, retiros/dep贸sitos abiertos o recientes dentro de la ventana se barren
+  // en cada ciclo; los dem谩s solo cada SWEEP_IDLE_INTERVAL_MS (igualarlo a WORKER_INTERVAL_MS desactiva el ahorro)
+  SWEEP_ACTIVE_WINDOW_MIN: z.coerce.number().int().min(1).default(30),
+  SWEEP_IDLE_INTERVAL_MS: z.coerce.number().int().min(1000).default(900_000),
   CONFIRMATIONS: z.coerce.number().int().min(1).default(3),
   WORKER_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
   WORKER_INTERVAL_MS: z.coerce.number().int().min(1000).default(10_000),
@@ -100,7 +104,7 @@ const Env = z.object({
   FIAT_POLL_INTERVAL_MS: z.coerce.number().int().min(5_000).default(60_000),
   FIAT_INTENT_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(7),
   // Llave para cifrar (AES-256-GCM) las cuentas bancarias de los rieles fiat. Sin ella la carga y lectura de cuentas queda deshabilitada.
-  FIAT_RAILS_ENC_KEY: z.preprocess(blank, z.string().min(32, 'm韓imo 32 caracteres aleatorios').optional()),
+  FIAT_RAILS_ENC_KEY: z.preprocess(blank, z.string().min(32, 'm锟絥imo 32 caracteres aleatorios').optional()),
 });
 
 export const config = Env.parse(process.env);
