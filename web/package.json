@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.json && vite build",
+    "build:landing": "vite build --config vite.landing.config.ts",
     "preview": "vite preview"
   },
   "dependencies": {

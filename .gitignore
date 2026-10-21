@@ -3,6 +3,7 @@ dist/
 .env
 web/node_modules/
 web/dist/
+web/dist-landing/
 test/playwright/test-results/
 test/playwright/playwright-report/
 *.tsbuildinfo
