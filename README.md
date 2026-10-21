@@ -270,6 +270,7 @@ Pruebas: `node test/portal-fase1.e2e.mjs` (API: 63 verificaciones, incluye aisla
 Página **Operadores** (`/console/operadores`, solo tesorero). El alta deja de depender del script: el tesorero invita y la persona define su nombre y contraseña.
 
 - **Invitación** de un solo uso (`/console/invitacion#<token>`, `CONSOLE_INVITE_TTL_HOURS`, 72 h por defecto); el enlace se muestra una vez y el token nunca viaja en la URL al servidor. Se puede revocar mientras esté pendiente.
+- **Reenviar acceso.** *Reenviar* una invitación pendiente revoca el enlace anterior y emite uno nuevo. *Reenviar acceso* a un operador activo (que nunca entró u olvidó su contraseña) genera un enlace de un solo uso ligado a su cuenta: al abrirlo define nombre y contraseña, se desbloquea la cuenta y se cierran sus sesiones; conserva su rol. Requiere tesorero + 2FA, nadie puede reenviarse el acceso a sí mismo y un operador desactivado debe reactivarse antes.
 - **Cambio de rol, desactivar y reactivar.** Cambiar rol o desactivar cierra las sesiones del operador. Nadie puede modificarse a sí mismo (`403 self_change`).
 - **Step-up 2FA:** toda escritura de este módulo exige el código TOTP del tesorero que actúa (`403 totp_required` si no tiene 2FA; `422 bad_code`).
 - **Siempre un tesorero activo con 2FA** (`409 last_treasurer`), también al apagar el propio 2FA.
@@ -281,13 +282,32 @@ Página **Operadores** (`/console/operadores`, solo tesorero). El alta deja de d
 | `GET /v1/operators` | tesorero | Lista con 2FA, último acceso, sesiones activas y estado |
 | `POST /v1/operators/invites` `{email, role, code}` | tesorero + 2FA | Crea invitación; devuelve el enlace una vez |
 | `GET /v1/operators/invites` · `POST /v1/operators/invites/:id/revoke` `{code}` | tesorero (+ 2FA al revocar) | Invitaciones pendientes |
+| `POST /v1/operators/invites/:id/resend` `{code}` | tesorero + 2FA | Revoca la invitación y devuelve un enlace nuevo |
+| `POST /v1/operators/:id/access-link` `{code}` | tesorero + 2FA | Enlace de un solo uso para restablecer el acceso de un operador |
 | `PATCH /v1/operators/:id` `{role?, active?, code}` | tesorero + 2FA | Rol y activación |
 | `POST /v1/auth/invites/lookup` · `/accept` | pública (límite por IP) | Aceptar invitación |
 | `GET /v1/clients/portal-alerts` | lectura | Clientes con menos de 2 admins en el portal |
 
-Migración `012_consola_operadores` (`operator_invites`; `operators.deactivated_at/by`). Bitácora: `operator_invite_created|revoked|accepted`, `operator_role_changed`, `operator_deactivated|reactivated`.
+Migraciones `012_consola_operadores` (`operator_invites`; `operators.deactivated_at/by`) y `032_operator_access_links` (`operator_invites.operator_id`). Bitácora: `operator_invite_created|revoked|resent|accepted`, `operator_access_resent`, `operator_role_changed`, `operator_deactivated|reactivated`.
 
 Pruebas: `node test/console-operadores.e2e.mjs` (69 verificaciones) y `npx playwright test operadores.spec.mjs` en `test/playwright` (7 recorridos).
+
+### Consola — configuración preparada por el ejecutivo y liberada por el tesorero
+El ejecutivo prepara la configuración de un cliente como **borrador** y el tesorero la libera con 2FA; hasta entonces no se aplica nada. Tarjeta «Configuración por liberar» en el detalle del cliente.
+
+- Tipos: `whitelist` (dirección de retiro; al liberar queda activa tras `WHITELIST_COOLDOWN_HOURS`) y `threshold` (umbral de segunda autorización por activo, `null` lo quita).
+- Estados: `draft → submitted → released | rejected`; `cancelled` si quien lo preparó lo retira. Quien prepara no puede liberar su propio borrador.
+- Los usuarios del portal (invitar, restablecer) siguen siendo solo tesorero.
+
+| Método y ruta | Rol | Uso |
+|---|---|---|
+| `GET /v1/config-drafts?status` · `GET /v1/clients/:id/config-drafts` | lectura | Borradores |
+| `POST /v1/clients/:id/config-drafts` `{kind, …}` | ejecutivo | Crea el borrador |
+| `POST /v1/config-drafts/:id/submit` · `/cancel` | ejecutivo | Enviar al tesorero o retirar |
+| `POST /v1/config-drafts/:id/release` `{code}` | tesorero + 2FA | Aplica la configuración |
+| `POST /v1/config-drafts/:id/reject` `{reason}` | tesorero | Rechaza (motivo mín. 5) |
+
+Migración `031_client_config_drafts`. Bitácora: `config_draft_created|submitted|cancelled|released|rejected`.
 
 ### Portal de clientes — fase 2: inicio, cuentas y depósitos
 Pantallas **Inicio** (avisos, saldos por activo y movimientos recientes), **Cuentas** (historial paginado, filtro por fechas, CSV y estado de cuenta mensual) y **Depósitos** (direcciones con QR y depósitos recibidos). Todo se filtra por el cliente de la sesión o la llave; un activo o recurso ajeno responde `404`.
@@ -635,4 +655,4 @@ Después, en Alchemy → Webhooks, apuntar a `https://<uri-akash>/v1/webhooks/al
 - Akash expone HTTP en el ingress del proveedor; para TLS propio, poner Cloudflare (proxy) delante con dominio personalizado.
 - Red: `ALCHEMY_NETWORK` es la red principal; `NETWORKS` agrega otras redes EVM (ver «Multi-red EVM»). La misma llave firma en todas: un compromiso de la hot wallet afecta a todas las redes.
 - Ambientes (fase M1): producción y sandbox nunca comparten base, llaves ni hot wallet. Nunca enviar fondos reales a la hot wallet del sandbox.
-- **Proveedor retirado.** Un proveedor fiat fue rechazado y se eliminó del código, la UI y la configuración. La migración  28_fiat_remove_transak cierra (sin borrar) las cuentas fiat que hubiera con ese proveedor y endurece los CHECK de iat_accounts.provider y iat_webhook_events.provider como NOT VALID, de modo que el historial contable (cuentas cerradas, depósitos, avisos) se conserva intacto.
+- **Proveedor retirado.** Un proveedor fiat fue rechazado y se eliminó del código, la UI y la configuración. La migración `028_fiat_remove_transak` cierra (sin borrar) las cuentas fiat que hubiera con ese proveedor y endurece los CHECK de `fiat_accounts.provider` y `fiat_webhook_events.provider` como NOT VALID, de modo que el historial contable (cuentas cerradas, depósitos, avisos) se conserva intacto.
