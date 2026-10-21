@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { EnvBadge } from '@/components/EnvBanner';
 import { NavLink, Outlet } from 'react-router';
 import {
-  ArrowLeftRight, Building2, Euro, CheckCheck, FileClock, Gauge, KeyRound, Landmark, LogOut, Menu, Network, ShieldCheck, UsersRound, Wallet, X,
+  ArrowLeftRight, Building2, Inbox, Euro, CheckCheck, FileClock, Gauge, KeyRound, Landmark, LogOut, Menu, Network, ShieldCheck, UsersRound, Wallet, X,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { api, type Summary, type UsageOverview } from '@/lib/api';
@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 const NAV = [
   { to: '/', label: 'Tablero', icon: Gauge, phase: 1 },
   { to: '/clientes', label: 'Clientes y cuentas', icon: Building2, phase: 2 },
+  { to: '/solicitudes', label: 'Solicitudes de acceso', icon: Inbox, phase: 2, ejecutivo: true },
   { to: '/movimientos', label: 'Retiros y depósitos', icon: ArrowLeftRight, phase: 3 },
   { to: '/fiat-automaticos', label: 'Proveedores regulados', icon: Euro, phase: 3 },
   { to: '/rieles-fiat', label: 'Control de Rieles Fiat', icon: Landmark, phase: 3, ejecutivo: true },
