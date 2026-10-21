@@ -203,7 +203,7 @@ export interface OperatorRow {
 }
 
 // ───────────── Administración de operadores ─────────────
-export interface OperatorInvite { id: string; email: string; role: Role; created_at: string; expires_at: string; created_by: string }
+export interface OperatorInvite { id: string; email: string; role: Role; created_at: string; expires_at: string; created_by: string; is_access_reset?: boolean }
 export interface PortalAlert { client_id: string; name: string; admins: number; users: number }
 
 /** Mensajes en español para los códigos de error de administración de operadores. */

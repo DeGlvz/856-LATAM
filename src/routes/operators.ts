@@ -6,7 +6,7 @@ import { HttpError } from '../idempotency.js';
 import { audit, ROLES, type Operator, type Role, normalizeRole } from '../auth/operators.js';
 import {
   acceptOperatorInvite, createOperatorInvite, listOperatorInvites, lookupOperatorInvite, portalAlerts,
-  requireTotpActor, revokeOperatorInvite, stepUp, updateOperator,
+  requireTotpActor, resendOperatorAccess, resendOperatorInvite, revokeOperatorInvite, stepUp, updateOperator,
 } from '../auth/operator-admin.js';
 
 const uuid = z.string().uuid();
@@ -58,6 +58,28 @@ export async function operatorRoutes(app: FastifyInstance) {
     await audit({ operator_id: o.id, actor: o.email, action: 'operator_invite_revoked', target: r.email, status: 200, ip: req.ip,
       metadata: { invite_id: id, role: r.role } });
     return r;
+  });
+
+  app.post<{ Params: { id: string } }>('/operators/invites/:id/resend', async (req, reply) => {
+    const o = actor(req);
+    const id = parse(uuid, req.params.id);
+    await stepUp(o, parse(RevokeBody, req.body).code);
+    const inv = await resendOperatorInvite(o, id);
+    await audit({ operator_id: o.id, actor: o.email, action: 'operator_invite_resent', target: inv.email, status: 201, ip: req.ip,
+      metadata: { previous_invite_id: id, invite_id: inv.id, role: inv.role } });
+    return reply.code(201).send(inv);
+  });
+
+  // Reenviar acceso a un operador existente (contraseña olvidada o nunca entró)
+  app.post<{ Params: { id: string } }>('/operators/:id/access-link', async (req, reply) => {
+    const o = actor(req);
+    const id = parse(uuid, req.params.id);
+    if (id === o.id) throw new HttpError(403, 'Pida a otro tesorero que le reenvíe el acceso', 'self_change');
+    await stepUp(o, parse(RevokeBody, req.body).code);
+    const inv = await resendOperatorAccess(o, id);
+    await audit({ operator_id: o.id, actor: o.email, action: 'operator_access_resent', target: inv.email, status: 201, ip: req.ip,
+      metadata: { operator: id, invite_id: inv.id } });
+    return reply.code(201).send(inv);
   });
 
   // ───────────── Rol y estado (tesorero + 2FA) ─────────────

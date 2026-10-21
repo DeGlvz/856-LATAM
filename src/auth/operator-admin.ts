@@ -41,9 +41,43 @@ export async function createOperatorInvite(actor: Operator, i: { email: string; 
   });
 }
 
+type Link = { id: string; email: string; role: Role; expires_at: Date; link: string };
+
+async function issueLink(c: Tx, actor: Operator, email: string, role: Role, operatorId: string | null): Promise<Link> {
+  const token = randomBytes(32).toString('base64url');
+  const expires_at = new Date(Date.now() + config.CONSOLE_INVITE_TTL_HOURS * 3600_000);
+  const { rows: [inv] } = await c.query(
+    `INSERT INTO operator_invites (email, role, token_hash, created_by, expires_at, operator_id) VALUES ($1,$2,$3,$4,$5,$6)
+     RETURNING id, email, role, expires_at`, [email, role, sha(token), actor.id, expires_at, operatorId]);
+  return { ...inv, link: `/console/invitacion#${token}` };
+}
+
+/** Reenvía el acceso de un operador existente (olvidó la contraseña o nunca entró): enlace nuevo; los anteriores quedan revocados. */
+export async function resendOperatorAccess(actor: Operator, operatorId: string) {
+  if (operatorId === actor.id) throw new HttpError(403, 'Use Seguridad para su propia cuenta: pídalo a otro tesorero', 'self_change');
+  return tx(async (c) => {
+    const { rows: [o] } = await c.query('SELECT id, email, role, active FROM operators WHERE id = $1 FOR UPDATE', [operatorId]);
+    if (!o) throw new HttpError(404, 'Operador no encontrado', 'not_found');
+    if (!o.active) throw new HttpError(409, 'El operador está desactivado: reactívelo primero', 'operator_inactive');
+    await c.query(`UPDATE operator_invites SET revoked_at = now() WHERE operator_id = $1 AND used_at IS NULL AND revoked_at IS NULL`, [operatorId]);
+    return issueLink(c, actor, o.email, o.role, operatorId);
+  });
+}
+
+/** Reenvía una invitación pendiente: revoca el enlace anterior (que ya no se puede ver) y emite uno nuevo. */
+export async function resendOperatorInvite(actor: Operator, id: string) {
+  return tx(async (c) => {
+    const { rows: [inv] } = await c.query(
+      `SELECT id, email, role, operator_id FROM operator_invites WHERE id = $1 AND used_at IS NULL AND revoked_at IS NULL FOR UPDATE`, [id]);
+    if (!inv) throw new HttpError(409, 'La invitación ya fue usada o revocada', 'invite_not_pending');
+    await c.query('UPDATE operator_invites SET revoked_at = now() WHERE id = $1', [id]);
+    return issueLink(c, actor, inv.email, inv.role, inv.operator_id);
+  });
+}
+
 export async function listOperatorInvites() {
   const { rows } = await pool.query(
-    `SELECT i.id, i.email, i.role, i.created_at, i.expires_at, o.email AS created_by
+    `SELECT i.id, i.email, i.role, i.created_at, i.expires_at, o.email AS created_by, i.operator_id IS NOT NULL AS is_access_reset
        FROM operator_invites i JOIN operators o ON o.id = i.created_by
       WHERE i.used_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > now()
       ORDER BY i.created_at DESC LIMIT 500`);
@@ -61,10 +95,10 @@ export async function revokeOperatorInvite(id: string) {
 async function openInvite(c: Tx | typeof pool, token: string, lock = false) {
   if (token.length > 100) throw INVALID();
   const { rows: [inv] } = await c.query(
-    `SELECT id, email, role, expires_at, created_by FROM operator_invites
+    `SELECT id, email, role, expires_at, created_by, operator_id FROM operator_invites
       WHERE token_hash = $1 AND used_at IS NULL AND revoked_at IS NULL AND expires_at > now()${lock ? ' FOR UPDATE' : ''}`, [sha(token)]);
   if (!inv) throw INVALID();
-  return inv as { id: string; email: string; role: Role; expires_at: Date; created_by: string };
+  return inv as { id: string; email: string; role: Role; expires_at: Date; created_by: string; operator_id: string | null };
 }
 
 export async function lookupOperatorInvite(token: string) {
@@ -79,6 +113,16 @@ export async function acceptOperatorInvite(token: string, name: string, password
   try {
     return await tx(async (c) => {
       const inv = await openInvite(c, token, true);
+      if (inv.operator_id) {
+        // Acceso reenviado a un operador existente: nueva contraseña, desbloqueo y cierre de sesiones previas
+        const { rows: [o] } = await c.query(
+          `UPDATE operators SET password_hash = $2, name = $3, failed_attempts = 0, locked_until = NULL
+            WHERE id = $1 AND active RETURNING id, email, name, role`, [inv.operator_id, password_hash, name.trim()]);
+        if (!o) throw INVALID();
+        await c.query('UPDATE operator_sessions SET revoked_at = now() WHERE operator_id = $1 AND revoked_at IS NULL', [o.id]);
+        await c.query('UPDATE operator_invites SET used_at = now() WHERE id = $1', [inv.id]);
+        return { operator: o as { id: string; email: string; name: string; role: Role }, invite_id: inv.id, invited_by: inv.created_by };
+      }
       const { rows: [dup] } = await c.query('SELECT 1 FROM operators WHERE email = $1', [inv.email]);
       if (dup) throw new HttpError(409, 'Ese correo ya es operador', 'email_in_use');
       const { rows: [o] } = await c.query(
