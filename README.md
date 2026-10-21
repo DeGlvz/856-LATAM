@@ -527,6 +527,7 @@ La frontera sigue Arquitectura Hexagonal y Patrón Estrategia: `FiatIngressPort`
 | `POST /v1/portal/fiat/payment-intents` | usuario `operator`+ o llave `trade` | `{amount: "1250.50", expected_date?, note?}` → aviso con referencia |
 | `GET /v1/portal/fiat/payment-intents[/:id]` | portal | avisos del cliente (`open`, `matched`, `expired`, `cancelled`) |
 | `POST /v1/portal/fiat/payment-intents/:id/cancel` | usuario `operator`+ o llave `trade` | cancela un aviso abierto |
+| `POST /v1/portal/fiat/payment-intents/:id/report` | usuario `operator`+ o llave `trade` | `{transfer_date, bank_reference?, note?}`: el cliente reporta que ya transfirió (informativo; no cambia el estado ni acredita; editable mientras el aviso siga abierto) |
 | `GET /v1/portal/fiat/deposits` | portal | depósitos conciliados, liberados o rechazados del cliente |
 | `GET /v1/console/fiat/status` | consola | proveedor, cuenta (IBAN, dirección), último sondeo, cola |
 | `POST /v1/console/fiat/setup` | tesorero + 2FA | alta / avance del alta (idempotente) |

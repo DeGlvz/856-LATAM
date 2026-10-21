@@ -4,7 +4,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, ExternalLink, Info, Loader2, Plus } from 'lucide-react';
+import { Ban, ExternalLink, Info, Loader2, Plus, Send } from 'lucide-react';
 import { ApiError, explorerFor, fmtEur, fmtIban, INTENT_STATE, netLabel, papi, roleAtLeast,
   type FiatDepositRow, type FiatInstructions, type PaymentIntent, type PortalRail } from '../api';
 import { usePortal } from '../auth';
@@ -142,6 +142,7 @@ export function PaymentIntents() {
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<PaymentIntent | null>(null);
   const [cancelling, setCancelling] = useState<PaymentIntent | null>(null);
+  const [reporting, setReporting] = useState<PaymentIntent | null>(null);
   const canCreate = roleAtLeast(role, 'operator');
   const cancel = useMutation({
     mutationFn: (id: string) => papi<PaymentIntent>(`/fiat/payment-intents/${id}/cancel`, { method: 'POST', json: {} }),
@@ -170,9 +171,13 @@ export function PaymentIntents() {
                     <TableCell className="text-right font-medium tabular-nums whitespace-nowrap">{fmtEur(p.expected_amount_eur)}</TableCell>
                     <TableCell className="text-xs">{p.expected_date ?? '—'}</TableCell>
                     <TableCell className="max-w-56 truncate text-sm" title={p.note ?? undefined}>{p.note ?? '—'}</TableCell>
-                    <TableCell><Badge variant={INTENT_STATE[p.status].v}>{INTENT_STATE[p.status].t}</Badge></TableCell>
+                    <TableCell><Badge variant={INTENT_STATE[p.status].v}>{INTENT_STATE[p.status].t}</Badge>
+                      {p.status === 'open' && p.reported_at && <div className="mt-1 text-xs text-muted-foreground" data-testid="intent-reported">Pago reportado{p.reported_date && ` (${p.reported_date})`}</div>}</TableCell>
                     <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{fmtDate(p.expires_at)}</TableCell>
-                    <TableCell className="text-right">{p.status === 'open' && canCreate && <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setCancelling(p)}><Ban />Cancelar</Button>}</TableCell>
+                    <TableCell className="text-right whitespace-nowrap">
+                      {p.status === 'open' && canCreate && <Button size="sm" variant="outline" onClick={() => setReporting(p)}><Send />{p.reported_at ? 'Editar reporte' : 'Reportar pago'}</Button>}
+                      {p.status === 'open' && canCreate && <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setCancelling(p)}><Ban />Cancelar</Button>}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -190,6 +195,7 @@ export function PaymentIntents() {
           <DialogFooter><Button asChild variant="outline"><Link to="/euros">Ver datos bancarios</Link></Button><Button onClick={() => setCreated(null)}>Listo</Button></DialogFooter>
         </DialogContent>
       </Dialog>
+      <ReportIntentDialog intent={reporting} onClose={() => setReporting(null)} />
       <Dialog open={!!cancelling} onOpenChange={(v) => !v && setCancelling(null)}>
         <DialogContent>
           <DialogHeader><DialogTitle>Cancelar aviso</DialogTitle>
@@ -201,6 +207,38 @@ export function PaymentIntents() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function ReportIntentDialog({ intent, onClose }: { intent: PaymentIntent | null; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [date, setDate] = useState('');
+  const [bankRef, setBankRef] = useState('');
+  const [note, setNote] = useState('');
+  useEffect(() => {
+    if (intent) { setDate(intent.reported_date ?? new Date().toISOString().slice(0, 10)); setBankRef(intent.reported_bank_ref ?? ''); setNote(intent.reported_note ?? ''); m.reset(); }
+  }, [intent]); // eslint-disable-line react-hooks/exhaustive-deps
+  const m = useMutation({
+    mutationFn: () => papi<PaymentIntent>(`/fiat/payment-intents/${intent!.id}/report`, {
+      method: 'POST', json: { transfer_date: date, ...(bankRef.trim() ? { bank_reference: bankRef.trim() } : {}), ...(note.trim() ? { note: note.trim() } : {}) } }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['p-fiat-intents'] }); onClose(); },
+  });
+  return (
+    <Dialog open={!!intent} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Reportar pago</DialogTitle>
+          <DialogDescription>Avise a 856 que ya realizó la transferencia SEPA. Es solo informativo: el saldo se acredita cuando el depósito llega y tesorería lo libera.</DialogDescription></DialogHeader>
+        <code className="font-mono">{intent?.reference}</code>
+        <form className="grid gap-4" onSubmit={(e: FormEvent) => { e.preventDefault(); if (date) m.mutate(); }}>
+          <Field label="Fecha de la transferencia" htmlFor="fr-date"><Input id="fr-date" type="date" required value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+          <Field label="Referencia bancaria (opcional)" htmlFor="fr-ref" hint="El identificador de la operación que le da su banco."><Input id="fr-ref" maxLength={100} value={bankRef} onChange={(e) => setBankRef(e.target.value)} /></Field>
+          <Field label="Nota (opcional)" htmlFor="fr-note"><Input id="fr-note" maxLength={300} value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+          <ErrorBox error={m.error} />
+          <DialogFooter><Button type="button" variant="outline" onClick={onClose}>Volver</Button>
+            <Button type="submit" disabled={!date || m.isPending}>{m.isPending && <Loader2 className="animate-spin" />}Reportar pago</Button></DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
