@@ -22,10 +22,15 @@ const ACTION: Record<string, string> = {
   'POST /v1/obligations': 'Alta de obligación', 'POST /v1/obligations/:id/cancel': 'Cancelación de obligación',
   'PATCH /v1/clients/:id': 'Cambio de cliente', 'POST /v1/clients': 'Alta de cliente', 'POST /v1/entries': 'Asiento manual',
   'POST /v1/wallets': 'Alta de wallet', 'PATCH /v1/wallets/:id': 'Cambio de wallet', 'POST /v1/operators/:id/totp/reset': 'Restablecer 2FA de operador',
+  operator_invite_created: 'Invitación de operador', operator_invite_revoked: 'Invitación revocada', operator_invite_resent: 'Invitación reenviada',
+  operator_invite_accepted: 'Invitación aceptada', operator_access_resent: 'Acceso reenviado', operator_role_changed: 'Cambio de rol de operador',
+  operator_deactivated: 'Operador desactivado', operator_reactivated: 'Operador reactivado',
+  config_draft_created: 'Borrador de configuración', config_draft_submitted: 'Borrador enviado a tesorería', config_draft_cancelled: 'Borrador retirado',
+  config_draft_released: 'Configuración liberada', config_draft_rejected: 'Configuración rechazada',
 };
-const label = (a: string) => ACTION[a] ?? a;
+export const label = (a: string) => ACTION[a] ?? a;
 
-function result(e: AuditEntry): { text: string; variant: 'success' | 'destructive' | 'warning' | 'outline' } {
+export function result(e: AuditEntry): { text: string; variant: 'success' | 'destructive' | 'warning' | 'outline' } {
   if (e.status == null) return { text: '—', variant: 'outline' };
   if (e.status === 403 || e.action.endsWith('failed')) return { text: e.status === 403 ? 'Denegado' : 'Fallido', variant: 'warning' };
   return e.status < 400 ? { text: String(e.status), variant: 'success' } : { text: String(e.status), variant: 'destructive' };
