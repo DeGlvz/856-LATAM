@@ -201,6 +201,8 @@ const TESORERO = new Set([
   'PUT /v1/console/fiat/rails/:rail_id', 'POST /v1/console/fiat/rails/:rail_id/account/reveal', 'POST /v1/console/fiat/rails/:rail_id/delete', 'POST /v1/console/fiat/rails', 'POST /v1/console/fiat/rails/:rail_id/accounts',
   'POST /v1/console/fiat/rails/:rail_id/accounts/:version/approve', 'POST /v1/console/fiat/rails/:rail_id/accounts/:version/reject',
   'POST /v1/console/fiat/rails/:rail_id/clients', 'POST /v1/console/fiat/rails/:rail_id/clients/:client_id/unassign',
+  // Configuración de cliente preparada por el ejecutivo: solo tesorería la libera o rechaza
+  'POST /v1/config-drafts/:id/release', 'POST /v1/config-drafts/:id/reject',
   // Registro de gas en el libro
   'POST /v1/gas-fundings',
 ]);
