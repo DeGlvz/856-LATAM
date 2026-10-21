@@ -1,0 +1,1287 @@
+<!DOCTYPE html>
+
+<html class="scroll-smooth" lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="web_standard" name="shell-type"/>
+<title>856 LATAM | Infraestructura de liquidación y tesorería institucional</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+    @layer base {
+      html, body { margin: 0; padding: 0; scroll-behavior: smooth; }
+      body { overscroll-behavior: none; }
+    }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #0b132b; }
+    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 9999px; }
+    .tabular-nums { font-variant-numeric: tabular-nums; }
+    
+    /* Technical Grid background pattern */
+    .bg-tech-grid {
+      background-size: 32px 32px;
+      background-image: 
+        linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+    }
+    .bg-tech-grid-light {
+      background-size: 32px 32px;
+      background-image: 
+        linear-gradient(to right, rgba(15, 23, 42, 0.04) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(15, 23, 42, 0.04) 1px, transparent 1px);
+    }
+    
+    /* Glowing fiber pulse effect */
+    @keyframes netPulse {
+      0%, 100% { stroke-dashoffset: 0; opacity: 0.95; }
+      50% { stroke-dashoffset: 32; opacity: 0.6; }
+    }
+    .fiber-pulse {
+      stroke-dasharray: 8 6;
+      animation: netPulse 2.8s linear infinite;
+    }
+    
+    /* Cursor blink */
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+    .cursor-blink {
+      animation: blink 1s infinite;
+    }
+  </style>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "navy-core": "#1F2A44",
+            "navy-dark": "#111C33",
+            "navy-deep": "#0B132B",
+            "navy-surface": "#15223E",
+            "prod-green": "#10B981",
+            "prod-green-dark": "#059669",
+            "prod-green-light": "#EAF5EF",
+            "surface-bg": "#F8F9FB",
+            "card-bg": "#FFFFFF",
+            "border-subtle": "#E2E4E9",
+            "text-primary": "#191C1E",
+            "text-muted": "#475569",
+            "text-subtle": "#64748B"
+          },
+          fontFamily: {
+            sans: ["Inter", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"],
+            mono: ["JetBrains Mono", "ui-monospace", "SFMono-Regular", "Menlo", "Consolas", "monospace"]
+          },
+          borderRadius: {
+            'xl': '0.75rem',
+            '2xl': '1rem'
+          }
+        }
+      }
+    };
+  </script>
+</head>
+<body class="bg-surface-bg font-sans text-text-primary antialiased selection:bg-prod-green/20 selection:text-white min-h-screen flex flex-col justify-between">
+<!-- 1. ENCABEZADO INSTITUCIONAL -->
+<header class="fixed top-0 inset-x-0 z-50 bg-[#0B132B]/95 backdrop-blur-md border-b border-white/10 transition-all duration-300">
+<div class="h-16 max-w-[1440px] mx-auto px-6 lg:px-12 flex items-center justify-between">
+<!-- Logotipo tipográfico "856 LATAM" -->
+<a class="flex items-center gap-2.5 focus:outline-none group" href="#">
+<div class="w-8 h-8 rounded-lg bg-white/10 border border-white/15 flex items-center justify-center text-white font-mono font-bold text-sm tracking-tight group-hover:border-prod-green/50 transition-colors">
+          856
+        </div>
+<div class="flex flex-col leading-none">
+<span class="text-base font-bold tracking-tight text-white group-hover:text-prod-green transition-colors">856</span>
+<span class="text-[9px] font-bold tracking-widest uppercase text-slate-300">LATAM</span>
+</div>
+</a>
+<!-- Enlaces de navegación con anclas requeridas -->
+<nav class="hidden md:flex items-center gap-8">
+<a class="text-xs font-semibold uppercase tracking-wider text-slate-300 hover:text-white transition-colors py-1" href="#resolvemos">Qué resolvemos</a>
+<a class="text-xs font-semibold uppercase tracking-wider text-slate-300 hover:text-white transition-colors py-1" href="#rieles">Rieles</a>
+<a class="text-xs font-semibold uppercase tracking-wider text-slate-300 hover:text-white transition-colors py-1" href="#conectividad">Conectividad</a>
+<a class="text-xs font-semibold uppercase tracking-wider text-slate-300 hover:text-white transition-colors py-1" href="#api">API</a>
+<a class="text-xs font-semibold uppercase tracking-wider text-slate-300 hover:text-white transition-colors py-1" href="#control">Control</a>
+</nav>
+<!-- Botón Portal de clientes -->
+<div class="flex items-center gap-3">
+<a class="text-xs font-semibold px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white border border-white/15 transition-all inline-flex items-center gap-2 shadow-sm hover:border-prod-green/40 hover:shadow-prod-green/10" href="/portal/login">
+<span>Portal de clientes</span>
+<span class="material-symbols-outlined text-[15px] text-prod-green">arrow_forward</span>
+</a>
+</div>
+</div>
+</header>
+<main class="w-full pt-16 flex-1">
+<div class="flex flex-col w-full">
+<!-- 2. HERO -->
+<section class="relative w-full bg-[#0B132B] text-white pt-20 lg:pt-28 pb-20 lg:pb-28 border-b border-white/10 overflow-hidden bg-tech-grid">
+<!-- Ambient Radial Glow Gradient -->
+<div class="absolute -top-32 -left-32 w-[600px] h-[600px] bg-navy-core/70 rounded-full blur-[140px] pointer-events-none"></div>
+<div class="absolute top-1/3 right-10 w-[620px] h-[520px] bg-gradient-to-tr from-prod-green-dark/20 to-teal-500/10 rounded-full blur-[150px] pointer-events-none"></div>
+<div class="relative max-w-[1440px] mx-auto px-6 lg:px-12">
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-14 items-center">
+<!-- Hero Content -->
+<div class="lg:col-span-6 flex flex-col gap-6 z-10">
+<div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 backdrop-blur-sm self-start">
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-prod-green opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-prod-green"></span>
+</span>
+<span class="text-[11px] font-semibold uppercase tracking-widest text-slate-200">
+                  Infraestructura nacida en LATAM
+                </span>
+</div>
+<h1 class="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-white tracking-tight leading-[1.15]">
+                Infraestructura de liquidación sin fronteras, nacida en LATAM
+              </h1>
+<p class="text-base sm:text-lg text-slate-300 font-normal leading-relaxed max-w-xl">
+                Motor de tesorería programable, inmutable y de grado institucional.
+              </p>
+<!-- Botones -->
+<div class="flex flex-wrap items-center gap-4 pt-2">
+<a class="inline-flex items-center justify-center px-6 py-3.5 bg-prod-green hover:bg-emerald-400 text-[#0B132B] text-sm font-bold rounded-xl transition-all shadow-lg shadow-prod-green/20 hover:shadow-prod-green/40 gap-2.5 active:scale-[0.98]" href="/portal/login">
+<span>Ingresar al portal</span>
+<span class="material-symbols-outlined text-[18px]">lock</span>
+</a>
+<a class="inline-flex items-center justify-center px-6 py-3.5 bg-white/10 hover:bg-white/15 text-white text-sm font-semibold border border-white/15 rounded-xl transition-all backdrop-blur-sm hover:border-white/30 active:scale-[0.98]" href="#solicitar-acceso">
+                  Solicitar acceso
+                </a>
+</div>
+<!-- Etiquetas inferiores Hero -->
+<div class="pt-8 border-t border-white/10 flex flex-wrap items-center gap-4 sm:gap-6 text-sm text-slate-300">
+<div class="flex items-center gap-2 bg-white/5 px-3 py-1.5 rounded-lg border border-white/10">
+<span class="material-symbols-outlined text-prod-green text-[18px]">check_circle</span>
+<span class="font-medium text-slate-200 text-xs sm:text-sm">Libro contable de doble partida</span>
+</div>
+<div class="flex items-center gap-2 bg-white/5 px-3 py-1.5 rounded-lg border border-white/10">
+<span class="material-symbols-outlined text-prod-green text-[18px]">check_circle</span>
+<span class="font-medium text-slate-200 text-xs sm:text-sm">Compensación multilateral</span>
+</div>
+<div class="flex items-center gap-2 bg-white/5 px-3 py-1.5 rounded-lg border border-white/10">
+<span class="material-symbols-outlined text-prod-green text-[18px]">check_circle</span>
+<span class="font-medium text-slate-200 text-xs sm:text-sm">Conciliación neta</span>
+</div>
+</div>
+</div>
+<!-- Panel ilustrativo sofisticado: Multilateral Netting Engine SVG & Card -->
+<div class="lg:col-span-6 flex flex-col z-10">
+<div class="bg-[#111C33]/95 rounded-2xl border border-white/15 p-6 shadow-2xl backdrop-blur-xl relative overflow-hidden">
+<!-- Top Status Badge Header -->
+<div class="flex items-center justify-between pb-4 border-b border-white/10">
+<div class="flex items-center gap-2.5">
+<div class="w-7 h-7 rounded-lg bg-prod-green/10 border border-prod-green/20 flex items-center justify-center text-prod-green">
+<span class="material-symbols-outlined text-[17px]">account_balance</span>
+</div>
+<span class="text-xs font-bold uppercase tracking-wider text-white">Motor de compensación 856</span>
+</div>
+<span class="inline-flex items-center gap-1.5 text-[10px] font-mono font-bold text-prod-green bg-prod-green/10 border border-prod-green/30 px-2.5 py-1 rounded-full uppercase tracking-wider">
+<span class="relative flex h-1.5 w-1.5">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-prod-green opacity-75"></span>
+<span class="relative inline-flex rounded-full h-1.5 w-1.5 bg-prod-green"></span>
+</span>
+                    PRODUCCIÓN
+                  </span>
+</div>
+<!-- Abstract Ledger Multilateral Graph Visualization -->
+<div class="py-4">
+<div class="bg-[#0B132B]/90 rounded-xl border border-white/10 p-4 relative overflow-hidden">
+<svg class="w-full h-auto" fill="none" viewbox="0 0 540 310" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<lineargradient gradientunits="userSpaceOnUse" id="netGrad" x1="270" x2="430" y1="130" y2="245">
+<stop offset="0%" stop-color="#10B981"></stop>
+<stop offset="100%" stop-color="#34D399"></stop>
+</lineargradient>
+<filter height="140%" id="glowGreen" width="140%" x="-20%" y="-20%">
+<fegaussianblur result="blur" stddeviation="3"></fegaussianblur>
+<fecomposite in="SourceGraphic" operator="over" source="blur"></fecomposite>
+</filter>
+</defs>
+<!-- Grid background detail inside SVG -->
+<pattern height="20" id="innerGrid" patternunits="userSpaceOnUse" width="20">
+<path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(255, 255, 255, 0.04)" stroke-width="0.5"></path>
+</pattern>
+<rect fill="url(#innerGrid)" height="310" width="540"></rect>
+<!-- Cruzadas Tenues (Deuda recíproca entre nodos) -->
+<path d="M 85 45 Q 180 80 270 125" opacity="0.6" stroke="#475569" stroke-dasharray="3 3" stroke-width="1.2"></path>
+<path d="M 455 45 Q 360 80 270 125" opacity="0.6" stroke="#475569" stroke-dasharray="3 3" stroke-width="1.2"></path>
+<path d="M 85 225 Q 180 180 270 135" opacity="0.6" stroke="#475569" stroke-dasharray="3 3" stroke-width="1.2"></path>
+<path d="M 85 50 Q 80 140 85 220" opacity="0.4" stroke="#334155" stroke-dasharray="2 2" stroke-width="1"></path>
+<path d="M 455 50 Q 300 20 90 40" opacity="0.3" stroke="#334155" stroke-dasharray="2 2" stroke-width="1"></path>
+<!-- Node 1: Entidad 01 -->
+<g transform="translate(20, 20)">
+<rect fill="#15223E" height="52" rx="8" stroke="rgba(255,255,255,0.2)" stroke-width="1" width="135"></rect>
+<circle cx="16" cy="18" fill="#3B82F6" r="4"></circle>
+<text fill="#FFFFFF" font-family="Inter" font-size="10" font-weight="700" x="26" y="21">ENTIDAD 01</text>
+<text fill="#CBD5E1" font-family="JetBrains Mono" font-size="8.5" x="14" y="38">DEBE: [SALDO BRUTO]</text>
+<text fill="#94A3B8" font-family="JetBrains Mono" font-size="7.5" x="14" y="47">--- BRL / USD</text>
+</g>
+<!-- Node 2: Entidad 02 -->
+<g transform="translate(385, 20)">
+<rect fill="#15223E" height="52" rx="8" stroke="rgba(255,255,255,0.2)" stroke-width="1" width="135"></rect>
+<circle cx="16" cy="18" fill="#8B5CF6" r="4"></circle>
+<text fill="#FFFFFF" font-family="Inter" font-size="10" font-weight="700" x="26" y="21">ENTIDAD 02</text>
+<text fill="#CBD5E1" font-family="JetBrains Mono" font-size="8.5" x="14" y="38">HABER: [CONCILIADO]</text>
+<text fill="#94A3B8" font-family="JetBrains Mono" font-size="7.5" x="14" y="47">--- EUR</text>
+</g>
+<!-- Node 3: Entidad 03 -->
+<g transform="translate(20, 200)">
+<rect fill="#15223E" height="52" rx="8" stroke="rgba(255,255,255,0.2)" stroke-width="1" width="135"></rect>
+<circle cx="16" cy="18" fill="#06B6D4" r="4"></circle>
+<text fill="#FFFFFF" font-family="Inter" font-size="10" font-weight="700" x="26" y="21">ENTIDAD 03</text>
+<text fill="#CBD5E1" font-family="JetBrains Mono" font-size="8.5" x="14" y="38">POSICIÓN: --- USD</text>
+<text fill="#94A3B8" font-family="JetBrains Mono" font-size="7.5" x="14" y="47">[CONTRAPARTE MULTI]</text>
+</g>
+<!-- Converging flows into Core Engine -->
+<circle cx="270" cy="130" fill="#0B132B" r="42" stroke="#10B981" stroke-opacity="0.7" stroke-width="1.5"></circle>
+<circle cx="270" cy="130" fill="#1E293B" r="32" stroke="rgba(255,255,255,0.15)" stroke-width="1"></circle>
+<text fill="#FFFFFF" font-family="Inter" font-size="10" font-weight="800" text-anchor="middle" x="270" y="127">856-CORE</text>
+<text fill="#10B981" font-family="JetBrains Mono" font-size="7.5" font-weight="700" text-anchor="middle" x="270" y="140">MULTILATERAL</text>
+<!-- Single Luminous Netting Vector -->
+<path class="fiber-pulse" d="M 295 145 C 340 170 360 210 375 235" fill="none" stroke="url(#netGrad)" stroke-width="3.5"></path>
+<!-- Net Output Badge: Final Net Settlement T+0 -->
+<g transform="translate(310, 215)">
+<rect fill="#064E3B" height="66" rx="10" stroke="#10B981" stroke-width="1.5" width="210"></rect>
+<rect fill="url(#netGrad)" height="66" opacity="0.15" rx="10" width="210" x="0" y="0"></rect>
+<circle cx="18" cy="22" fill="#10B981" r="5"></circle>
+<text fill="#A7F3D0" font-family="JetBrains Mono" font-size="8" font-weight="700" x="28" y="24">[MONTO NETO COMPENSADO]</text>
+<text fill="#FFFFFF" font-family="Inter" font-size="11" font-weight="800" x="16" y="44">Saldo consolidado T+0</text>
+<text fill="#6EE7B7" font-family="JetBrains Mono" font-size="8" x="16" y="56">ÚNICA LIQUIDACIÓN NETA</text>
+</g>
+</svg>
+</div>
+<!-- Principles Checklist Inside Card -->
+<div class="mt-4 flex flex-col divide-y divide-white/10 text-xs sm:text-sm">
+<div class="py-2.5 flex justify-between items-center text-slate-300">
+<span>Principio contable:</span>
+<span class="font-semibold text-white">Doble partida inmutable</span>
+</div>
+<div class="py-2.5 flex justify-between items-center text-slate-300">
+<span>Procesamiento interno:</span>
+<span class="font-semibold text-prod-green">Compensación multilateral directa</span>
+</div>
+<div class="py-2.5 flex justify-between items-center text-slate-300">
+<span>Salida a red externa:</span>
+<span class="font-semibold text-white">Únicamente posiciones netas</span>
+</div>
+</div>
+</div>
+<div class="pt-3 border-t border-white/10 flex items-center justify-between text-xs text-slate-300">
+<span>Conciliación estricta</span>
+<span class="font-mono text-prod-green font-semibold">T+0 DETERMINISTA</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- 3. FRANJA "EN PRODUCCIÓN HOY" -->
+<section class="w-full bg-[#111C33] text-white py-16 border-b border-white/10 relative" id="en-produccion">
+<div class="max-w-[1440px] mx-auto px-6 lg:px-12 flex flex-col gap-10">
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-white/10 pb-6">
+<div>
+<span class="text-xs uppercase font-bold tracking-wider text-prod-green bg-prod-green/10 border border-prod-green/20 px-2.5 py-1 rounded-md">
+                Estado operativo
+              </span>
+<h2 class="text-2xl sm:text-3xl font-extrabold tracking-tight text-white mt-3">
+                En producción hoy
+              </h2>
+</div>
+<p class="text-sm font-semibold text-prod-green tracking-wide">
+              No es una promesa: es lo que ya opera.
+            </p>
+</div>
+<!-- 5 Tarjetas requeridas -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-5">
+<!-- Point 1: 4 Redes -->
+<div class="bg-white/5 hover:bg-white/[0.08] transition-all rounded-xl border border-white/10 p-6 flex flex-col justify-between group shadow-sm hover:border-prod-green/40">
+<div>
+<div class="flex items-center justify-between mb-4">
+<span class="text-xs uppercase font-bold text-slate-300 tracking-wider">Redes</span>
+<span class="relative flex h-2.5 w-2.5">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-prod-green opacity-80"></span>
+<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-prod-green"></span>
+</span>
+</div>
+<div class="text-4xl lg:text-5xl font-mono font-extrabold text-white tracking-tight tabular-nums mb-2">4</div>
+<h3 class="text-sm font-semibold text-white mb-1.5">4 redes principales operando</h3>
+<p class="text-sm text-slate-300 leading-relaxed font-mono">
+                  Ethereum, Base, Arbitrum, BNB Chain
+                </p>
+</div>
+</div>
+<!-- Point 2: 14 Activos -->
+<div class="bg-white/5 hover:bg-white/[0.08] transition-all rounded-xl border border-white/10 p-6 flex flex-col justify-between group shadow-sm hover:border-prod-green/40">
+<div>
+<div class="flex items-center justify-between mb-4">
+<span class="text-xs uppercase font-bold text-slate-300 tracking-wider">Activos</span>
+<span class="relative flex h-2.5 w-2.5">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-prod-green opacity-80"></span>
+<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-prod-green"></span>
+</span>
+</div>
+<div class="text-4xl lg:text-5xl font-mono font-extrabold text-white tracking-tight tabular-nums mb-2">14</div>
+<h3 class="text-sm font-semibold text-white mb-1.5">14 activos digitales verificados</h3>
+<p class="text-sm text-slate-300 leading-relaxed">
+                  Soporte directo de balances institucionales con liquidación programable.
+                </p>
+</div>
+</div>
+<!-- Point 3: T+0 Liquidación inmediata dentro del libro -->
+<div class="bg-white/5 hover:bg-white/[0.08] transition-all rounded-xl border border-white/10 p-6 flex flex-col justify-between group shadow-sm hover:border-prod-green/40">
+<div>
+<div class="flex items-center justify-between mb-4">
+<span class="text-xs uppercase font-bold text-slate-300 tracking-wider">Libro contable</span>
+<span class="relative flex h-2.5 w-2.5">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-prod-green opacity-80"></span>
+<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-prod-green"></span>
+</span>
+</div>
+<div class="text-4xl lg:text-5xl font-mono font-extrabold text-white tracking-tight tabular-nums mb-2">T+0</div>
+<h3 class="text-sm font-semibold text-white mb-1.5">Compensación multilateral</h3>
+<p class="text-sm text-slate-300 leading-relaxed">
+                  Liquidación inmediata dentro del libro.
+                </p>
+</div>
+</div>
+<!-- Point 4: En línea Portal de clientes y consola de tesorería -->
+<div class="bg-white/5 hover:bg-white/[0.08] transition-all rounded-xl border border-white/10 p-6 flex flex-col justify-between group shadow-sm hover:border-prod-green/40">
+<div>
+<div class="flex items-center justify-between mb-4">
+<span class="text-xs uppercase font-bold text-slate-300 tracking-wider">Interfaces</span>
+<span class="relative flex h-2.5 w-2.5">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-prod-green opacity-80"></span>
+<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-prod-green"></span>
+</span>
+</div>
+<div class="text-3xl lg:text-4xl font-extrabold text-white tracking-tight mb-2 pt-1">En línea</div>
+<h3 class="text-sm font-semibold text-white mb-1.5">Disponibilidad operacional</h3>
+<p class="text-sm text-slate-300 leading-relaxed">
+                  Portal de clientes y consola de tesorería.
+                </p>
+</div>
+</div>
+<!-- Point 5: SEPA Rampa Fiat -->
+<div class="bg-white/5 hover:bg-white/[0.08] transition-all rounded-xl border border-white/10 p-6 flex flex-col justify-between group shadow-sm hover:border-prod-green/40">
+<div>
+<div class="flex items-center justify-between mb-4">
+<span class="text-xs uppercase font-bold text-slate-300 tracking-wider">Rampa fiat</span>
+<span class="relative flex h-2.5 w-2.5">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-prod-green opacity-80"></span>
+<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-prod-green"></span>
+</span>
+</div>
+<div class="text-4xl lg:text-5xl font-mono font-extrabold text-white tracking-tight tabular-nums mb-2">SEPA</div>
+<h3 class="text-sm font-semibold text-white mb-1.5">Entrada de euros por SEPA</h3>
+<p class="text-sm text-slate-300 leading-relaxed">
+                  Operación bancaria integrada mediante proveedor regulado.
+                </p>
+</div>
+</div>
+</div>
+<!-- Bottom Highlighted Closing Line -->
+<div class="text-center pt-2">
+<span class="inline-block px-5 py-2 rounded-xl bg-white/5 border border-white/10 text-xs sm:text-sm font-semibold text-slate-200">
+              No es una promesa: es lo que ya opera.
+            </span>
+</div>
+</div>
+</section>
+<!-- 4. QUÉ RESOLVEMOS (ID: resolvemos) -->
+<section class="w-full bg-surface-bg py-20 lg:py-28 border-b border-border-subtle bg-tech-grid-light" id="resolvemos">
+<div class="max-w-[1440px] mx-auto px-6 lg:px-12 flex flex-col gap-12">
+<div class="max-w-2xl flex flex-col gap-2.5">
+<span class="text-xs uppercase tracking-widest text-text-subtle font-bold">
+              Arquitectura de liquidación
+            </span>
+<h2 class="text-2xl lg:text-3xl font-extrabold text-navy-core tracking-tight">
+              Qué resolvemos
+            </h2>
+<p class="text-sm lg:text-base text-text-muted">
+              Estructura técnica para empresas y entidades con flujos transfronterizos recurrentes.
+            </p>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+<!-- Card 1 -->
+<div class="bg-white p-8 rounded-xl border border-border-subtle flex flex-col justify-between shadow-sm hover:shadow-md hover:border-navy-core/30 transition-all duration-300 group">
+<div class="flex flex-col gap-4">
+<div class="w-12 h-12 rounded-xl bg-surface-bg border border-border-subtle flex items-center justify-center text-navy-core group-hover:bg-navy-core group-hover:text-white transition-colors">
+<span class="material-symbols-outlined text-[24px]">sync_alt</span>
+</div>
+<h3 class="text-lg font-bold text-navy-core tracking-tight">
+                  Compensación multilateral de obligaciones
+                </h3>
+<p class="text-sm text-text-muted leading-relaxed">
+                  Las obligaciones recíprocas entre participantes se compensan y netean dentro del libro contable interno. Se liquida hacia el exterior únicamente el saldo neto resultante, eliminando el movimiento innecesario de capital bruto.
+                </p>
+</div>
+<div class="pt-6 mt-6 border-t border-border-subtle text-xs text-text-muted font-medium flex items-center justify-between">
+<span>Resultado</span>
+<span class="text-navy-core font-bold bg-surface-bg px-2.5 py-1 rounded-md border border-border-subtle">Se liquida solo el neto</span>
+</div>
+</div>
+<!-- Card 2 -->
+<div class="bg-white p-8 rounded-xl border border-border-subtle flex flex-col justify-between shadow-sm hover:shadow-md hover:border-navy-core/30 transition-all duration-300 group">
+<div class="flex flex-col gap-4">
+<div class="w-12 h-12 rounded-xl bg-surface-bg border border-border-subtle flex items-center justify-center text-navy-core group-hover:bg-navy-core group-hover:text-white transition-colors">
+<span class="material-symbols-outlined text-[24px]">account_balance_wallet</span>
+</div>
+<h3 class="text-lg font-bold text-navy-core tracking-tight">
+                  Cuentas multi-activo en dólares digitales y euros
+                </h3>
+<p class="text-sm text-text-muted leading-relaxed">
+                  Consolidación de posiciones de tesorería con balances segregados, registro estricto por partida contable y emisión de estados de cuenta conciliados para auditoría corporativa.
+                </p>
+</div>
+<div class="pt-6 mt-6 border-t border-border-subtle text-xs text-text-muted font-medium flex items-center justify-between">
+<span>Transparencia</span>
+<span class="text-navy-core font-bold bg-surface-bg px-2.5 py-1 rounded-md border border-border-subtle">Estados de cuenta con auditoría</span>
+</div>
+</div>
+<!-- Card 3 -->
+<div class="bg-white p-8 rounded-xl border border-border-subtle flex flex-col justify-between shadow-sm hover:shadow-md hover:border-navy-core/30 transition-all duration-300 group">
+<div class="flex flex-col gap-4">
+<div class="w-12 h-12 rounded-xl bg-surface-bg border border-border-subtle flex items-center justify-center text-navy-core group-hover:bg-navy-core group-hover:text-white transition-colors">
+<span class="material-symbols-outlined text-[24px]">euro</span>
+</div>
+<h3 class="text-lg font-bold text-navy-core tracking-tight">
+                  Entrada de euros por transferencia SEPA
+                </h3>
+<p class="text-sm text-text-muted leading-relaxed">
+                  Conexión directa al sistema bancario europeo a través de proveedor financiero debidamente regulado. <span class="font-semibold text-text-primary">856 no custodia dinero fiat;</span> la recepción y conversión fiat es operada íntegramente por dicha entidad licenciada.
+                </p>
+</div>
+<div class="pt-6 mt-6 border-t border-border-subtle text-xs text-text-muted font-medium flex items-center justify-between">
+<span>Custodia fiat</span>
+<span class="text-navy-core font-bold bg-surface-bg px-2.5 py-1 rounded-md border border-border-subtle">Mediante proveedor regulado</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- 5. SECCIÓN "RIELES A TU MEDIDA" (ID: rieles) -->
+<section class="w-full bg-[#131E35] text-white py-20 lg:py-28 border-b border-white/10 relative overflow-hidden bg-tech-grid" id="rieles">
+<div class="max-w-[1440px] mx-auto px-6 lg:px-12 flex flex-col gap-12 relative z-10">
+<div class="max-w-2xl flex flex-col gap-2.5">
+<span class="text-xs uppercase tracking-widest text-prod-green font-bold">
+              Rampas y activos
+            </span>
+<h2 class="text-2xl lg:text-3xl font-extrabold text-white tracking-tight">
+              Rieles a tu medida
+            </h2>
+<p class="text-sm lg:text-base text-slate-300 leading-relaxed">
+              Operamos acuerdos de custodia en diversas monedas, con rampas de transferencia diseñadas para tu operación.
+            </p>
+</div>
+<!-- Network Bus / Continuous Connecting Rail Line -->
+<div class="relative">
+<div class="hidden lg:block absolute top-1/2 left-4 right-4 h-0.5 bg-gradient-to-r from-prod-green/20 via-prod-green/60 to-prod-green/20 -translate-y-12 z-0"></div>
+<!-- 4 Tarjetas de Rieles con Glassmorphism -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 relative z-10">
+<!-- Riel 1: Dólares -->
+<div class="backdrop-blur-md bg-white/5 border border-white/10 rounded-xl p-6 flex flex-col justify-between shadow-xl hover:border-prod-green/40 hover:bg-white/[0.08] transition-all group">
+<div>
+<div class="flex items-center justify-between mb-4">
+<span class="text-xs font-mono font-semibold text-slate-300">RIEL-USD</span>
+<div class="flex items-center gap-2">
+<span class="text-[11px] font-bold text-prod-green uppercase">ACTIVO</span>
+<div class="w-8 h-4 bg-prod-green rounded-full flex items-center justify-end px-0.5 shadow-sm shadow-prod-green/50">
+<div class="w-3 h-3 bg-white rounded-full"></div>
+</div>
+</div>
+</div>
+<h3 class="text-base font-bold text-white mb-2">Dólares (wire / ACH)</h3>
+<p class="text-sm text-slate-300 leading-relaxed mb-4">
+                    Canales institucionales para depósitos directos en EE.UU. e internacionales vía transferencias bancarias.
+                  </p>
+</div>
+<div class="pt-4 border-t border-white/10 flex flex-col gap-2.5 text-xs sm:text-sm">
+<div class="flex items-center justify-between">
+<span class="text-slate-300">Interruptor:</span>
+<span class="font-semibold text-white">Activación institucional</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-slate-300">Límites:</span>
+<span class="font-semibold text-white">Configurable por entidad</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-slate-300">Visibilidad:</span>
+<span class="font-semibold text-prod-green">Auditada segregada</span>
+</div>
+</div>
+</div>
+<!-- Riel 2: Euros -->
+<div class="backdrop-blur-md bg-white/5 border border-white/10 rounded-xl p-6 flex flex-col justify-between shadow-xl hover:border-prod-green/40 hover:bg-white/[0.08] transition-all group">
+<div>
+<div class="flex items-center justify-between mb-4">
+<span class="text-xs font-mono font-semibold text-slate-300">RIEL-EUR</span>
+<div class="flex items-center gap-2">
+<span class="text-[11px] font-bold text-prod-green uppercase">ACTIVO</span>
+<div class="w-8 h-4 bg-prod-green rounded-full flex items-center justify-end px-0.5 shadow-sm shadow-prod-green/50">
+<div class="w-3 h-3 bg-white rounded-full"></div>
+</div>
+</div>
+</div>
+<h3 class="text-base font-bold text-white mb-2">Euros (SEPA)</h3>
+<p class="text-sm text-slate-300 leading-relaxed mb-4">
+                    Recepción y desembolso bancario en la eurozona a través de pasarelas reguladas e interoperables.
+                  </p>
+</div>
+<div class="pt-4 border-t border-white/10 flex flex-col gap-2.5 text-xs sm:text-sm">
+<div class="flex items-center justify-between">
+<span class="text-slate-300">Interruptor:</span>
+<span class="font-semibold text-white">Activación institucional</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-slate-300">Límites:</span>
+<span class="font-semibold text-white">Configurable por entidad</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-slate-300">Visibilidad:</span>
+<span class="font-semibold text-prod-green">Auditada segregada</span>
+</div>
+</div>
+</div>
+<!-- Riel 3: Rieles locales LATAM -->
+<div class="backdrop-blur-md bg-white/5 border border-white/10 rounded-xl p-6 flex flex-col justify-between shadow-xl hover:border-prod-green/40 hover:bg-white/[0.08] transition-all group">
+<div>
+<div class="flex items-center justify-between mb-4">
+<span class="text-xs font-mono font-semibold text-slate-300">RIEL-LATAM</span>
+<div class="flex items-center gap-2">
+<span class="text-[11px] font-bold text-prod-green uppercase">ACTIVO</span>
+<div class="w-8 h-4 bg-prod-green rounded-full flex items-center justify-end px-0.5 shadow-sm shadow-prod-green/50">
+<div class="w-3 h-3 bg-white rounded-full"></div>
+</div>
+</div>
+</div>
+<h3 class="text-base font-bold text-white mb-2">Rieles locales LATAM a la medida</h3>
+<p class="text-sm text-slate-300 leading-relaxed mb-4">
+                    Ruteo personalizado a sistemas locales como SPEI, PIX y compensaciones bancarias en la región.
+                  </p>
+</div>
+<div class="pt-4 border-t border-white/10 flex flex-col gap-2.5 text-xs sm:text-sm">
+<div class="flex items-center justify-between">
+<span class="text-slate-300">Interruptor:</span>
+<span class="font-semibold text-white">Activación institucional</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-slate-300">Límites:</span>
+<span class="font-semibold text-white">Configurable por entidad</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-slate-300">Visibilidad:</span>
+<span class="font-semibold text-prod-green">Auditada segregada</span>
+</div>
+</div>
+</div>
+<!-- Riel 4: Stablecoins -->
+<div class="backdrop-blur-md bg-white/5 border border-white/10 rounded-xl p-6 flex flex-col justify-between shadow-xl hover:border-prod-green/40 hover:bg-white/[0.08] transition-all group">
+<div>
+<div class="flex items-center justify-between mb-4">
+<span class="text-xs font-mono font-semibold text-slate-300">RIEL-ONCHAIN</span>
+<div class="flex items-center gap-2">
+<span class="text-[11px] font-bold text-prod-green uppercase">ACTIVO</span>
+<div class="w-8 h-4 bg-prod-green rounded-full flex items-center justify-end px-0.5 shadow-sm shadow-prod-green/50">
+<div class="w-3 h-3 bg-white rounded-full"></div>
+</div>
+</div>
+</div>
+<h3 class="text-base font-bold text-white mb-2">Stablecoins (USDC / USDT / EURe)</h3>
+<p class="text-sm text-slate-300 leading-relaxed mb-4">
+                    Liquidación programable en dólares y euros digitales sobre 4 redes con verificación de contratos.
+                  </p>
+</div>
+<div class="pt-4 border-t border-white/10 flex flex-col gap-2.5 text-xs sm:text-sm">
+<div class="flex items-center justify-between">
+<span class="text-slate-300">Interruptor:</span>
+<span class="font-semibold text-white">Activación institucional</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-slate-300">Límites:</span>
+<span class="font-semibold text-white">Configurable por entidad</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-slate-300">Visibilidad:</span>
+<span class="font-semibold text-prod-green">Auditada segregada</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- 6. SECCIÓN "COMO SEA QUE OPERES, LO CONECTAMOS" (ID: conectividad) -->
+<section class="w-full bg-surface-bg py-20 lg:py-28 border-b border-border-subtle" id="conectividad">
+<div class="max-w-[1440px] mx-auto px-6 lg:px-12 flex flex-col gap-12">
+<div class="max-w-3xl flex flex-col gap-2.5">
+<span class="text-xs uppercase tracking-widest text-text-subtle font-bold">
+              Flexibilidad de integración
+            </span>
+<h2 class="text-2xl lg:text-3xl font-extrabold text-navy-core tracking-tight">
+              Como sea que operes, lo conectamos
+            </h2>
+<p class="text-sm lg:text-base text-text-muted">
+              Adaptabilidad arquitectónica absoluta a tu infraestructura operativa actual o futura.
+            </p>
+</div>
+<!-- Matriz ejecutiva simétrica de 2 columnas -->
+<div class="rounded-2xl border border-border-subtle bg-white overflow-hidden shadow-md">
+<!-- Headers de la tabla -->
+<div class="grid grid-cols-1 md:grid-cols-2 border-b border-border-subtle">
+<div class="p-6 bg-slate-900 text-white font-bold text-sm tracking-wide flex items-center gap-3">
+<span class="material-symbols-outlined text-[20px] text-prod-green">check_circle</span>
+<span>Si ya lo tienes</span>
+</div>
+<div class="p-6 bg-[#0E3A2F] text-white font-bold text-sm tracking-wide border-t md:border-t-0 md:border-l border-emerald-900/40 flex items-center gap-3">
+<span class="material-symbols-outlined text-[20px] text-prod-green">build</span>
+<span>Si no lo tienes, lo habilitamos para ti</span>
+</div>
+</div>
+<!-- Fila 1: ERP / S2S -->
+<div class="grid grid-cols-1 md:grid-cols-2 border-b border-border-subtle">
+<div class="p-6 flex items-start gap-4 bg-white">
+<div class="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-navy-core shrink-0 mt-0.5 border border-slate-200">
+<span class="material-symbols-outlined text-[20px]">hub</span>
+</div>
+<div class="flex flex-col gap-1">
+<span class="text-[11px] font-mono uppercase tracking-wider text-text-subtle font-semibold">01 · Conexión de sistemas</span>
+<p class="text-sm font-bold text-navy-core">Conexión S2S con tu ERP o sistema interno de pagos</p>
+<div class="inline-flex items-center gap-1.5 text-xs text-prod-green-dark font-semibold mt-1">
+<span class="material-symbols-outlined text-[16px]">arrow_right_alt</span>
+<span>Nos conectamos directo</span>
+</div>
+</div>
+</div>
+<div class="p-6 flex items-center gap-4 border-t md:border-t-0 md:border-l border-border-subtle bg-[#F0FDF4]/70">
+<span class="material-symbols-outlined text-prod-green-dark text-[22px] shrink-0">verified</span>
+<span class="text-sm font-semibold text-slate-800">Lo habilitamos para ti con arquitectura propia y segura.</span>
+</div>
+</div>
+<!-- Fila 2: Instrucción de pago -->
+<div class="grid grid-cols-1 md:grid-cols-2 border-b border-border-subtle">
+<div class="p-6 flex items-start gap-4 bg-white">
+<div class="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-navy-core shrink-0 mt-0.5 border border-slate-200">
+<span class="material-symbols-outlined text-[20px]">send_money</span>
+</div>
+<div class="flex flex-col gap-1">
+<span class="text-[11px] font-mono uppercase tracking-wider text-text-subtle font-semibold">02 · Ejecución operativa</span>
+<p class="text-sm font-bold text-navy-core">Instrucción de pago desde tu ERP</p>
+<div class="inline-flex items-center gap-1.5 text-xs text-prod-green-dark font-semibold mt-1">
+<span class="material-symbols-outlined text-[16px]">arrow_right_alt</span>
+<span>Se liquida automáticamente por la API</span>
+</div>
+</div>
+</div>
+<div class="p-6 flex items-center gap-4 border-t md:border-t-0 md:border-l border-border-subtle bg-[#F0FDF4]/70">
+<span class="material-symbols-outlined text-prod-green-dark text-[22px] shrink-0">verified</span>
+<span class="text-sm font-semibold text-slate-800">Lo configuramos para ti sin fricción operativa.</span>
+</div>
+</div>
+<!-- Fila 3: Volumen masivo -->
+<div class="grid grid-cols-1 md:grid-cols-2 border-b border-border-subtle">
+<div class="p-6 flex items-start gap-4 bg-white">
+<div class="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-navy-core shrink-0 mt-0.5 border border-slate-200">
+<span class="material-symbols-outlined text-[20px]">stacked_line_chart</span>
+</div>
+<div class="flex flex-col gap-1">
+<span class="text-[11px] font-mono uppercase tracking-wider text-text-subtle font-semibold">03 · Escala de tesorería</span>
+<p class="text-sm font-bold text-navy-core">Movimiento de grandes volúmenes</p>
+<div class="inline-flex items-center gap-1.5 text-xs text-prod-green-dark font-semibold mt-1">
+<span class="material-symbols-outlined text-[16px]">arrow_right_alt</span>
+<span>Lo automatizamos con tu flujo</span>
+</div>
+</div>
+</div>
+<div class="p-6 flex items-center gap-4 border-t md:border-t-0 md:border-l border-border-subtle bg-[#F0FDF4]/70">
+<span class="material-symbols-outlined text-prod-green-dark text-[22px] shrink-0">verified</span>
+<span class="text-sm font-semibold text-slate-800">Diseñamos contigo la estructura adecuada y automatizada.</span>
+</div>
+</div>
+<!-- Fila 4: Equipo técnico -->
+<div class="grid grid-cols-1 md:grid-cols-2">
+<div class="p-6 flex items-start gap-4 bg-white">
+<div class="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-navy-core shrink-0 mt-0.5 border border-slate-200">
+<span class="material-symbols-outlined text-[20px]">groups</span>
+</div>
+<div class="flex flex-col gap-1">
+<span class="text-[11px] font-mono uppercase tracking-wider text-text-subtle font-semibold">04 · Capacidad técnica</span>
+<p class="text-sm font-bold text-navy-core">Equipo técnico</p>
+<div class="inline-flex items-center gap-1.5 text-xs text-prod-green-dark font-semibold mt-1">
+<span class="material-symbols-outlined text-[16px]">arrow_right_alt</span>
+<span>Trabajamos con el tuyo</span>
+</div>
+</div>
+</div>
+<div class="p-6 flex items-center gap-4 border-t md:border-t-0 md:border-l border-border-subtle bg-[#F0FDF4]/70">
+<span class="material-symbols-outlined text-prod-green-dark text-[22px] shrink-0">verified</span>
+<span class="text-sm font-semibold text-slate-800">Ponemos el equipo técnico por ti de inicio a fin.</span>
+</div>
+</div>
+</div>
+<!-- Cierre contundente -->
+<div class="py-7 px-8 rounded-xl bg-navy-core text-center text-white border border-navy-dark shadow-lg">
+<h3 class="text-xl lg:text-2xl font-bold tracking-tight">
+              Tú decides cómo operar. Nosotros lo hacemos posible.
+            </h3>
+</div>
+</div>
+</section>
+<!-- 7. SECCIÓN "TU TESORERÍA, PROGRAMABLE" (ID: api) -->
+<section class="w-full bg-[#0E1726] text-white py-20 lg:py-28 border-b border-white/10 relative overflow-hidden bg-tech-grid" id="api">
+<div class="max-w-[1440px] mx-auto px-6 lg:px-12">
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16 items-center">
+<!-- Left: Description and key technical points -->
+<div class="lg:col-span-5 flex flex-col gap-6">
+<div class="inline-flex items-center gap-2 self-start">
+<span class="text-xs uppercase font-bold tracking-wider text-prod-green bg-prod-green/10 border border-prod-green/20 px-2.5 py-1 rounded-md">
+                  Infraestructura programable
+                </span>
+</div>
+<h2 class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight leading-tight">
+                Tu tesorería, programable
+              </h2>
+<p class="text-sm lg:text-base text-slate-300 leading-relaxed">
+                Controla depósitos, compensaciones multilaterales y liquidaciones con estándares criptográficos de seguridad bancaria.
+              </p>
+<!-- Technical points list -->
+<div class="flex flex-col gap-3.5 pt-2">
+<div class="flex items-start gap-3 bg-white/5 p-3 rounded-xl border border-white/10">
+<span class="material-symbols-outlined text-prod-green text-[18px] mt-0.5 shrink-0">verified_user</span>
+<div class="text-xs sm:text-sm text-slate-300">
+<strong class="text-white block font-semibold mb-0.5">API REST con firma por petición</strong>
+                    Llaves Ed25519 generadas directamente en tu dispositivo sin exposición a terceros.
+                  </div>
+</div>
+<div class="flex items-start gap-3 bg-white/5 p-3 rounded-xl border border-white/10">
+<span class="material-symbols-outlined text-prod-green text-[18px] mt-0.5 shrink-0">webhook</span>
+<div class="text-xs sm:text-sm text-slate-300">
+<strong class="text-white block font-semibold mb-0.5">Webhooks firmados</strong>
+                    Eventos de libro contable garantizados y autenticados punto a punto.
+                  </div>
+</div>
+<div class="flex items-start gap-3 bg-white/5 p-3 rounded-xl border border-white/10">
+<span class="material-symbols-outlined text-prod-green text-[18px] mt-0.5 shrink-0">replay</span>
+<div class="text-xs sm:text-sm text-slate-300">
+<strong class="text-white block font-semibold mb-0.5">Idempotencia estricta</strong>
+                    Prevención de duplicidad transaccional con llaves únicas por operación.
+                  </div>
+</div>
+<div class="flex items-start gap-3 bg-white/5 p-3 rounded-xl border border-white/10">
+<span class="material-symbols-outlined text-prod-green text-[18px] mt-0.5 shrink-0">notifications_active</span>
+<div class="text-xs sm:text-sm text-slate-300">
+<strong class="text-white block font-semibold mb-0.5">Avisos de pago</strong>
+                    Alertas inmediatas de recepción y acreditación de fondos en tiempo real.
+                  </div>
+</div>
+<div class="flex items-start gap-3 bg-white/5 p-3 rounded-xl border border-white/10">
+<span class="material-symbols-outlined text-prod-green text-[18px] mt-0.5 shrink-0">model_training</span>
+<div class="text-xs sm:text-sm text-slate-300">
+<strong class="text-white block font-semibold mb-0.5">Salidas con simulación previa</strong>
+                    Verificación determinista del saldo contable antes de cualquier ejecución externa.
+                  </div>
+</div>
+<div class="flex items-start gap-3 bg-white/5 p-3 rounded-xl border border-white/10">
+<span class="material-symbols-outlined text-prod-green text-[18px] mt-0.5 shrink-0">receipt_long</span>
+<div class="text-xs sm:text-sm text-slate-300">
+<strong class="text-white block font-semibold mb-0.5">Compensación y estados de cuenta por API</strong>
+                    Descarga automatizada de asientos, conciliaciones y balances auditados.
+                  </div>
+</div>
+</div>
+<!-- CTA Destacado con enlace a #solicitar-acceso -->
+<div class="pt-2">
+<a class="inline-flex items-center justify-center px-6 py-3.5 bg-white text-navy-core text-xs font-bold uppercase tracking-wider rounded-xl hover:bg-slate-100 transition-all shadow-lg gap-2 active:scale-[0.98]" href="#solicitar-acceso">
+<span>Solicitar acceso a la API</span>
+<span class="material-symbols-outlined text-[16px]">key</span>
+</a>
+</div>
+</div>
+<!-- Right: Code snippet IDE terminal style preview -->
+<div class="lg:col-span-7 flex flex-col gap-4">
+<div class="bg-[#070D18] rounded-2xl border border-white/15 overflow-hidden shadow-2xl">
+<!-- Bar header -->
+<div class="bg-[#111C33] px-5 py-3.5 flex items-center justify-between border-b border-white/10">
+<div class="flex items-center gap-2">
+<span class="w-3 h-3 rounded-full bg-[#FF5F56]"></span>
+<span class="w-3 h-3 rounded-full bg-[#FFBD2E]"></span>
+<span class="w-3 h-3 rounded-full bg-[#27C93F]"></span>
+<span class="text-xs font-mono text-slate-300 ml-2 font-medium">POST /v1/portal/fiat/payment-intents</span>
+</div>
+<span class="text-[11px] font-mono text-prod-green font-bold tracking-wider">ED25519-SIGNED</span>
+</div>
+<!-- Code body with Line numbers and syntax highlighting -->
+<div class="p-6 font-mono text-xs overflow-x-auto leading-relaxed flex gap-4">
+<!-- Line numbers -->
+<div class="text-slate-500 select-none flex flex-col text-right">
+<span>01</span><span>02</span><span>03</span><span>04</span><span>05</span><span>06</span><span>07</span><span>08</span><span>09</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span>15</span>
+</div>
+<!-- Code text -->
+<div class="text-slate-200">
+<div class="text-slate-400">// Request Headers &amp; Local Signature</div>
+<div><span class="text-emerald-400 font-semibold">X-Signature-Ed25519</span>: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855</div>
+<div><span class="text-emerald-400 font-semibold">X-Timestamp</span>: 1740320400</div>
+<div><span class="text-emerald-400 font-semibold">Idempotency-Key</span>: idemp_inst_856_9941a_08b3c</div>
+<div class="text-slate-400 my-1">// Payload JSON: Orden de Intención de Pago / Liquidación Multilateral</div>
+<div>{</div>
+<div class="pl-4"><span class="text-cyan-300">"client_entity_id"</span>: <span class="text-amber-200">"ENT_856_LATAM_HQ"</span>,</div>
+<div class="pl-4"><span class="text-cyan-300">"settlement_rail"</span>: <span class="text-amber-200">"SEPA_INSTANT_EUR"</span>,</div>
+<div class="pl-4"><span class="text-cyan-300">"netting_instruction"</span>: {</div>
+<div class="pl-8"><span class="text-cyan-300">"mode"</span>: <span class="text-amber-200">"MULTILATERAL_INTERNAL_NET"</span>,</div>
+<div class="pl-8"><span class="text-cyan-300">"ledger_account"</span>: <span class="text-amber-200">"LEDGER_MULTI_USD_EUR"</span>,</div>
+<div class="pl-8"><span class="text-cyan-300">"external_settlement_only_on_differential"</span>: <span class="text-emerald-400 font-bold">true</span></div>
+<div class="pl-4">},</div>
+<div class="pl-4"><span class="text-cyan-300">"simulation_hash"</span>: <span class="text-amber-200">"sim_0x8f2d5e3c1a90b4"</span>,</div>
+<div class="pl-4"><span class="text-cyan-300">"execution_policy"</span>: <span class="text-amber-200">"T_ZERO_DETERMINISTIC"</span><span class="cursor-blink inline-block w-1.5 h-3.5 bg-prod-green ml-1 align-middle"></span></div>
+<div>}</div>
+</div>
+</div>
+<!-- Footer status bar with Response Badge -->
+<div class="bg-[#111C33] px-5 py-3 text-xs font-mono text-slate-300 border-t border-white/10 flex flex-wrap items-center justify-between gap-3">
+<div class="flex items-center gap-2">
+<span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30">
+                      HTTP 201 Created
+                    </span>
+<span class="text-slate-300">Idempotency Confirmed</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-prod-green"></span>
+<span class="text-emerald-300 font-semibold">T+0 DETERMINISTIC VALIDATED</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- 8. SECCIÓN "CÓMO FUNCIONA" -->
+<section class="w-full bg-surface-bg py-20 lg:py-28 border-b border-border-subtle" id="como-funciona">
+<div class="max-w-[1440px] mx-auto px-6 lg:px-12 flex flex-col gap-14">
+<div class="max-w-2xl flex flex-col gap-2.5">
+<span class="text-xs uppercase tracking-widest text-text-subtle font-bold">
+              Ciclo de operación
+            </span>
+<h2 class="text-2xl lg:text-3xl font-extrabold text-navy-core tracking-tight">
+              Cómo funciona
+            </h2>
+<p class="text-sm lg:text-base text-text-muted">
+              Flujo determinista en cinco pasos desde el onboarding técnico hasta la liquidación final.
+            </p>
+</div>
+<!-- Timeline Container With Connecting Progress Bar -->
+<div class="relative">
+<!-- Connecting Line (Desktop) -->
+<div class="hidden md:block absolute top-10 left-8 right-8 h-1 bg-border-subtle z-0">
+<div class="h-full bg-gradient-to-r from-navy-core via-prod-green to-navy-core w-full rounded-full"></div>
+</div>
+<!-- 5 Steps in Strict Order -->
+<div class="grid grid-cols-1 md:grid-cols-5 gap-6 relative z-10">
+<!-- 01 -->
+<div class="flex flex-col gap-4">
+<div class="w-12 h-12 rounded-full bg-navy-core text-white flex items-center justify-center font-mono font-bold text-sm shadow-md ring-4 ring-white mx-auto md:mx-0">
+                  01
+                </div>
+<div class="bg-white p-6 rounded-xl border border-border-subtle flex flex-col justify-between shadow-sm hover:shadow-md transition-all h-full">
+<div>
+<span class="text-[11px] font-mono font-bold text-navy-core/50 block mb-1">FASE 01</span>
+<h3 class="text-sm font-bold text-navy-core mb-2">Diseñamos tu integración</h3>
+<p class="text-xs text-text-muted leading-relaxed">
+                      Definición de arquitectura de tesorería, conectores ERP, rieles habilitados y generación local de llaves de firma.
+                    </p>
+</div>
+<div class="pt-4 mt-4 border-t border-border-subtle text-[11px] font-bold text-navy-core">
+                    Paso inicial
+                  </div>
+</div>
+</div>
+<!-- 02 -->
+<div class="flex flex-col gap-4">
+<div class="w-12 h-12 rounded-full bg-navy-core text-white flex items-center justify-center font-mono font-bold text-sm shadow-md ring-4 ring-white mx-auto md:mx-0">
+                  02
+                </div>
+<div class="bg-white p-6 rounded-xl border border-border-subtle flex flex-col justify-between shadow-sm hover:shadow-md transition-all h-full">
+<div>
+<span class="text-[11px] font-mono font-bold text-navy-core/50 block mb-1">FASE 02</span>
+<h3 class="text-sm font-bold text-navy-core mb-2">El cliente deposita</h3>
+<p class="text-xs text-text-muted leading-relaxed">
+                      Ingreso de fondos a través de canales bancarios SEPA/wire o activos digitales segregados bajo cuentas del cliente.
+                    </p>
+</div>
+<div class="pt-4 mt-4 border-t border-border-subtle text-[11px] font-bold text-navy-core">
+                    Acreditación directa
+                  </div>
+</div>
+</div>
+<!-- 03 -->
+<div class="flex flex-col gap-4">
+<div class="w-12 h-12 rounded-full bg-prod-green text-white flex items-center justify-center font-mono font-bold text-sm shadow-md ring-4 ring-white mx-auto md:mx-0">
+                  03
+                </div>
+<div class="bg-white p-6 rounded-xl border border-prod-green/30 flex flex-col justify-between shadow-sm hover:shadow-md transition-all h-full ring-1 ring-prod-green/20">
+<div>
+<span class="text-[11px] font-mono font-bold text-prod-green-dark block mb-1">FASE 03</span>
+<h3 class="text-sm font-bold text-navy-core mb-2">Opera y compensa dentro del libro</h3>
+<p class="text-xs text-text-muted leading-relaxed">
+                      Compensación instantánea interna de obligaciones mutuas, con costo de red $0 e inmutabilidad estricta.
+                    </p>
+</div>
+<div class="pt-4 mt-4 border-t border-border-subtle text-[11px] font-bold text-prod-green-dark">
+                    Instantáneo · $0 costo red
+                  </div>
+</div>
+</div>
+<!-- 04 -->
+<div class="flex flex-col gap-4">
+<div class="w-12 h-12 rounded-full bg-navy-core text-white flex items-center justify-center font-mono font-bold text-sm shadow-md ring-4 ring-white mx-auto md:mx-0">
+                  04
+                </div>
+<div class="bg-white p-6 rounded-xl border border-border-subtle flex flex-col justify-between shadow-sm hover:shadow-md transition-all h-full">
+<div>
+<span class="text-[11px] font-mono font-bold text-navy-core/50 block mb-1">FASE 04</span>
+<h3 class="text-sm font-bold text-navy-core mb-2">Simula y solicita su salida</h3>
+<p class="text-xs text-text-muted leading-relaxed">
+                      El cliente calcula el importe neto exacto y envía la instrucción determinista firmada criptográficamente.
+                    </p>
+</div>
+<div class="pt-4 mt-4 border-t border-border-subtle text-[11px] font-bold text-navy-core">
+                    Simulación previa
+                  </div>
+</div>
+</div>
+<!-- 05 -->
+<div class="flex flex-col gap-4">
+<div class="w-12 h-12 rounded-full bg-prod-green text-white flex items-center justify-center font-mono font-bold text-sm shadow-md ring-4 ring-white mx-auto md:mx-0">
+                  05
+                </div>
+<div class="bg-white p-6 rounded-xl border border-prod-green/30 flex flex-col justify-between shadow-sm hover:shadow-md transition-all h-full ring-1 ring-prod-green/20">
+<div>
+<span class="text-[11px] font-mono font-bold text-prod-green-dark block mb-1">FASE 05</span>
+<h3 class="text-sm font-bold text-navy-core mb-2">Tesorería de 856 la autoriza y se ejecuta</h3>
+<p class="text-xs text-text-muted leading-relaxed">
+                      Validación bajo lista blanca y doble factor estricto para la emisión final únicamente del saldo diferencial.
+                    </p>
+</div>
+<div class="pt-4 mt-4 border-t border-border-subtle text-[11px] font-bold text-prod-green-dark">
+                    Liquidación neta externa
+                  </div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- 9. SECCIÓN "TU TESORERÍA, BAJO TU CONTROL" (ID: control) -->
+<section class="w-full bg-surface-bg py-20 lg:py-28 border-b border-border-subtle" id="control">
+<div class="max-w-[1440px] mx-auto px-6 lg:px-12 flex flex-col gap-12">
+<div class="max-w-2xl flex flex-col gap-2.5">
+<span class="text-xs uppercase tracking-widest text-text-subtle font-bold">
+              Gobernanza criptográfica
+            </span>
+<h2 class="text-2xl lg:text-3xl font-extrabold text-navy-core tracking-tight">
+              Tu tesorería, bajo tu control
+            </h2>
+<p class="text-sm lg:text-base text-text-muted">
+              Cero discrecionalidad. Cada movimiento responde a un marco estricto de autorizaciones predecibles e inmutables.
+            </p>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+<!-- Punto 1 -->
+<div class="bg-white p-7 rounded-xl border border-border-subtle flex flex-col gap-3.5 shadow-sm hover:shadow-md transition-all duration-300">
+<div class="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-navy-core">
+<span class="material-symbols-outlined text-[20px]">key</span>
+</div>
+<h3 class="text-base font-bold text-navy-core">
+                Solo el cliente origina operaciones
+              </h3>
+<p class="text-xs text-text-muted leading-relaxed">
+                Ningún movimiento de fondos se inicia unilateralmente. Toda orden parte obligatoriamente desde el portal autorizado del cliente o a través de sus credenciales de API.
+              </p>
+</div>
+<!-- Punto 2 -->
+<div class="bg-white p-7 rounded-xl border border-border-subtle flex flex-col gap-3.5 shadow-sm hover:shadow-md transition-all duration-300">
+<div class="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-navy-core">
+<span class="material-symbols-outlined text-[20px]">verified_user</span>
+</div>
+<h3 class="text-base font-bold text-navy-core">
+                Autorización con 2FA atada a la simulación
+              </h3>
+<p class="text-xs text-text-muted leading-relaxed">
+                Toda salida la autoriza tesorería con doble factor de autenticación, estrictamente vinculada al hash determinista generado durante la simulación previa.
+              </p>
+</div>
+<!-- Punto 3 -->
+<div class="bg-white p-7 rounded-xl border border-border-subtle flex flex-col gap-3.5 shadow-sm hover:shadow-md transition-all duration-300">
+<div class="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-navy-core">
+<span class="material-symbols-outlined text-[20px]">schedule</span>
+</div>
+<h3 class="text-base font-bold text-navy-core">
+                Lista blanca con periodo de espera
+              </h3>
+<p class="text-xs text-text-muted leading-relaxed">
+                Los retiros y liquidaciones externas se canalizan únicamente hacia contrapartes y direcciones previamente homologadas que hayan completado su periodo reglamentario de enfriamiento.
+              </p>
+</div>
+<!-- Punto 4 -->
+<div class="bg-white p-7 rounded-xl border border-border-subtle flex flex-col gap-3.5 shadow-sm hover:shadow-md transition-all duration-300">
+<div class="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-navy-core">
+<span class="material-symbols-outlined text-[20px]">terminal</span>
+</div>
+<h3 class="text-base font-bold text-navy-core">
+                Llaves generadas en el dispositivo del cliente
+              </h3>
+<p class="text-xs text-text-muted leading-relaxed">
+                Las llaves de firma criptográfica residen y se generan localmente en la infraestructura del cliente. 856 opera sin acceso ni almacenamiento de llaves privadas.
+              </p>
+</div>
+<!-- Punto 5 -->
+<div class="bg-white p-7 rounded-xl border border-border-subtle flex flex-col gap-3.5 shadow-sm hover:shadow-md transition-all duration-300 md:col-span-2 lg:col-span-1">
+<div class="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-navy-core">
+<span class="material-symbols-outlined text-[20px]">grid_view</span>
+</div>
+<h3 class="text-base font-bold text-navy-core">
+                Aislamiento total por cliente
+              </h3>
+<p class="text-xs text-text-muted leading-relaxed">
+                Segmentación criptográfica y lógica completa de libros auxiliares, datos contables e historiales transaccionales sin mezcla de información.
+              </p>
+</div>
+</div>
+</div>
+</section>
+<!-- 10. SECCIÓN "ALCANCE" -->
+<section class="w-full bg-[#0B132B] text-white py-20 lg:py-28 border-b border-white/10 relative overflow-hidden bg-tech-grid" id="alcance">
+<div class="max-w-[1440px] mx-auto px-6 lg:px-12 flex flex-col gap-12 relative z-10">
+<div class="flex flex-col gap-2.5 max-w-2xl">
+<span class="text-xs uppercase tracking-widest text-prod-green font-bold">
+              Conectividad internacional
+            </span>
+<h2 class="text-2xl lg:text-3xl font-extrabold text-white tracking-tight">
+              Alcance
+            </h2>
+<p class="text-base lg:text-lg text-slate-200 font-medium">
+              Operamos corredores entre LATAM, Europa y Medio Oriente.
+            </p>
+</div>
+<!-- Abstract Dot Matrix Map SVG with Geodesic Arcs -->
+<div class="bg-white/5 border border-white/15 rounded-2xl p-8 backdrop-blur-xl relative overflow-hidden">
+<div class="w-full h-auto mb-8">
+<svg class="w-full h-auto max-h-[280px]" fill="none" viewbox="0 0 900 320" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<lineargradient gradientunits="userSpaceOnUse" id="arcLatamEu" x1="280" x2="520" y1="210" y2="100">
+<stop offset="0%" stop-color="#10B981"></stop>
+<stop offset="100%" stop-color="#38BDF8"></stop>
+</lineargradient>
+<lineargradient gradientunits="userSpaceOnUse" id="arcLatamMe" x1="280" x2="680" y1="210" y2="150">
+<stop offset="0%" stop-color="#10B981"></stop>
+<stop offset="100%" stop-color="#818CF8"></stop>
+</lineargradient>
+<pattern height="16" id="dotPattern" patternunits="userSpaceOnUse" width="16">
+<circle cx="2" cy="2" fill="rgba(255, 255, 255, 0.16)" r="1.2"></circle>
+</pattern>
+</defs>
+<!-- Dot Matrix World Background Silhouette Representation -->
+<rect fill="url(#dotPattern)" height="320" width="900"></rect>
+<!-- Geodesic Arc: LATAM -> Europa -->
+<path class="fiber-pulse" d="M 280 210 Q 380 60 520 100" fill="none" stroke="url(#arcLatamEu)" stroke-linecap="round" stroke-width="2.5"></path>
+<!-- Geodesic Arc: LATAM -> Medio Oriente -->
+<path class="fiber-pulse" d="M 280 210 Q 480 80 680 150" fill="none" stroke="url(#arcLatamMe)" stroke-linecap="round" stroke-width="2.5"></path>
+<!-- Node: LATAM (Origin) -->
+<g transform="translate(280, 210)">
+<circle cx="0" cy="0" fill="#10B981" fill-opacity="0.2" r="14"></circle>
+<circle cx="0" cy="0" fill="#10B981" fill-opacity="0.4" r="8"></circle>
+<circle cx="0" cy="0" fill="#10B981" r="4"></circle>
+<text fill="#10B981" font-family="Inter" font-size="11" font-weight="700" x="-40" y="24">LATAM (ORIGEN)</text>
+</g>
+<!-- Node: Europa -->
+<g transform="translate(520, 100)">
+<circle cx="0" cy="0" fill="#38BDF8" fill-opacity="0.2" r="14"></circle>
+<circle cx="0" cy="0" fill="#38BDF8" fill-opacity="0.4" r="8"></circle>
+<circle cx="0" cy="0" fill="#38BDF8" r="4"></circle>
+<text fill="#E2E8F0" font-family="Inter" font-size="11" font-weight="700" x="14" y="4">EUROPA</text>
+</g>
+<!-- Node: Medio Oriente -->
+<g transform="translate(680, 150)">
+<circle cx="0" cy="0" fill="#818CF8" fill-opacity="0.2" r="14"></circle>
+<circle cx="0" cy="0" fill="#818CF8" fill-opacity="0.4" r="8"></circle>
+<circle cx="0" cy="0" fill="#818CF8" r="4"></circle>
+<text fill="#E2E8F0" font-family="Inter" font-size="11" font-weight="700" x="14" y="4">MEDIO ORIENTE</text>
+</g>
+</svg>
+</div>
+<!-- Regional Nodes Grid -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6 relative items-center">
+<!-- Region 1: LATAM -->
+<div class="bg-[#111C33]/90 p-6 rounded-xl border border-white/10 flex flex-col gap-3 shadow-lg">
+<div class="flex items-center justify-between">
+<span class="text-xs font-bold uppercase tracking-wider text-white">Nodo regional</span>
+<span class="w-2.5 h-2.5 rounded-full bg-prod-green"></span>
+</div>
+<h3 class="text-xl font-bold text-white">LATAM</h3>
+<p class="text-sm text-slate-300 leading-relaxed">
+                  Origen de la infraestructura. Compensación intrarregional y consolidación de tesorerías multi-moneda local a activos estables.
+                </p>
+<div class="text-[11px] font-mono text-prod-green font-semibold pt-2 border-t border-white/10">
+                  BRL · MXN · COP · USD
+                </div>
+</div>
+<!-- Region 2: Europa -->
+<div class="bg-[#111C33]/90 p-6 rounded-xl border border-white/10 flex flex-col gap-3 shadow-lg">
+<div class="flex items-center justify-between">
+<span class="text-xs font-bold uppercase tracking-wider text-white">Nodo regional</span>
+<span class="w-2.5 h-2.5 rounded-full bg-prod-green"></span>
+</div>
+<h3 class="text-xl font-bold text-white">Europa</h3>
+<p class="text-sm text-slate-300 leading-relaxed">
+                  Rampa SEPA mediante entidad financiera europea regulada. Acceso directo a contrapartes corporativas bajo estándar bancario.
+                </p>
+<div class="text-[11px] font-mono text-cyan-300 font-semibold pt-2 border-t border-white/10">
+                  SEPA Instant · EUR · USD
+                </div>
+</div>
+<!-- Region 3: Medio Oriente -->
+<div class="bg-[#111C33]/90 p-6 rounded-xl border border-white/10 flex flex-col gap-3 shadow-lg">
+<div class="flex items-center justify-between">
+<span class="text-xs font-bold uppercase tracking-wider text-white">Nodo regional</span>
+<span class="w-2.5 h-2.5 rounded-full bg-prod-green"></span>
+</div>
+<h3 class="text-xl font-bold text-white">Medio Oriente</h3>
+<p class="text-sm text-slate-300 leading-relaxed">
+                  Corredor transaccional para flujos de liquidación de comercio internacional y hubs de capital global.
+                </p>
+<div class="text-[11px] font-mono text-indigo-300 font-semibold pt-2 border-t border-white/10">
+                  Liquidación USD T+0
+                </div>
+</div>
+</div>
+<!-- Barra de estado -->
+<div class="mt-8 pt-6 border-t border-white/10 flex flex-wrap items-center justify-between gap-4 text-xs sm:text-sm text-slate-300">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-prod-green text-[18px]">alt_route</span>
+<span>Canales directos de liquidación neta entre los tres vértices comerciales.</span>
+</div>
+<div class="flex items-center gap-2 font-mono text-slate-200 text-xs">
+<span class="text-prod-green font-semibold">CORREDORES ACTIVOS</span>
+<span>·</span>
+<span>LATAM ↔ EUROPA</span>
+<span>·</span>
+<span>LATAM ↔ MEDIO ORIENTE</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- 11. FORMULARIO "SOLICITAR ACCESO" (ID: solicitar-acceso) -->
+<section class="w-full bg-surface-bg py-20 lg:py-28" id="solicitar-acceso">
+<div class="max-w-[760px] mx-auto px-6">
+<div class="bg-white rounded-2xl border border-border-subtle p-8 lg:p-12 shadow-lg">
+<div class="flex flex-col gap-2 pb-6 border-b border-border-subtle">
+<span class="text-xs uppercase tracking-widest text-text-subtle font-bold">
+                Registro institucional
+              </span>
+<h2 class="text-2xl lg:text-3xl font-extrabold text-navy-core">
+                Solicitar acceso
+              </h2>
+<p class="text-xs sm:text-sm text-text-muted">
+                Evaluación operativa para directores financieros y tesorerías corporativas.
+              </p>
+</div>
+<!-- Formulario sobrio sin teléfono, whatsapp ni mapas -->
+<form class="flex flex-col gap-6 pt-6" onsubmit="event.preventDefault(); document.getElementById('form-confirm').classList.remove('hidden');">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+<!-- Nombre y apellido -->
+<div class="flex flex-col gap-2">
+<label class="text-xs font-bold text-navy-core uppercase tracking-wider" for="full_name">
+                    Nombre y apellido <span class="text-red-600">*</span>
+</label>
+<input class="w-full h-11 px-3.5 py-2 bg-surface-bg border border-border-subtle rounded-xl text-xs text-text-primary focus:outline-none focus:border-navy-core focus:ring-1 focus:ring-navy-core transition-all" id="full_name" placeholder="Ej. Roberto Morales" required="" type="text"/>
+</div>
+<!-- Empresa / Razón social -->
+<div class="flex flex-col gap-2">
+<label class="text-xs font-bold text-navy-core uppercase tracking-wider" for="company_name">
+                    Empresa / Razón social <span class="text-red-600">*</span>
+</label>
+<input class="w-full h-11 px-3.5 py-2 bg-surface-bg border border-border-subtle rounded-xl text-xs text-text-primary focus:outline-none focus:border-navy-core focus:ring-1 focus:ring-navy-core transition-all" id="company_name" placeholder="Ej. Logística Global S.A." required="" type="text"/>
+</div>
+<!-- Correo corporativo -->
+<div class="flex flex-col gap-2">
+<label class="text-xs font-bold text-navy-core uppercase tracking-wider" for="email">
+                    Correo corporativo <span class="text-red-600">*</span>
+</label>
+<input class="w-full h-11 px-3.5 py-2 bg-surface-bg border border-border-subtle rounded-xl text-xs text-text-primary focus:outline-none focus:border-navy-core focus:ring-1 focus:ring-navy-core transition-all" id="email" placeholder="nombre@empresa.com" required="" type="email"/>
+</div>
+<!-- País -->
+<div class="flex flex-col gap-2">
+<label class="text-xs font-bold text-navy-core uppercase tracking-wider" for="country">
+                    País <span class="text-red-600">*</span>
+</label>
+<input class="w-full h-11 px-3.5 py-2 bg-surface-bg border border-border-subtle rounded-xl text-xs text-text-primary focus:outline-none focus:border-navy-core focus:ring-1 focus:ring-navy-core transition-all" id="country" placeholder="Ej. México, Brasil, España" required="" type="text"/>
+</div>
+<!-- Volumen mensual estimado -->
+<div class="flex flex-col gap-2 md:col-span-2">
+<label class="text-xs font-bold text-navy-core uppercase tracking-wider" for="volume">
+                    Volumen mensual estimado <span class="text-red-600">*</span>
+</label>
+<select class="w-full h-11 px-3.5 py-2 bg-surface-bg border border-border-subtle rounded-xl text-xs text-text-primary focus:outline-none focus:border-navy-core focus:ring-1 focus:ring-navy-core transition-all" id="volume" required="">
+<option disabled="" selected="" value="">Seleccione el rango de volumen</option>
+<option value="1">Menor a $100,000 USD / mes</option>
+<option value="2">$100,000 - $1,000,000 USD / mes</option>
+<option value="3">$1,000,000 - $10,000,000 USD / mes</option>
+<option value="4">Mayor a $10,000,000 USD / mes</option>
+</select>
+</div>
+<!-- Mensaje opcional -->
+<div class="flex flex-col gap-2 md:col-span-2">
+<label class="text-xs font-bold text-navy-core uppercase tracking-wider" for="message">
+                    Mensaje (opcional)
+                  </label>
+<textarea class="w-full p-3.5 bg-surface-bg border border-border-subtle rounded-xl text-xs text-text-primary focus:outline-none focus:border-navy-core focus:ring-1 focus:ring-navy-core transition-all" id="message" placeholder="Detalle sobre sus necesidades de liquidación o integración..." rows="3"></textarea>
+</div>
+</div>
+<!-- Submit Button -->
+<div class="flex flex-col gap-3 pt-2">
+<button class="w-full h-12 bg-navy-core hover:bg-slate-900 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md flex items-center justify-center gap-2 active:scale-[0.99]" type="submit">
+<span>Solicitar acceso</span>
+<span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</button>
+<!-- Mandatory note -->
+<p class="text-center text-xs text-text-muted font-medium pt-1">
+                  Respondemos por correo en un día hábil.
+                </p>
+<!-- Status Feedback Mock -->
+<div class="hidden p-4 bg-prod-green-light border border-prod-green rounded-xl text-xs text-prod-green-dark font-medium flex items-center gap-2.5 shadow-sm" id="form-confirm">
+<span class="material-symbols-outlined text-[20px] text-prod-green">check_circle</span>
+<span>Solicitud recibida. Un director de compensación le contactará por correo en un día hábil.</span>
+</div>
+</div>
+</form>
+</div>
+</div>
+</section>
+</div>
+</main>
+<!-- 12. PIE DE PÁGINA (ESTILO INSTITUCIONAL CON BORDES FINOS) -->
+<footer class="w-full bg-[#0B132B] text-white border-t border-white/10">
+<div class="max-w-[1440px] mx-auto px-6 lg:px-12 py-10 flex flex-col sm:flex-row items-center justify-between gap-6">
+<!-- Brand & Copyright -->
+<div class="flex items-center gap-3">
+<span class="text-base font-bold text-white tracking-tight">856 LATAM</span>
+<span class="text-xs text-slate-500">·</span>
+<span class="text-xs text-slate-300">© 2026 856 · B32 Global Group</span>
+</div>
+<!-- Functional Links -->
+<div class="flex flex-wrap items-center gap-6 text-xs text-slate-300">
+<a class="hover:text-white transition-colors" href="/portal/login">Portal de clientes</a>
+<a class="text-slate-300 hover:text-white transition-colors flex items-center gap-1.5" href="/console/login">
+<span class="material-symbols-outlined text-[14px] text-prod-green">terminal</span>
+<span>Acceso de operación</span>
+</a>
+<a class="hover:text-white transition-colors" href="#">Aviso de privacidad</a>
+<a class="hover:text-white transition-colors" href="#">Términos</a>
+</div>
+</div>
+</footer>
+</body></html>
