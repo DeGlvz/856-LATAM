@@ -189,7 +189,7 @@ const TESORERO = new Set([
   'POST /v1/netting/runs/:id/approve', 'POST /v1/netting/runs/:id/reject',
   'POST /v1/operators/:id/totp/reset', 'POST /v1/withdrawals/:id/bump', 'POST /v1/sweeps/:id/bump',
   'POST /v1/clients/:id/portal-invite',
-  'POST /v1/operators/invites', 'POST /v1/operators/invites/:id/revoke', 'PATCH /v1/operators/:id',
+  'POST /v1/operators/invites', 'POST /v1/operators/invites/:id/revoke', 'POST /v1/operators/invites/:id/resend', 'POST /v1/operators/:id/access-link', 'PATCH /v1/operators/:id',
   // Multi-red: activos habilitados por cliente y depósitos en revisión
   'PUT /v1/clients/:id/assets/:assetId', 'POST /v1/asset-requests/:id/approve', 'POST /v1/asset-requests/:id/reject',
   'POST /v1/deposits/:id/release',

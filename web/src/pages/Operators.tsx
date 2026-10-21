@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Link2, Loader2, Power, PowerOff, RotateCcw, UserPlus, X } from 'lucide-react';
+import { AlertTriangle, Link2, Loader2, Power, PowerOff, RotateCcw, Send, UserPlus, X } from 'lucide-react';
 import { api, opError, type OperatorInvite, type OperatorRow, type Role } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { CopyButton, ErrorBox, Field, fmtDate } from '@/components/common';
@@ -45,6 +45,7 @@ export function Operators() {
   const [pending, setPending] = useState<Pending | null>(null);
   const [inviting, setInviting] = useState(false);
   const [reset, setReset] = useState<OperatorRow | null>(null);
+  const [resend, setResend] = useState<{ email: string; path: string } | null>(null);
   const has2fa = !!operator?.totp_enabled;
   const tes2fa = (ops.data ?? []).filter((o) => o.role === 'tesorero' && o.active && o.totp_enabled).length;
 
@@ -121,6 +122,12 @@ export function Operators() {
                           {o.active ? <><PowerOff />Desactivar</> : <><Power />Reactivar</>}
                         </Button>
                       </span>
+                      {o.active && (
+                        <span title={self ? 'Pida a otro tesorero que le reenvíe el acceso' : tip}>
+                          <Button size="sm" variant="ghost" disabled={off} aria-label={`Reenviar acceso a ${o.email}`}
+                            onClick={() => setResend({ email: o.email, path: `/operators/${o.id}/access-link` })}><Send />Reenviar acceso</Button>
+                        </span>
+                      )}
                       {o.totp_enabled && (
                         <span title={self ? 'No puede restablecer su propio 2FA' : undefined}>
                           <Button size="sm" variant="ghost" disabled={self} onClick={() => setReset(o)} aria-label={`Restablecer 2FA de ${o.email}`}><RotateCcw />Restablecer 2FA</Button>
@@ -153,7 +160,8 @@ export function Operators() {
                     <TableCell><Badge variant={ROLE_VARIANT[i.role]}>{ROLE_LABEL[i.role]}</Badge></TableCell>
                     <TableCell className="text-xs text-muted-foreground">{i.created_by}</TableCell>
                     <TableCell className="text-xs whitespace-nowrap text-muted-foreground">{fmtDate(i.expires_at)}</TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right whitespace-nowrap">
+                      <Button size="sm" variant="ghost" disabled={!has2fa} onClick={() => setResend({ email: i.email, path: `/operators/invites/${i.id}/resend` })} aria-label={`Reenviar invitación a ${i.email}`}><Send />Reenviar</Button>
                       <Button size="sm" variant="ghost" disabled={!has2fa} onClick={() => setPending({ kind: 'revoke', invite: i })} aria-label={`Revocar invitación a ${i.email}`}><X />Revocar</Button>
                     </TableCell>
                   </TableRow>
@@ -168,6 +176,7 @@ export function Operators() {
 
       {dlg && <StepUpDialog open title={dlg.title} description={dlg.desc} confirmLabel={dlg.label} destructive={dlg.destructive}
         onConfirm={confirm} onClose={() => setPending(null)} />}
+      <ResendDialog target={resend} onClose={() => setResend(null)} onDone={refresh} />
       <InviteDialog open={inviting} onClose={() => setInviting(false)} onDone={refresh} />
       <ResetDialog target={reset} onClose={() => setReset(null)} onDone={refresh} />
     </div>
@@ -175,6 +184,24 @@ export function Operators() {
 }
 
 type Created = { id: string; email: string; role: Role; expires_at: string; link: string };
+
+/** Reenviar acceso o invitación: emite un enlace nuevo de un solo uso (los anteriores dejan de funcionar). */
+function ResendDialog({ target, onClose, onDone }: { target: { email: string; path: string } | null; onClose: () => void; onDone: () => void }) {
+  return (
+    <StepUpDialog<Created> open={!!target} keepOpen title={`Reenviar acceso a ${target?.email ?? ''}`} confirmLabel="Generar enlace"
+      description="Se genera un enlace nuevo de un solo uso para definir contraseña; el anterior deja de funcionar. Entréguelo por un canal confiable."
+      onConfirm={async (code) => { const r = await api<Created>(target!.path, { method: 'POST', json: { code } }); onDone(); return r; }}
+      result={(r) => {
+        const link = `${window.location.origin}${r.link}`;
+        return <>
+          <p className="flex items-center gap-2 font-medium"><Link2 className="size-4" />Enlace para {r.email} — se muestra una sola vez</p>
+          <div data-testid="resend-link" className="flex items-center gap-1 rounded-md bg-muted px-2 py-1.5 font-mono text-xs break-all">{link}<CopyButton value={link} /></div>
+          <p className="text-muted-foreground">Vence: {fmtDate(r.expires_at)}</p>
+        </>;
+      }}
+      onClose={onClose} />
+  );
+}
 
 function InviteDialog({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
   const [email, setEmail] = useState('');
