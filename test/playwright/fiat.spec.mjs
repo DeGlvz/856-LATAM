@@ -78,7 +78,7 @@ test.beforeAll(async () => {
 
 test('el cliente ve los datos SEPA y crea un aviso de pago', async ({ page }) => {
   await portalLogin(page, oprA);
-  await page.getByRole('link', { name: 'Recibir euros' }).click();
+  await page.getByRole('link', { name: 'Operaciones fiat' }).click();
   const card = page.getByTestId('fiat-instructions');
   await expect(card).toContainText('ZZ00 SIMU'); // IBAN del proveedor simulado, en grupos de 4
   await expect(card).toContainText(ASSET);
@@ -109,7 +109,7 @@ test('el depósito llega y se concilia: «Recibido, pendiente de liberación»',
   await tes.call('POST', '/console/fiat/simulate', { amount: '1250.50', memo: reference, payer_name: 'Euros Alfa SA', tx_hash: h });
   await tes.call('POST', '/console/fiat/poll', {});
   await portalLogin(page, oprA);
-  await page.getByRole('link', { name: 'Recibir euros' }).click();
+  await page.getByRole('link', { name: 'Operaciones fiat' }).click();
   await expect(page.getByTestId('fiat-dep-status').first()).toHaveText('Recibido, pendiente de liberación');
   await shot(page, 'pendiente');
 });
@@ -139,7 +139,7 @@ test('el tesorero libera con 2FA en la consola y el cliente lo ve acreditado', a
   await expect(page.locator('tr', { hasText: reference }).first()).toContainText('Liberada');
   await shot(page, 'consola-liberada');
   await portalLogin(page, oprA);
-  await page.getByRole('link', { name: 'Recibir euros' }).click();
+  await page.getByRole('link', { name: 'Operaciones fiat' }).click();
   await expect(page.getByTestId('fiat-dep-status').first()).toHaveText('Acreditado');
   await page.getByRole('link', { name: 'Avisos de pago' }).click();
   await expect(page.locator(`[data-intent="${reference}"]`)).toContainText('Recibido');
