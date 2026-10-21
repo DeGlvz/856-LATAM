@@ -89,6 +89,7 @@ Ciclo de un retiro: `reserved → signed → broadcast → confirmed` (o `failed
 - Cada dirección nueva se registra sola en el webhook Address Activity (Alchemy Notify API); si falla, el worker reintenta.
 - Barrido automático: tokens → si la dirección no tiene ETH, la hot wallet le envía gas (`gas_topup`) y luego se barre (`sweep_token`); ETH ≥ `SWEEP_MIN_NATIVE_WEI` → `sweep_native`.
 - El barrido no cambia la custodia (es interno); solo el gas se registra en `network_fees`. El gas enviado por la plataforma nunca se acredita como depósito.
+- **Ahorro de RPC (barrido por actividad):** las direcciones de clientes con sesión del portal, API key en uso, retiros o depósitos abiertos/recientes dentro de `SWEEP_ACTIVE_WINDOW_MIN` (30 min) se revisan en cada ciclo del worker. Las de clientes sin actividad solo cada `SWEEP_IDLE_INTERVAL_MS` (15 min; igualarlo a `WORKER_INTERVAL_MS` desactiva el ahorro). Un depósito o la actividad del cliente lo devuelve a ciclo normal. Los saldos ERC-20 de una dirección se leen con una sola llamada `multicall` (con respaldo a lecturas individuales). Retiros, confirmaciones y créditos no cambian: solo consultan la red si hay trabajo pendiente.
 - Conciliación (`/v1/treasury/hot-wallet`): on-chain (hot + direcciones de depósito) − custodia en libro.
 - Nonces de la hot wallet compartidos entre retiros y barridos (`src/chain/nonce.ts`).
 
