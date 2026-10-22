@@ -45,14 +45,14 @@ Rol de la instancia (mínimos permisos): `kms:Sign`/`kms:GetPublicKey` sobre la 
    aws ssm put-parameter --region us-east-2 --type String --name /856/production/HD_GENERATION --value 2
    ```
    `HD_MNEMONIC` nueva (BIP-39, generada fuera de línea) y `HD_GENERATION=2` (ver «Semilla HD»). Rotar `API_KEYS`, credenciales de Alchemy y Monerium por el incidente de Railway.
-3. **GitHub**: variables de repositorio `AWS_DEPLOY_ROLE_ARN` (salida `DeployRoleArn`) y `AWS_INSTANCE_ID` (salida `InstanceId`). El rol solo se asume desde la rama `main`; no usar *environments* (cambian el `sub` del token OIDC).
+3. **GitHub**: variables de repositorio `AWS_DEPLOY_ROLE_ARN` (salida `DeployRoleArn`) y `AWS_INSTANCE_ID` (salida `InstanceId`). El rol solo se asume desde tags de versión `v*` (`refs/tags/v*`); no usar *environments* (cambian el `sub` del token OIDC).
 4. **Migrar la base** (ventana de mantenimiento; detener antes la app de Railway para que no haya escrituras). Desde `aws ssm start-session --target <InstanceId>` en la instancia:
    ```bash
    export SRC='<url de Railway>' DST='<url de RDS con ?sslmode=require>'   # solo en esa sesión; no guardar en historial
    docker run --rm -e SRC -e DST postgres:16-alpine sh -c 'pg_dump --no-owner --no-acl "$SRC" | psql -v ON_ERROR_STOP=1 "$DST"'
    ```
    Verificar conteos de tablas clave (`clients`, `ledger_entries`, `schema_migrations`). Al arrancar, la migración `035_hd_generation` se aplica sola.
-5. **Primer despliegue**: ejecutar el workflow `deploy-aws` (push a `main` o *Run workflow*). Revisar la salida (`deploy ok: <sha>`). Primera vez: `app` no existe en ECR hasta que el workflow publique la imagen.
+5. **Primer despliegue**: ejecutar el workflow `deploy-aws` (crear un tag `vX.Y.Z` o *Run workflow* eligiendo ese tag; desde `main` el rol se rechaza). Revisar la salida (`deploy ok: <sha>`). Primera vez: `app` no existe en ECR hasta que el workflow publique la imagen.
 6. **Cloudflare** (nube gris/solo DNS): registros A de `856latam.com`, `www` y `hooks` → `ElasticIp`. Caddy emite el certificado al primer acceso (el puerto 80 debe llegar). `hooks.856latam.com` solo expone `/v1/webhooks/*` y `/v1/fiat/webhooks/*`.
 7. **Webhooks**: en Alchemy (uno por red) apuntar a `https://hooks.856latam.com/v1/webhooks/alchemy` y actualizar `ALCHEMY_WEBHOOK_ID_<RED>`/`..._SIGNING_KEY_<RED>` en SSM; en Monerium, `https://hooks.856latam.com/v1/fiat/webhooks/monerium` y su secreto en SSM. Tras cambiar SSM: reiniciar con `docker compose --env-file stack.env up -d --force-recreate app` (vía SSM Session Manager).
 8. **Hot wallet**: al arrancar, la app lee la dirección de la llave KMS y la registra (`/v1/treasury/hot-wallet` o consola). Verificar que la dirección sea la esperada, enviar un fondeo pequeño de prueba, firmar un retiro de prueba y después fondear el saldo operativo. Las llaves de la hot wallet de Railway se consideran comprometidas: mover sus fondos a la dirección KMS y retirarlas.
