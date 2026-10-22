@@ -69,20 +69,17 @@
           <span class="relative flex size-2"><span class="absolute inline-flex size-full animate-ping rounded-full bg-prod-green opacity-75"></span><span class="relative inline-flex size-2 rounded-full bg-prod-green"></span></span>
           <span class="text-[11px] font-semibold uppercase tracking-widest text-slate-200">Infraestructura nacida en LATAM</span>
         </div>
-        <h1 class="text-4xl leading-[1.1] font-extrabold tracking-tight sm:text-5xl lg:text-6xl">Infraestructura de liquidación <span class="bg-linear-to-r from-prod-green to-teal-300 bg-clip-text text-transparent">sin fronteras</span>, nacida en LATAM.</h1>
-        <!--st:hero.titulo-->
-        <p class="max-w-xl text-lg leading-relaxed text-slate-300">Motor de tesorería programable, inmutable y de grado institucional.</p>
-        <!--st:hero.subtitulo-->
+        <h1 data-st="hero.titulo" class="text-4xl leading-[1.1] font-extrabold tracking-tight sm:text-5xl lg:text-6xl">Infraestructura de liquidación <span class="bg-linear-to-r from-prod-green to-teal-300 bg-clip-text text-transparent">sin fronteras</span>, nacida en LATAM.</h1>
+        <p data-st="hero.subtitulo" class="max-w-xl text-lg leading-relaxed text-slate-300">Motor de tesorería programable, inmutable y de grado institucional.</p>
         <div class="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:gap-4">
           <a href="__APP_URL__/portal/login" class="inline-flex items-center justify-center gap-2.5 rounded-xl bg-prod-green px-6 py-3.5 text-sm font-bold text-navy-deep shadow-lg shadow-prod-green/20 transition-all hover:bg-emerald-400 hover:shadow-prod-green/40 active:scale-[0.98]">Ingresar al portal <span class="material-symbols-outlined text-[18px]" aria-hidden="true">lock</span></a>
           <a href="#solicitar-acceso" class="inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/10 px-6 py-3.5 text-sm font-semibold text-white transition-all hover:border-white/30 hover:bg-white/15 active:scale-[0.98]">Solicitar acceso</a>
         </div>
         <ul class="flex flex-wrap gap-3 border-t border-white/10 pt-8 text-sm">
-          <li class="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5"><span class="material-symbols-outlined text-[18px] text-prod-green" aria-hidden="true">check_circle</span><span class="font-medium text-slate-200">Libro contable de doble partida</span></li>
-          <li class="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5"><span class="material-symbols-outlined text-[18px] text-prod-green" aria-hidden="true">check_circle</span><span class="font-medium text-slate-200">Compensación multilateral</span></li>
-          <li class="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5"><span class="material-symbols-outlined text-[18px] text-prod-green" aria-hidden="true">check_circle</span><span class="font-medium text-slate-200">Solo sale el neto</span></li>
+          <li class="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5"><span class="material-symbols-outlined text-[18px] text-prod-green" aria-hidden="true">check_circle</span><span data-st="hero.doblePartida" class="font-medium text-slate-200">Libro contable de doble partida</span></li>
+          <li class="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5"><span class="material-symbols-outlined text-[18px] text-prod-green" aria-hidden="true">check_circle</span><span data-st="hero.compensacion" class="font-medium text-slate-200">Compensación multilateral</span></li>
+          <li class="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5"><span class="material-symbols-outlined text-[18px] text-prod-green" aria-hidden="true">check_circle</span><span data-st="hero.neto" class="font-medium text-slate-200">Solo sale el neto</span></li>
         </ul>
-        <!--st:hero.doblePartida,hero.compensacion,hero.neto-->
       </div>
 
       <!-- Motor de compensación -->
@@ -453,7 +450,6 @@
       </div>
     </div>
   </section>
-<!--st-noscript-->
 </main>
 
 <footer class="border-t border-white/10 bg-navy-deep text-white">
