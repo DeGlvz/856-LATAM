@@ -189,7 +189,7 @@ Resources:
     DeletionPolicy: Snapshot
     UpdateReplacePolicy: Snapshot
     Properties:
-      DBInstanceIdentifier: 856-prod
+      DBInstanceIdentifier: latam856db # debe iniciar con letra
       Engine: postgres
       EngineVersion: '16'
       DBInstanceClass: !Ref DbInstanceClass
