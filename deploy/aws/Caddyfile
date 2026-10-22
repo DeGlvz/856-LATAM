@@ -1,0 +1,20 @@
+{
+	email {$ACME_EMAIL}
+}
+
+# Raiz y www: toda la aplicacion (landing, /console, /portal, /v1).
+{$DOMAIN}, www.{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:8080
+}
+
+# hooks: solo los webhooks entrantes (Alchemy, Monerium, Openfort); nada mas se expone en este host.
+hooks.{$DOMAIN} {
+	@webhooks path /v1/webhooks/* /v1/fiat/webhooks/*
+	handle @webhooks {
+		reverse_proxy app:8080
+	}
+	handle {
+		respond "not found" 404
+	}
+}

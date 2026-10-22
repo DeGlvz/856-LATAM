@@ -196,10 +196,10 @@ async function provisionAccount(input: {
     const i = (await c.query(`SELECT nextval('deposit_address_index')::int AS i`)).rows[0].i as number;
     const address = keyring.derive(i).address().toLowerCase();
     const { rows: [w] } = await c.query(
-      `INSERT INTO wallets (client_id, chain, network, address, purpose, custody_ref, derivation_path, derivation_index, label)
-       VALUES ($1,'ethereum',$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      `INSERT INTO wallets (client_id, chain, network, address, purpose, custody_ref, derivation_path, derivation_index, label, hd_generation)
+       VALUES ($1,'ethereum',$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
       [input.clientId, n.id, address, input.clientId ? 'fiat_client' : 'fiat_treasury',
-        `${keyring.kind}:${i}`, `m/44'/60'/0'/0/${i}`, i, input.clientId ? `Cuenta fiat cliente ${input.clientId}` : 'Tesorería fiat (EURe)']);
+        `${keyring.kind}:${i}`, `m/44'/60'/0'/0/${i}`, i, input.clientId ? `Cuenta fiat cliente ${input.clientId}` : 'Tesorería fiat (EURe)', config.HD_GENERATION]);
     const { rows: [a] } = await c.query(
       `INSERT INTO fiat_accounts (provider, mode, client_id, network, address, derivation_index, wallet_id, created_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
@@ -209,6 +209,10 @@ async function provisionAccount(input: {
 
   // 3. ligar y pedir IBAN (cada paso deja constancia; un fallo se puede reintentar)
   if (acc.status === 'pending_link') {
+    const { rows: [gw] } = await pool.query('SELECT hd_generation FROM wallets WHERE id = $1', [acc.wallet_id]);
+    if (gw && gw.hd_generation !== config.HD_GENERATION) {
+      throw new HttpError(409, 'La cuenta fiat pertenece a una generación anterior de la semilla HD: ciérrela y actívela de nuevo', 'fiat_account_previous_generation');
+    }
     const r = await p.linkAddress({ address: acc.address, signer: keyring.derive(acc.derivation_index) });
     acc = (await pool.query(`UPDATE fiat_accounts SET status = 'linked', profile_id = $2, provider_state = $3, updated_at = now() WHERE id = $1 RETURNING *`,
       [acc.id, await p.profileId(), `address:${r.state}`])).rows[0];

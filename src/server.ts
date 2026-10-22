@@ -21,7 +21,7 @@ import { startUsageFlush } from './usage.js';
 import { operatorRoutes } from './routes/operators.js';
 import { audit, bootstrapOperator, hasRole, requiredRole, sessionFromRequest } from './auth/operators.js';
 import { ensureHotWalletRegistered, startWorker } from './ledger/transfers.js';
-import { getSigner } from './chain/signer.js';
+import { getSigner, initSigner } from './chain/signer.js';
 import { pool } from './db.js';
 import { migrate } from './migrations/index.js';
 import { ensureAllSystemAccounts } from './ledger/service.js';
@@ -44,6 +44,8 @@ if (envErrors.length) {
   process.exit(1);
 }
 app.log.info({ environment: config.ENVIRONMENT }, 'ambiente');
+// Firmante asíncrono (KMS): antes de migrar, registrar la hot wallet o arrancar el worker
+await initSigner();
 
 if (config.MIGRATE_ON_START) await migrate(pool, (m) => app.log.info(m));
 // Activos de redes del otro ambiente: inactivos (no aparecen ni operan aquí). Activos main: alta idempotente.

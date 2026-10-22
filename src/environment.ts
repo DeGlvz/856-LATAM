@@ -36,7 +36,11 @@ export function configErrors(): string[] {
   }
   if (isProduction) {
     if (config.ORIGIN_RULE !== 'enforce') errs.push('En production ORIGIN_RULE=enforce es obligatorio (solo el cliente origina operaciones)');
-    if (config.SIGNER_PRIVATE_KEY && !config.DEPOSIT_HD_SEED && !config.HD_MNEMONIC) {
+    if (config.SIGNER_BACKEND === 'kms') {
+      if (!config.SIGNER_KMS_KEY_ID) errs.push('SIGNER_BACKEND=kms exige SIGNER_KMS_KEY_ID');
+      if (config.SIGNER_PRIVATE_KEY) errs.push('SIGNER_BACKEND=kms rechaza SIGNER_PRIVATE_KEY: la llave de firma vive solo en KMS');
+    }
+    if ((config.SIGNER_PRIVATE_KEY || config.SIGNER_BACKEND === 'kms') && !config.DEPOSIT_HD_SEED && !config.HD_MNEMONIC) {
       errs.push('En production la semilla de direcciones de depósito es propia: defina HD_MNEMONIC o DEPOSIT_HD_SEED (no se deriva de la llave de la hot wallet)');
     }
     if (config.DEPOSIT_HD_SEED && config.HD_MNEMONIC) errs.push('Defina HD_MNEMONIC o DEPOSIT_HD_SEED, no ambas');

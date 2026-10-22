@@ -74,9 +74,9 @@ export async function sweepStep(n: Net, log: Log) {
              OR EXISTS (SELECT 1 FROM deposits d WHERE d.client_id = w.client_id
                          AND (d.status = 'pending' OR d.created_at > now() - make_interval(mins => $2)))) AS hot
        FROM wallets w
-      WHERE w.network = $1 AND w.purpose IN ('deposit','fiat_treasury','fiat_client') AND w.derivation_index IS NOT NULL AND w.active
+      WHERE w.network = $1 AND w.purpose IN ('deposit','fiat_treasury','fiat_client')       AND w.derivation_index IS NOT NULL AND w.active AND w.hd_generation = $3
         AND NOT EXISTS (SELECT 1 FROM sweeps s WHERE s.wallet_id = w.id AND s.status IN ('signed','broadcast'))
-      ORDER BY w.derivation_index`, [network, config.SWEEP_ACTIVE_WINDOW_MIN]);
+            ORDER BY w.derivation_index`, [network, config.SWEEP_ACTIVE_WINDOW_MIN, config.HD_GENERATION]);
   // Clientes con actividad reciente: cada ciclo. Sin actividad: solo cada SWEEP_IDLE_INTERVAL_MS (ahorra consultas RPC)
   const now = Date.now();
   const wallets = allWallets.filter((w) => w.hot || now - (lastScan.get(w.id) ?? 0) >= config.SWEEP_IDLE_INTERVAL_MS);

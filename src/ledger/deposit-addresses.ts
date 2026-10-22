@@ -40,7 +40,7 @@ export async function getOrCreateDepositAddress(clientId: string, rotate = false
     if (!rotate) {
       const { rows: [w] } = await c.query(
         `SELECT * FROM wallets WHERE client_id = $1 AND network = $2 AND purpose = 'deposit'
-           AND derivation_index IS NOT NULL AND active AND archived_at IS NULL ORDER BY created_at DESC LIMIT 1`, [clientId, n.id]);
+           AND derivation_index IS NOT NULL AND active AND archived_at IS NULL AND hd_generation = $3 ORDER BY created_at DESC LIMIT 1`, [clientId, n.id, config.HD_GENERATION]);
       if (w) return w;
     }
 
@@ -48,17 +48,17 @@ export async function getOrCreateDepositAddress(clientId: string, rotate = false
     if (!rotate) {
       // Misma dirección que en otra red EVM (si ya existe y no está ocupada en esta red)
       const { rows: [o] } = await c.query(
-        `SELECT derivation_index FROM wallets WHERE client_id = $1 AND purpose = 'deposit' AND derivation_index IS NOT NULL AND active
+        `SELECT derivation_index FROM wallets WHERE client_id = $1 AND purpose = 'deposit' AND derivation_index IS NOT NULL AND active AND hd_generation = $3
             AND NOT EXISTS (SELECT 1 FROM wallets x WHERE x.network = $2 AND x.address = wallets.address)
-          ORDER BY created_at DESC LIMIT 1`, [clientId, n.id]);
+          ORDER BY created_at DESC LIMIT 1`, [clientId, n.id, config.HD_GENERATION]);
       if (o) i = o.derivation_index;
     }
     if (i == null) i = (await c.query(`SELECT nextval('deposit_address_index')::int AS i`)).rows[0].i as number;
     const address = keyring.derive(i).address().toLowerCase();
     const { rows: [w] } = await c.query(
-      `INSERT INTO wallets (client_id, chain, network, address, purpose, custody_ref, derivation_path, derivation_index, label)
-       VALUES ($1,'ethereum',$2,$3,'deposit',$4,$5,$6,'Dirección de depósito') RETURNING *`,
-      [clientId, n.id, address, `${keyring.kind}:${i}`, `m/44'/60'/0'/0/${i}`, i],
+      `INSERT INTO wallets (client_id, chain, network, address, purpose, custody_ref, derivation_path, derivation_index, label, hd_generation)
+       VALUES ($1,'ethereum',$2,$3,'deposit',$4,$5,$6,'Dirección de depósito',$7) RETURNING *`,
+      [clientId, n.id, address, `${keyring.kind}:${i}`, `m/44'/60'/0'/0/${i}`, i, config.HD_GENERATION],
     );
     return w;
   });
@@ -140,7 +140,7 @@ export async function registerPendingAddresses(n: Net, log: Log) {
   if (!n.webhookId || !config.ALCHEMY_NOTIFY_TOKEN) return;
   const { rows } = await pool.query(
     `SELECT id, address FROM wallets WHERE purpose IN ('deposit','fiat_treasury','fiat_client') AND derivation_index IS NOT NULL
-       AND NOT webhook_registered AND active AND network = $1 LIMIT 100`, [n.id]);
+       AND NOT webhook_registered AND active AND network = $1 AND hd_generation = $2 LIMIT 100`, [n.id, config.HD_GENERATION]);
   if (!rows.length) return;
   try {
     await registerOnWebhook(n, rows.map((r) => r.address));

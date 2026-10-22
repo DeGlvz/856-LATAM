@@ -1,0 +1,371 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  856-LATAM produccion (Fase AWS1, us-east-2): EC2 t4g.small + RDS PostgreSQL 16 privada + KMS (firma ECC_SECG_P256K1 y secretos) +
+  ECR + rol OIDC de GitHub Actions. Sin SSH (SSM Session Manager). Tope de gasto: presupuesto 856-mensual (US$35), ya existente.
+
+Parameters:
+  DomainName:
+    Type: String
+    Default: 856latam.com
+    Description: Dominio raiz; Caddy atiende raiz, www y hooks (DNS en Cloudflare, nube gris).
+  AcmeEmail:
+    Type: String
+    Description: Correo para avisos de Let's Encrypt.
+  GitHubRepo:
+    Type: String
+    Default: DeGlvz/856-LATAM
+  GitHubBranch:
+    Type: String
+    Default: main
+    Description: Solo esta rama puede asumir el rol de despliegue.
+  CreateGitHubOidcProvider:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: 'false si la cuenta ya tiene el proveedor token.actions.githubusercontent.com (solo existe uno por cuenta).'
+  ExistingGitHubOidcProviderArn:
+    Type: String
+    Default: ''
+    Description: Solo si CreateGitHubOidcProvider=false.
+  InstanceType:
+    Type: String
+    Default: t4g.small
+  DbInstanceClass:
+    Type: String
+    Default: db.t4g.micro
+  DbName:
+    Type: String
+    Default: cripto
+  DbMasterUsername:
+    Type: String
+    Default: app856
+  DbMasterPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 24
+    AllowedPattern: '[A-Za-z0-9_.~-]+'
+    ConstraintDescription: Solo A-Z a-z 0-9 _ . ~ - (va dentro de una URL). Generarla aleatoria; no se guarda en el repositorio.
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+  VpcCidr:
+    Type: String
+    Default: 10.56.0.0/16
+
+Conditions:
+  MakeOidcProvider: !Equals [!Ref CreateGitHubOidcProvider, 'true']
+
+Resources:
+  # ---------- Red ----------
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{ Key: Name, Value: 856-prod }]
+  Igw:
+    Type: AWS::EC2::InternetGateway
+  IgwAttach:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties: { VpcId: !Ref Vpc, InternetGatewayId: !Ref Igw }
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Select [0, !Cidr [!Ref VpcCidr, 4, 8]]
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: false
+      Tags: [{ Key: Name, Value: 856-prod-public }]
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Select [1, !Cidr [!Ref VpcCidr, 4, 8]]
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags: [{ Key: Name, Value: 856-prod-private-a }]
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Select [2, !Cidr [!Ref VpcCidr, 4, 8]]
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags: [{ Key: Name, Value: 856-prod-private-b }]
+  PublicRt:
+    Type: AWS::EC2::RouteTable
+    Properties: { VpcId: !Ref Vpc }
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: IgwAttach
+    Properties: { RouteTableId: !Ref PublicRt, DestinationCidrBlock: 0.0.0.0/0, GatewayId: !Ref Igw }
+  PublicRtAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: { SubnetId: !Ref PublicSubnet, RouteTableId: !Ref PublicRt }
+  # Las subredes privadas no tienen ruta a Internet (sin NAT: ahorro de costo); la base solo habla con la instancia.
+  PrivateRt:
+    Type: AWS::EC2::RouteTable
+    Properties: { VpcId: !Ref Vpc }
+  PrivateRtAssocA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: { SubnetId: !Ref PrivateSubnetA, RouteTableId: !Ref PrivateRt }
+  PrivateRtAssocB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: { SubnetId: !Ref PrivateSubnetB, RouteTableId: !Ref PrivateRt }
+
+  AppSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 856 app - solo 80/443 (sin SSH; acceso administrativo por SSM Session Manager)
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0 }
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0 }
+        - { IpProtocol: udp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0 }
+  DbSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 856 RDS - solo desde la instancia de la app
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 5432, ToPort: 5432, SourceSecurityGroupId: !Ref AppSg }
+
+  # ---------- KMS ----------
+  SigningKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: 856 production - firma de la hot wallet (secp256k1)
+      KeySpec: ECC_SECG_P256K1
+      KeyUsage: SIGN_VERIFY
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AdministracionIAM
+            Effect: Allow
+            Principal: { AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root' }
+            Action: 'kms:*'
+            Resource: '*'
+  SigningKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties: { AliasName: alias/856-prod-signing, TargetKeyId: !Ref SigningKey }
+  SecretsKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: 856 production - cifrado de SSM SecureString /856/production/*
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AdministracionIAM
+            Effect: Allow
+            Principal: { AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root' }
+            Action: 'kms:*'
+            Resource: '*'
+  SecretsKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties: { AliasName: alias/856-prod-secrets, TargetKeyId: !Ref SecretsKey }
+
+  # ---------- ECR ----------
+  Repo:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: 856-latam-app
+      ImageScanningConfiguration: { ScanOnPush: true }
+      EncryptionConfiguration: { EncryptionType: AES256 }
+      LifecyclePolicy:
+        LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"conservar 15 imagenes","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":15},"action":{"type":"expire"}}]}'
+
+  # ---------- RDS ----------
+  DbSubnets:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: 856 prod (privadas)
+      SubnetIds: [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
+  Db:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: 856-prod
+      Engine: postgres
+      EngineVersion: '16'
+      DBInstanceClass: !Ref DbInstanceClass
+      AllocatedStorage: '20'
+      MaxAllocatedStorage: 50
+      StorageType: gp3
+      StorageEncrypted: true
+      DBName: !Ref DbName
+      MasterUsername: !Ref DbMasterUsername
+      MasterUserPassword: !Ref DbMasterPassword
+      DBSubnetGroupName: !Ref DbSubnets
+      VPCSecurityGroups: [!Ref DbSg]
+      PubliclyAccessible: false
+      MultiAZ: false
+      BackupRetentionPeriod: 7
+      CopyTagsToSnapshot: true
+      DeletionProtection: true
+      AutoMinorVersionUpgrade: true
+
+  # ---------- Rol de la instancia (minimos permisos) ----------
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - { Effect: Allow, Principal: { Service: ec2.amazonaws.com }, Action: 'sts:AssumeRole' }
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore'
+      Policies:
+        - PolicyName: 856-app-minimo
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: FirmaHotWallet
+                Effect: Allow
+                Action: ['kms:Sign', 'kms:GetPublicKey']
+                Resource: !GetAtt SigningKey.Arn
+              - Sid: LeerSecretos
+                Effect: Allow
+                Action: 'ssm:GetParametersByPath'
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/856/production'
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/856/production/*'
+              - Sid: DescifrarSecretos
+                Effect: Allow
+                Action: 'kms:Decrypt'
+                Resource: !GetAtt SecretsKey.Arn
+              - Sid: TokenEcr
+                Effect: Allow
+                Action: 'ecr:GetAuthorizationToken'
+                Resource: '*'
+              - Sid: DescargarImagen
+                Effect: Allow
+                Action: ['ecr:BatchGetImage', 'ecr:GetDownloadUrlForLayer', 'ecr:BatchCheckLayerAvailability']
+                Resource: !GetAtt Repo.Arn
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties: { Roles: [!Ref InstanceRole] }
+
+  # ---------- Instancia ----------
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref InstanceProfile
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds: [!Ref AppSg]
+      MetadataOptions:
+        HttpTokens: required
+        HttpPutResponseHopLimit: 2 # el contenedor (un salto de red extra) debe alcanzar el IMDS para sus credenciales
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs: { VolumeSize: 20, VolumeType: gp3, Encrypted: true, DeleteOnTermination: true }
+      Tags:
+        - { Key: Name, Value: 856-prod }
+        - { Key: app, Value: '856' }
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf install -y docker
+          systemctl enable --now docker
+          V=v2.29.7
+          D=/usr/local/lib/docker/cli-plugins
+          mkdir -p $D
+          curl -fsSL -o $D/docker-compose https://github.com/docker/compose/releases/download/$V/docker-compose-linux-aarch64
+          curl -fsSL -o /tmp/compose.sha256 https://github.com/docker/compose/releases/download/$V/docker-compose-linux-aarch64.sha256
+          (cd $D && sed 's#docker-compose-linux-aarch64#docker-compose#' /tmp/compose.sha256 | sha256sum -c -)
+          chmod +x $D/docker-compose
+          if [ ! -f /swapfile ]; then fallocate -l 1G /swapfile; chmod 600 /swapfile; mkswap /swapfile; swapon /swapfile; echo '/swapfile none swap sw 0 0' >> /etc/fstab; fi
+          mkdir -p /opt/856
+          # Solo configuracion NO secreta. Los secretos viven en SSM /856/production/* (SecureString).
+          if [ ! -f /opt/856/app.env ]; then
+          cat > /opt/856/app.env <<'EOF_APP'
+          ENVIRONMENT=production
+          PORT=8080
+          COOKIE_SECURE=true
+          ORIGIN_RULE=enforce
+          SECRETS_SOURCE=ssm
+          SSM_PATH=/856/production/
+          SIGNER_BACKEND=kms
+          EOF_APP
+          cat >> /opt/856/app.env <<'EOF_APP'
+          AWS_REGION=${AWS::Region}
+          SIGNER_KMS_KEY_ID=${SigningKey}
+          EOF_APP
+          fi
+          cat > /opt/856/stack.env <<'EOF_STACK'
+          DOMAIN=${DomainName}
+          ACME_EMAIL=${AcmeEmail}
+          IMAGE_REPO=${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${Repo}
+          EOF_STACK
+          chmod 600 /opt/856/app.env /opt/856/stack.env
+
+  Eip:
+    Type: AWS::EC2::EIP
+    Properties: { Domain: vpc, InstanceId: !Ref Instance }
+
+  # ---------- GitHub Actions (OIDC) ----------
+  GitHubOidc:
+    Type: AWS::IAM::OIDCProvider
+    Condition: MakeOidcProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+      ThumbprintList: [6938fd4d98bab03faadb97b34396831e3780aea1]
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: 856-github-deploy
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If [MakeOidcProvider, !Ref GitHubOidc, !Ref ExistingGitHubOidcProviderArn]
+            Action: 'sts:AssumeRoleWithWebIdentity'
+            Condition:
+              StringEquals:
+                'token.actions.githubusercontent.com:aud': sts.amazonaws.com
+                'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubRepo}:ref:refs/heads/${GitHubBranch}'
+      Policies:
+        - PolicyName: 856-deploy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - { Sid: TokenEcr, Effect: Allow, Action: 'ecr:GetAuthorizationToken', Resource: '*' }
+              - Sid: PublicarImagen
+                Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                  - ecr:PutImage
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                Resource: !GetAtt Repo.Arn
+              - Sid: EjecutarEnLaInstancia
+                Effect: Allow
+                Action: 'ssm:SendCommand'
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}::document/AWS-RunShellScript'
+                  - !Sub 'arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${Instance}'
+              - Sid: ResultadoDelComando
+                Effect: Allow
+                Action: ['ssm:GetCommandInvocation', 'ssm:ListCommandInvocations']
+                Resource: '*'
+
+Outputs:
+  InstanceId: { Value: !Ref Instance }
+  ElasticIp: { Value: !Ref Eip, Description: 'Apuntar raiz, www y hooks (A, nube gris) a esta IP.' }
+  DbEndpoint: { Value: !GetAtt Db.Endpoint.Address }
+  SigningKeyId: { Value: !Ref SigningKey, Description: 'SIGNER_KMS_KEY_ID (ya esta en /opt/856/app.env).' }
+  SecretsKeyAlias: { Value: alias/856-prod-secrets, Description: 'Llave para --key-id al crear los SecureString.' }
+  EcrRepositoryUri: { Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${Repo}' }
+  DeployRoleArn: { Value: !GetAtt DeployRole.Arn, Description: 'Variable AWS_DEPLOY_ROLE_ARN en GitHub.' }
