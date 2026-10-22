@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8" />
@@ -70,7 +70,9 @@
           <span class="text-[11px] font-semibold uppercase tracking-widest text-slate-200">Infraestructura nacida en LATAM</span>
         </div>
         <h1 class="text-4xl leading-[1.1] font-extrabold tracking-tight sm:text-5xl lg:text-6xl">Infraestructura de liquidación <span class="bg-linear-to-r from-prod-green to-teal-300 bg-clip-text text-transparent">sin fronteras</span>, nacida en LATAM.</h1>
+        <!--st:hero.titulo-->
         <p class="max-w-xl text-lg leading-relaxed text-slate-300">Motor de tesorería programable, inmutable y de grado institucional.</p>
+        <!--st:hero.subtitulo-->
         <div class="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:gap-4">
           <a href="__APP_URL__/portal/login" class="inline-flex items-center justify-center gap-2.5 rounded-xl bg-prod-green px-6 py-3.5 text-sm font-bold text-navy-deep shadow-lg shadow-prod-green/20 transition-all hover:bg-emerald-400 hover:shadow-prod-green/40 active:scale-[0.98]">Ingresar al portal <span class="material-symbols-outlined text-[18px]" aria-hidden="true">lock</span></a>
           <a href="#solicitar-acceso" class="inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/10 px-6 py-3.5 text-sm font-semibold text-white transition-all hover:border-white/30 hover:bg-white/15 active:scale-[0.98]">Solicitar acceso</a>
@@ -80,6 +82,7 @@
           <li class="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5"><span class="material-symbols-outlined text-[18px] text-prod-green" aria-hidden="true">check_circle</span><span class="font-medium text-slate-200">Compensación multilateral</span></li>
           <li class="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5"><span class="material-symbols-outlined text-[18px] text-prod-green" aria-hidden="true">check_circle</span><span class="font-medium text-slate-200">Solo sale el neto</span></li>
         </ul>
+        <!--st:hero.doblePartida,hero.compensacion,hero.neto-->
       </div>
 
       <!-- Motor de compensación -->
@@ -143,31 +146,31 @@
         <article class="rounded-xl border border-white/10 bg-white/5 p-6 transition-all hover:border-prod-green/40 hover:bg-white/[0.08]">
           <div class="mb-4 flex items-center justify-between"><span class="text-xs font-bold uppercase tracking-wider text-slate-300">Redes</span><span class="relative flex size-2.5"><span class="absolute inline-flex size-full animate-ping rounded-full bg-prod-green opacity-80"></span><span class="relative inline-flex size-2.5 rounded-full bg-prod-green"></span></span></div>
           <p class="mb-2 font-mono text-5xl font-extrabold tabular-nums">4</p>
-          <h3 class="mb-1.5 text-sm font-semibold">Redes principales operando</h3>
+          <h3 class="mb-1.5 text-sm font-semibold" data-st="produccion.redes">Redes principales operando</h3>
           <p class="text-sm leading-relaxed text-slate-300">Ethereum, Base, Arbitrum y BNB Chain.</p>
         </article>
         <article class="rounded-xl border border-white/10 bg-white/5 p-6 transition-all hover:border-prod-green/40 hover:bg-white/[0.08]">
           <div class="mb-4 flex items-center justify-between"><span class="text-xs font-bold uppercase tracking-wider text-slate-300">Activos</span><span class="relative flex size-2.5"><span class="absolute inline-flex size-full animate-ping rounded-full bg-prod-green opacity-80"></span><span class="relative inline-flex size-2.5 rounded-full bg-prod-green"></span></span></div>
           <p class="mb-2 font-mono text-5xl font-extrabold tabular-nums">14</p>
-          <h3 class="mb-1.5 text-sm font-semibold">Activos digitales verificados</h3>
+          <h3 class="mb-1.5 text-sm font-semibold" data-st="produccion.activos">Activos digitales verificados</h3>
           <p class="text-sm leading-relaxed text-slate-300">Contratos verificados en exploradores oficiales y fuentes del emisor.</p>
         </article>
         <article class="rounded-xl border border-white/10 bg-white/5 p-6 transition-all hover:border-prod-green/40 hover:bg-white/[0.08]">
           <div class="mb-4 flex items-center justify-between"><span class="text-xs font-bold uppercase tracking-wider text-slate-300">Libro contable</span><span class="relative flex size-2.5"><span class="absolute inline-flex size-full animate-ping rounded-full bg-prod-green opacity-80"></span><span class="relative inline-flex size-2.5 rounded-full bg-prod-green"></span></span></div>
           <p class="mb-2 font-mono text-5xl font-extrabold tabular-nums">T+0</p>
-          <h3 class="mb-1.5 text-sm font-semibold">Compensación multilateral</h3>
+          <h3 class="mb-1.5 text-sm font-semibold" data-st="produccion.t0">Compensación multilateral</h3>
           <p class="text-sm leading-relaxed text-slate-300">Liquidación inmediata dentro del libro.</p>
         </article>
         <article class="rounded-xl border border-white/10 bg-white/5 p-6 transition-all hover:border-prod-green/40 hover:bg-white/[0.08]">
           <div class="mb-4 flex items-center justify-between"><span class="text-xs font-bold uppercase tracking-wider text-slate-300">Interfaces</span><span class="relative flex size-2.5"><span class="absolute inline-flex size-full animate-ping rounded-full bg-prod-green opacity-80"></span><span class="relative inline-flex size-2.5 rounded-full bg-prod-green"></span></span></div>
           <p class="mb-2 pt-1 text-4xl font-extrabold">En línea</p>
-          <h3 class="mb-1.5 text-sm font-semibold">Portal y consola</h3>
+          <h3 class="mb-1.5 text-sm font-semibold" data-st="produccion.portal">Portal y consola</h3>
           <p class="text-sm leading-relaxed text-slate-300">Portal de clientes y consola de tesorería.</p>
         </article>
         <article class="rounded-xl border border-white/10 bg-white/5 p-6 transition-all hover:border-prod-green/40 hover:bg-white/[0.08] sm:col-span-2 lg:col-span-1">
           <div class="mb-4 flex items-center justify-between"><span class="text-xs font-bold uppercase tracking-wider text-slate-300">Rampa fiat</span><span class="relative flex size-2.5"><span class="absolute inline-flex size-full animate-ping rounded-full bg-prod-green opacity-80"></span><span class="relative inline-flex size-2.5 rounded-full bg-prod-green"></span></span></div>
           <p class="mb-2 font-mono text-5xl font-extrabold">SEPA</p>
-          <h3 class="mb-1.5 text-sm font-semibold">Entrada de euros</h3>
+          <h3 class="mb-1.5 text-sm font-semibold" data-st="produccion.sepa">Entrada de euros</h3>
           <p class="text-sm leading-relaxed text-slate-300">Por transferencia SEPA, mediante proveedor regulado.</p>
         </article>
       </div>
@@ -186,7 +189,7 @@
         <article class="group flex flex-col justify-between rounded-xl border border-border-subtle bg-white p-8 shadow-sm transition-all hover:border-navy-core/30 hover:shadow-md">
           <div class="flex flex-col gap-4">
             <span class="grid size-12 place-items-center rounded-xl border border-border-subtle bg-surface-bg text-navy-core transition-colors group-hover:bg-navy-core group-hover:text-white"><span class="material-symbols-outlined" aria-hidden="true">sync_alt</span></span>
-            <h3 class="text-lg font-bold tracking-tight text-navy-core">Compensación multilateral de obligaciones</h3>
+            <h3 class="text-lg font-bold tracking-tight text-navy-core" data-st="resolvemos.compensacion">Compensación multilateral de obligaciones</h3>
             <p class="text-[15px] leading-relaxed text-text-muted">Las obligaciones entre participantes se cruzan dentro del libro contable. Hacia afuera se liquida únicamente el saldo neto: menos movimientos, menos costo, menos riesgo.</p>
           </div>
           <p class="mt-6 flex items-center justify-between border-t border-border-subtle pt-6 text-sm text-text-muted">Resultado <span class="rounded-md border border-border-subtle bg-surface-bg px-2.5 py-1 font-bold text-navy-core">Se liquida solo el neto</span></p>
@@ -194,7 +197,7 @@
         <article class="group flex flex-col justify-between rounded-xl border border-border-subtle bg-white p-8 shadow-sm transition-all hover:border-navy-core/30 hover:shadow-md">
           <div class="flex flex-col gap-4">
             <span class="grid size-12 place-items-center rounded-xl border border-border-subtle bg-surface-bg text-navy-core transition-colors group-hover:bg-navy-core group-hover:text-white"><span class="material-symbols-outlined" aria-hidden="true">account_balance_wallet</span></span>
-            <h3 class="text-lg font-bold tracking-tight text-navy-core">Cuentas multi-activo en dólares digitales y euros</h3>
+            <h3 class="text-lg font-bold tracking-tight text-navy-core" data-st="resolvemos.cuentas">Cuentas multi-activo en dólares digitales y euros</h3>
             <p class="text-[15px] leading-relaxed text-text-muted">Posiciones de tesorería segregadas por cliente, con respaldo 1:1, registro por partida contable y estados de cuenta conciliados.</p>
           </div>
           <p class="mt-6 flex items-center justify-between border-t border-border-subtle pt-6 text-sm text-text-muted">Transparencia <span class="rounded-md border border-border-subtle bg-surface-bg px-2.5 py-1 font-bold text-navy-core">Estados de cuenta</span></p>
@@ -202,7 +205,7 @@
         <article class="group flex flex-col justify-between rounded-xl border border-border-subtle bg-white p-8 shadow-sm transition-all hover:border-navy-core/30 hover:shadow-md">
           <div class="flex flex-col gap-4">
             <span class="grid size-12 place-items-center rounded-xl border border-border-subtle bg-surface-bg text-navy-core transition-colors group-hover:bg-navy-core group-hover:text-white"><span class="material-symbols-outlined" aria-hidden="true">euro</span></span>
-            <h3 class="text-lg font-bold tracking-tight text-navy-core">Entrada de euros por transferencia SEPA</h3>
+            <h3 class="text-lg font-bold tracking-tight text-navy-core" data-st="resolvemos.sepa">Entrada de euros por transferencia SEPA</h3>
             <p class="text-[15px] leading-relaxed text-text-muted">Recibe euros por SEPA mediante un proveedor regulado. <strong class="font-semibold text-text-primary">856 no custodia dinero fiat:</strong> la recepción y conversión las opera el proveedor.</p>
           </div>
           <p class="mt-6 flex items-center justify-between border-t border-border-subtle pt-6 text-sm text-text-muted">Custodia fiat <span class="rounded-md border border-border-subtle bg-surface-bg px-2.5 py-1 font-bold text-navy-core">Proveedor regulado</span></p>
@@ -217,7 +220,7 @@
     <div class="relative mx-auto flex max-w-[1440px] flex-col gap-12 px-5 lg:px-12">
       <div class="reveal flex max-w-2xl flex-col gap-2.5">
         <span class="text-xs font-bold uppercase tracking-widest text-prod-green">Rampas y activos</span>
-        <h2 class="text-3xl font-extrabold tracking-tight lg:text-4xl">Rieles a tu medida</h2>
+        <h2 class="text-3xl font-extrabold tracking-tight lg:text-4xl" data-st="rieles.titulo">Rieles a tu medida</h2>
         <p class="text-base leading-relaxed text-slate-300">Operamos acuerdos de custodia en diversas monedas, con rampas de transferencia diseñadas para tu operación.</p>
       </div>
       <div class="reveal relative">
@@ -226,7 +229,7 @@
           <article class="flex flex-col justify-between rounded-xl border border-white/10 bg-white/5 p-6 shadow-xl backdrop-blur-md transition-all hover:border-prod-green/40 hover:bg-white/[0.08]">
             <div>
               <div class="mb-4 flex items-center justify-between"><span class="font-mono text-xs font-semibold text-slate-300">RIEL · USD</span><span class="flex items-center gap-2 text-[11px] font-bold uppercase text-prod-green">Disponible<span class="flex h-4 w-8 items-center justify-end rounded-full bg-prod-green px-0.5" aria-hidden="true"><span class="size-3 rounded-full bg-white"></span></span></span></div>
-              <h3 class="mb-2 text-base font-bold">Dólares (wire / ACH)</h3>
+              <h3 class="mb-2 text-base font-bold" data-st="rieles.usd">Dólares (wire / ACH)</h3>
               <p class="mb-4 text-sm leading-relaxed text-slate-300">Transferencias bancarias en dólares, nacionales e internacionales.</p>
             </div>
             <dl class="flex flex-col gap-2 border-t border-white/10 pt-4 text-sm"><div class="flex justify-between"><dt class="text-slate-300">Interruptor</dt><dd class="font-semibold">Por riel</dd></div><div class="flex justify-between"><dt class="text-slate-300">Límites</dt><dd class="font-semibold">Configurables</dd></div><div class="flex justify-between"><dt class="text-slate-300">Visibilidad</dt><dd class="font-semibold text-prod-green">Por cliente</dd></div></dl>
@@ -234,7 +237,7 @@
           <article class="flex flex-col justify-between rounded-xl border border-white/10 bg-white/5 p-6 shadow-xl backdrop-blur-md transition-all hover:border-prod-green/40 hover:bg-white/[0.08]">
             <div>
               <div class="mb-4 flex items-center justify-between"><span class="font-mono text-xs font-semibold text-slate-300">RIEL · EUR</span><span class="flex items-center gap-2 text-[11px] font-bold uppercase text-prod-green">Disponible<span class="flex h-4 w-8 items-center justify-end rounded-full bg-prod-green px-0.5" aria-hidden="true"><span class="size-3 rounded-full bg-white"></span></span></span></div>
-              <h3 class="mb-2 text-base font-bold">Euros (SEPA)</h3>
+              <h3 class="mb-2 text-base font-bold" data-st="rieles.eur">Euros (SEPA)</h3>
               <p class="mb-4 text-sm leading-relaxed text-slate-300">Recepción en la zona euro mediante proveedor regulado, conciliada con tu referencia.</p>
             </div>
             <dl class="flex flex-col gap-2 border-t border-white/10 pt-4 text-sm"><div class="flex justify-between"><dt class="text-slate-300">Interruptor</dt><dd class="font-semibold">Por riel</dd></div><div class="flex justify-between"><dt class="text-slate-300">Límites</dt><dd class="font-semibold">Configurables</dd></div><div class="flex justify-between"><dt class="text-slate-300">Visibilidad</dt><dd class="font-semibold text-prod-green">Por cliente</dd></div></dl>
@@ -242,7 +245,7 @@
           <article class="flex flex-col justify-between rounded-xl border border-white/10 bg-white/5 p-6 shadow-xl backdrop-blur-md transition-all hover:border-prod-green/40 hover:bg-white/[0.08]">
             <div>
               <div class="mb-4 flex items-center justify-between"><span class="font-mono text-xs font-semibold text-slate-300">RIEL · LOCAL</span><span class="flex items-center gap-2 text-[11px] font-bold uppercase text-sky-300">A la medida<span class="flex h-4 w-8 items-center justify-end rounded-full bg-sky-400/80 px-0.5" aria-hidden="true"><span class="size-3 rounded-full bg-white"></span></span></span></div>
-              <h3 class="mb-2 text-base font-bold">Rieles locales de LATAM</h3>
+              <h3 class="mb-2 text-base font-bold" data-st="rieles.latam">Rieles locales de LATAM</h3>
               <p class="mb-4 text-sm leading-relaxed text-slate-300">Diseñamos contigo el riel local que tu operación necesita, con aliados de cada país.</p>
             </div>
             <dl class="flex flex-col gap-2 border-t border-white/10 pt-4 text-sm"><div class="flex justify-between"><dt class="text-slate-300">Interruptor</dt><dd class="font-semibold">Por riel</dd></div><div class="flex justify-between"><dt class="text-slate-300">Límites</dt><dd class="font-semibold">Configurables</dd></div><div class="flex justify-between"><dt class="text-slate-300">Visibilidad</dt><dd class="font-semibold text-prod-green">Por cliente</dd></div></dl>
@@ -250,7 +253,7 @@
           <article class="flex flex-col justify-between rounded-xl border border-white/10 bg-white/5 p-6 shadow-xl backdrop-blur-md transition-all hover:border-prod-green/40 hover:bg-white/[0.08]">
             <div>
               <div class="mb-4 flex items-center justify-between"><span class="font-mono text-xs font-semibold text-slate-300">RIEL · ON-CHAIN</span><span class="flex items-center gap-2 text-[11px] font-bold uppercase text-prod-green">Disponible<span class="flex h-4 w-8 items-center justify-end rounded-full bg-prod-green px-0.5" aria-hidden="true"><span class="size-3 rounded-full bg-white"></span></span></span></div>
-              <h3 class="mb-2 text-base font-bold">Stablecoins (USDC / USDT / EURe)</h3>
+              <h3 class="mb-2 text-base font-bold" data-st="rieles.stables">Stablecoins (USDC / USDT / EURe)</h3>
               <p class="mb-4 text-sm leading-relaxed text-slate-300">Dólares y euros digitales en 4 redes, con contratos verificados.</p>
             </div>
             <dl class="flex flex-col gap-2 border-t border-white/10 pt-4 text-sm"><div class="flex justify-between"><dt class="text-slate-300">Interruptor</dt><dd class="font-semibold">Por activo</dd></div><div class="flex justify-between"><dt class="text-slate-300">Límites</dt><dd class="font-semibold">Configurables</dd></div><div class="flex justify-between"><dt class="text-slate-300">Visibilidad</dt><dd class="font-semibold text-prod-green">Por cliente</dd></div></dl>
@@ -265,7 +268,7 @@
     <div class="mx-auto flex max-w-[1440px] flex-col gap-12 px-5 lg:px-12">
       <div class="reveal flex max-w-3xl flex-col gap-2.5">
         <span class="text-xs font-bold uppercase tracking-widest text-text-subtle">Integración sin fricción</span>
-        <h2 class="text-3xl font-extrabold tracking-tight text-navy-core lg:text-5xl">Como sea que operes, lo conectamos</h2>
+        <h2 class="text-3xl font-extrabold tracking-tight text-navy-core lg:text-5xl" data-st="integracion.titulo">Como sea que operes, lo conectamos</h2>
         <p class="text-base text-text-muted">Te encontramos donde estás: con tu ERP, con tu equipo o sin ninguno de los dos.</p>
       </div>
       <div class="reveal overflow-hidden rounded-2xl border border-border-subtle bg-white shadow-md">
@@ -274,19 +277,19 @@
           <div class="flex items-center gap-3 border-l border-emerald-900/40 bg-[#0E3A2F] p-6 text-sm font-bold text-white"><span class="material-symbols-outlined text-prod-green" aria-hidden="true">build</span>Si no lo tienes, lo habilitamos para ti</div>
         </div>
         <div class="grid grid-cols-1 border-b border-border-subtle md:grid-cols-2">
-          <div class="flex items-start gap-4 p-6"><span class="mt-0.5 grid size-11 shrink-0 place-items-center rounded-xl border border-slate-200 bg-slate-100 text-navy-core"><span class="material-symbols-outlined" aria-hidden="true">hub</span></span><div><p class="font-mono text-[11px] font-semibold uppercase tracking-wider text-text-subtle">01 · Conexión de sistemas</p><p class="font-bold text-navy-core">Conexión S2S con tu ERP o sistema interno de pagos</p><p class="mt-1 flex items-center gap-1.5 text-sm font-semibold text-prod-green-dark"><span class="material-symbols-outlined text-[18px]" aria-hidden="true">arrow_right_alt</span>Nos conectamos directo.</p></div></div>
+          <div class="flex items-start gap-4 p-6"><span class="mt-0.5 grid size-11 shrink-0 place-items-center rounded-xl border border-slate-200 bg-slate-100 text-navy-core"><span class="material-symbols-outlined" aria-hidden="true">hub</span></span><div><p class="font-mono text-[11px] font-semibold uppercase tracking-wider text-text-subtle">01 · Conexión de sistemas</p><p class="font-bold text-navy-core" data-st="integracion.paso1">Conexión S2S con tu ERP o sistema interno de pagos</p><p class="mt-1 flex items-center gap-1.5 text-sm font-semibold text-prod-green-dark"><span class="material-symbols-outlined text-[18px]" aria-hidden="true">arrow_right_alt</span>Nos conectamos directo.</p></div></div>
           <div class="flex items-center gap-4 border-t border-border-subtle bg-[#F0FDF4] p-6 md:border-t-0 md:border-l"><span class="material-symbols-outlined shrink-0 text-prod-green-dark" aria-hidden="true">verified</span><p class="font-semibold text-slate-800"><span class="mr-1 text-xs font-bold uppercase tracking-wider text-prod-green-dark md:hidden">Si no lo tienes:</span>Lo habilitamos para ti.</p></div>
         </div>
         <div class="grid grid-cols-1 border-b border-border-subtle md:grid-cols-2">
-          <div class="flex items-start gap-4 p-6"><span class="mt-0.5 grid size-11 shrink-0 place-items-center rounded-xl border border-slate-200 bg-slate-100 text-navy-core"><span class="material-symbols-outlined" aria-hidden="true">send_money</span></span><div><p class="font-mono text-[11px] font-semibold uppercase tracking-wider text-text-subtle">02 · Ejecución</p><p class="font-bold text-navy-core">Instrucción de pago desde tu ERP</p><p class="mt-1 flex items-center gap-1.5 text-sm font-semibold text-prod-green-dark"><span class="material-symbols-outlined text-[18px]" aria-hidden="true">arrow_right_alt</span>Se liquida por la API.</p></div></div>
+          <div class="flex items-start gap-4 p-6"><span class="mt-0.5 grid size-11 shrink-0 place-items-center rounded-xl border border-slate-200 bg-slate-100 text-navy-core"><span class="material-symbols-outlined" aria-hidden="true">send_money</span></span><div><p class="font-mono text-[11px] font-semibold uppercase tracking-wider text-text-subtle">02 · Ejecución</p><p class="font-bold text-navy-core" data-st="integracion.paso2">Instrucción de pago desde tu ERP</p><p class="mt-1 flex items-center gap-1.5 text-sm font-semibold text-prod-green-dark"><span class="material-symbols-outlined text-[18px]" aria-hidden="true">arrow_right_alt</span>Se liquida por la API.</p></div></div>
           <div class="flex items-center gap-4 border-t border-border-subtle bg-[#F0FDF4] p-6 md:border-t-0 md:border-l"><span class="material-symbols-outlined shrink-0 text-prod-green-dark" aria-hidden="true">verified</span><p class="font-semibold text-slate-800"><span class="mr-1 text-xs font-bold uppercase tracking-wider text-prod-green-dark md:hidden">Si no lo tienes:</span>Lo configuramos para ti.</p></div>
         </div>
         <div class="grid grid-cols-1 border-b border-border-subtle md:grid-cols-2">
-          <div class="flex items-start gap-4 p-6"><span class="mt-0.5 grid size-11 shrink-0 place-items-center rounded-xl border border-slate-200 bg-slate-100 text-navy-core"><span class="material-symbols-outlined" aria-hidden="true">stacked_line_chart</span></span><div><p class="font-mono text-[11px] font-semibold uppercase tracking-wider text-text-subtle">03 · Escala</p><p class="font-bold text-navy-core">Movimiento de grandes volúmenes</p><p class="mt-1 flex items-center gap-1.5 text-sm font-semibold text-prod-green-dark"><span class="material-symbols-outlined text-[18px]" aria-hidden="true">arrow_right_alt</span>Lo automatizamos con tu flujo.</p></div></div>
+          <div class="flex items-start gap-4 p-6"><span class="mt-0.5 grid size-11 shrink-0 place-items-center rounded-xl border border-slate-200 bg-slate-100 text-navy-core"><span class="material-symbols-outlined" aria-hidden="true">stacked_line_chart</span></span><div><p class="font-mono text-[11px] font-semibold uppercase tracking-wider text-text-subtle">03 · Escala</p><p class="font-bold text-navy-core" data-st="integracion.paso3">Movimiento de grandes volúmenes</p><p class="mt-1 flex items-center gap-1.5 text-sm font-semibold text-prod-green-dark"><span class="material-symbols-outlined text-[18px]" aria-hidden="true">arrow_right_alt</span>Lo automatizamos con tu flujo.</p></div></div>
           <div class="flex items-center gap-4 border-t border-border-subtle bg-[#F0FDF4] p-6 md:border-t-0 md:border-l"><span class="material-symbols-outlined shrink-0 text-prod-green-dark" aria-hidden="true">verified</span><p class="font-semibold text-slate-800"><span class="mr-1 text-xs font-bold uppercase tracking-wider text-prod-green-dark md:hidden">Si no lo tienes:</span>Diseñamos contigo la estructura adecuada y automatizada.</p></div>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2">
-          <div class="flex items-start gap-4 p-6"><span class="mt-0.5 grid size-11 shrink-0 place-items-center rounded-xl border border-slate-200 bg-slate-100 text-navy-core"><span class="material-symbols-outlined" aria-hidden="true">groups</span></span><div><p class="font-mono text-[11px] font-semibold uppercase tracking-wider text-text-subtle">04 · Capacidad técnica</p><p class="font-bold text-navy-core">Equipo técnico</p><p class="mt-1 flex items-center gap-1.5 text-sm font-semibold text-prod-green-dark"><span class="material-symbols-outlined text-[18px]" aria-hidden="true">arrow_right_alt</span>Trabajamos con el tuyo.</p></div></div>
+          <div class="flex items-start gap-4 p-6"><span class="mt-0.5 grid size-11 shrink-0 place-items-center rounded-xl border border-slate-200 bg-slate-100 text-navy-core"><span class="material-symbols-outlined" aria-hidden="true">groups</span></span><div><p class="font-mono text-[11px] font-semibold uppercase tracking-wider text-text-subtle">04 · Capacidad técnica</p><p class="font-bold text-navy-core" data-st="integracion.paso4">Equipo técnico</p><p class="mt-1 flex items-center gap-1.5 text-sm font-semibold text-prod-green-dark"><span class="material-symbols-outlined text-[18px]" aria-hidden="true">arrow_right_alt</span>Trabajamos con el tuyo.</p></div></div>
           <div class="flex items-center gap-4 border-t border-border-subtle bg-[#F0FDF4] p-6 md:border-t-0 md:border-l"><span class="material-symbols-outlined shrink-0 text-prod-green-dark" aria-hidden="true">verified</span><p class="font-semibold text-slate-800"><span class="mr-1 text-xs font-bold uppercase tracking-wider text-prod-green-dark md:hidden">Si no lo tienes:</span>Ponemos el equipo técnico por ti.</p></div>
         </div>
       </div>
@@ -301,14 +304,14 @@
     <div class="relative mx-auto grid max-w-[1440px] grid-cols-1 items-center gap-12 px-5 lg:grid-cols-12 lg:gap-16 lg:px-12">
       <div class="reveal flex flex-col gap-6 lg:col-span-5">
         <span class="self-start rounded-md border border-prod-green/20 bg-prod-green/10 px-2.5 py-1 text-xs font-bold uppercase tracking-wider text-prod-green">Infraestructura programable</span>
-        <h2 class="text-4xl leading-tight font-extrabold tracking-tight sm:text-5xl">Tu tesorería, programable.</h2>
+        <h2 class="text-4xl leading-tight font-extrabold tracking-tight sm:text-5xl" data-st="api.titulo">Tu tesorería, programable.</h2>
         <p class="text-base leading-relaxed text-slate-300">Todo lo que haces en el portal, tu sistema lo hace por API: depósitos, avisos de pago, compensación, salidas y estados de cuenta.</p>
         <ul class="flex flex-col gap-3">
-          <li class="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 p-3.5"><span class="material-symbols-outlined mt-0.5 shrink-0 text-[20px] text-prod-green" aria-hidden="true">verified_user</span><p class="text-sm text-slate-300"><strong class="block font-semibold text-white">Firma por petición</strong>Llaves Ed25519 generadas en tu dispositivo; 856 solo conoce la pública.</p></li>
-          <li class="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 p-3.5"><span class="material-symbols-outlined mt-0.5 shrink-0 text-[20px] text-prod-green" aria-hidden="true">webhook</span><p class="text-sm text-slate-300"><strong class="block font-semibold text-white">Webhooks firmados</strong>Eventos hacia tu sistema, verificables con tu secreto.</p></li>
-          <li class="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 p-3.5"><span class="material-symbols-outlined mt-0.5 shrink-0 text-[20px] text-prod-green" aria-hidden="true">replay</span><p class="text-sm text-slate-300"><strong class="block font-semibold text-white">Idempotencia</strong>Una instrucción repetida nunca se ejecuta dos veces.</p></li>
-          <li class="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 p-3.5"><span class="material-symbols-outlined mt-0.5 shrink-0 text-[20px] text-prod-green" aria-hidden="true">model_training</span><p class="text-sm text-slate-300"><strong class="block font-semibold text-white">Salidas con simulación</strong>Simulas, solicitas y la autorización queda atada a lo simulado.</p></li>
-          <li class="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 p-3.5"><span class="material-symbols-outlined mt-0.5 shrink-0 text-[20px] text-prod-green" aria-hidden="true">receipt_long</span><p class="text-sm text-slate-300"><strong class="block font-semibold text-white">Compensación y estados de cuenta</strong>Obligaciones, posiciones netas y movimientos, por API.</p></li>
+          <li class="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 p-3.5"><span class="material-symbols-outlined mt-0.5 shrink-0 text-[20px] text-prod-green" aria-hidden="true">verified_user</span><p class="text-sm text-slate-300"><strong class="block font-semibold text-white" data-st="api.firma">Firma por petición</strong>Llaves Ed25519 generadas en tu dispositivo; 856 solo conoce la pública.</p></li>
+          <li class="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 p-3.5"><span class="material-symbols-outlined mt-0.5 shrink-0 text-[20px] text-prod-green" aria-hidden="true">webhook</span><p class="text-sm text-slate-300"><strong class="block font-semibold text-white" data-st="api.webhooks">Webhooks firmados</strong>Eventos hacia tu sistema, verificables con tu secreto.</p></li>
+          <li class="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 p-3.5"><span class="material-symbols-outlined mt-0.5 shrink-0 text-[20px] text-prod-green" aria-hidden="true">replay</span><p class="text-sm text-slate-300"><strong class="block font-semibold text-white" data-st="api.idempotencia">Idempotencia</strong>Una instrucción repetida nunca se ejecuta dos veces.</p></li>
+          <li class="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 p-3.5"><span class="material-symbols-outlined mt-0.5 shrink-0 text-[20px] text-prod-green" aria-hidden="true">model_training</span><p class="text-sm text-slate-300"><strong class="block font-semibold text-white" data-st="api.simulacion">Salidas con simulación</strong>Simulas, solicitas y la autorización queda atada a lo simulado.</p></li>
+          <li class="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 p-3.5"><span class="material-symbols-outlined mt-0.5 shrink-0 text-[20px] text-prod-green" aria-hidden="true">receipt_long</span><p class="text-sm text-slate-300"><strong class="block font-semibold text-white" data-st="api.estados">Compensación y estados de cuenta</strong>Obligaciones, posiciones netas y movimientos, por API.</p></li>
         </ul>
         <a href="#solicitar-acceso" class="inline-flex items-center justify-center gap-2 self-start rounded-xl bg-white px-6 py-3.5 text-sm font-bold text-navy-core shadow-lg transition-all hover:bg-slate-100 active:scale-[0.98]">Solicitar acceso a la API <span class="material-symbols-outlined text-[18px]" aria-hidden="true">key</span></a>
       </div>
@@ -316,7 +319,7 @@
         <div class="overflow-hidden rounded-2xl border border-white/15 bg-[#070D18] shadow-2xl">
           <div class="flex items-center justify-between border-b border-white/10 bg-navy-dark px-5 py-3.5">
             <div class="flex items-center gap-2" aria-hidden="true"><span class="size-3 rounded-full bg-[#FF5F56]"></span><span class="size-3 rounded-full bg-[#FFBD2E]"></span><span class="size-3 rounded-full bg-[#27C93F]"></span></div>
-            <span class="font-mono text-xs text-slate-300">aviso-de-pago.http</span>
+            <span class="font-mono text-xs text-slate-300" data-st="api.codigo">aviso-de-pago.http</span>
             <span class="font-mono text-[11px] font-bold tracking-wider text-prod-green">ED25519</span>
           </div>
           <pre class="overflow-x-auto p-5 font-mono text-[13px] leading-relaxed text-slate-200 sm:p-6"><code><span class="text-slate-500">01</span>  <span class="font-semibold text-sky-300">POST</span> /v1/portal/fiat/payment-intents
@@ -351,9 +354,9 @@
       <div class="reveal relative">
         <div class="absolute top-6 right-10 left-10 hidden h-1 rounded-full bg-border-subtle md:block" aria-hidden="true"><div class="timeline-fill h-full rounded-full bg-linear-to-r from-navy-core via-prod-green to-navy-core"></div></div>
         <ol class="relative grid grid-cols-1 gap-6 md:grid-cols-5">
-          <li class="flex flex-col gap-4"><span class="mx-auto grid size-12 place-items-center rounded-full bg-navy-core font-mono text-sm font-bold text-white ring-4 ring-white md:mx-0">01</span><div class="h-full rounded-xl border border-border-subtle bg-surface-bg p-6"><h3 class="mb-2 font-bold text-navy-core">Diseñamos tu integración</h3><p class="text-sm leading-relaxed text-text-muted">Rieles, conexión con tu ERP, usuarios y llaves de firma.</p></div></li>
+          <li class="flex flex-col gap-4"><span class="mx-auto grid size-12 place-items-center rounded-full bg-navy-core font-mono text-sm font-bold text-white ring-4 ring-white md:mx-0">01</span><div class="h-full rounded-xl border border-border-subtle bg-surface-bg p-6"><h3 class="mb-2 font-bold text-navy-core" data-st="comofunciona.paso1">Diseñamos tu integración</h3><p class="text-sm leading-relaxed text-text-muted">Rieles, conexión con tu ERP, usuarios y llaves de firma.</p></div></li>
           <li class="flex flex-col gap-4"><span class="mx-auto grid size-12 place-items-center rounded-full bg-navy-core font-mono text-sm font-bold text-white ring-4 ring-white md:mx-0">02</span><div class="h-full rounded-xl border border-border-subtle bg-surface-bg p-6"><h3 class="mb-2 font-bold text-navy-core">Depositas</h3><p class="text-sm leading-relaxed text-text-muted">Por transferencia o en activos digitales, a tu cuenta segregada.</p></div></li>
-          <li class="flex flex-col gap-4"><span class="mx-auto grid size-12 place-items-center rounded-full bg-prod-green font-mono text-sm font-bold text-white ring-4 ring-white md:mx-0">03</span><div class="h-full rounded-xl border border-prod-green/30 bg-prod-green-light/60 p-6"><h3 class="mb-2 font-bold text-navy-core">Operas y compensas dentro del libro</h3><p class="text-sm leading-relaxed text-text-muted">Inmediato y sin costo de red.</p></div></li>
+          <li class="flex flex-col gap-4"><span class="mx-auto grid size-12 place-items-center rounded-full bg-prod-green font-mono text-sm font-bold text-white ring-4 ring-white md:mx-0">03</span><div class="h-full rounded-xl border border-prod-green/30 bg-prod-green-light/60 p-6"><h3 class="mb-2 font-bold text-navy-core" data-st="comofunciona.paso3">Operas y compensas dentro del libro</h3><p class="text-sm leading-relaxed text-text-muted">Inmediato y sin costo de red.</p></div></li>
           <li class="flex flex-col gap-4"><span class="mx-auto grid size-12 place-items-center rounded-full bg-navy-core font-mono text-sm font-bold text-white ring-4 ring-white md:mx-0">04</span><div class="h-full rounded-xl border border-border-subtle bg-surface-bg p-6"><h3 class="mb-2 font-bold text-navy-core">Simulas y solicitas tu salida</h3><p class="text-sm leading-relaxed text-text-muted">Monto exacto, destino de tu lista blanca y comisión, antes de mover nada.</p></div></li>
           <li class="flex flex-col gap-4"><span class="mx-auto grid size-12 place-items-center rounded-full bg-prod-green font-mono text-sm font-bold text-white ring-4 ring-white md:mx-0">05</span><div class="h-full rounded-xl border border-prod-green/30 bg-prod-green-light/60 p-6"><h3 class="mb-2 font-bold text-navy-core">Tesorería de 856 autoriza y se ejecuta</h3><p class="text-sm leading-relaxed text-text-muted">Con doble factor, atada a tu simulación.</p></div></li>
         </ol>
@@ -370,11 +373,11 @@
         <p class="text-base text-text-muted">Cada movimiento responde a reglas que 856 tampoco puede saltarse.</p>
       </div>
       <div class="reveal grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-        <article class="flex flex-col gap-3.5 rounded-xl border border-border-subtle bg-white p-7 shadow-sm"><span class="grid size-11 place-items-center rounded-xl border border-slate-200 bg-slate-100 text-navy-core"><span class="material-symbols-outlined" aria-hidden="true">touch_app</span></span><h3 class="font-bold text-navy-core">Solo tú originas operaciones</h3><p class="text-sm leading-relaxed text-text-muted">Toda orden nace de tu portal o de tu llave de API. La consola de 856 valida y autoriza; no origina.</p></article>
-        <article class="flex flex-col gap-3.5 rounded-xl border border-border-subtle bg-white p-7 shadow-sm"><span class="grid size-11 place-items-center rounded-xl border border-slate-200 bg-slate-100 text-navy-core"><span class="material-symbols-outlined" aria-hidden="true">verified_user</span></span><h3 class="font-bold text-navy-core">Salidas con doble factor</h3><p class="text-sm leading-relaxed text-text-muted">Tesorería autoriza cada salida con 2FA; si algo cambia respecto de tu simulación, no se mueve nada.</p></article>
-        <article class="flex flex-col gap-3.5 rounded-xl border border-border-subtle bg-white p-7 shadow-sm"><span class="grid size-11 place-items-center rounded-xl border border-slate-200 bg-slate-100 text-navy-core"><span class="material-symbols-outlined" aria-hidden="true">schedule</span></span><h3 class="font-bold text-navy-core">Lista blanca con periodo de espera</h3><p class="text-sm leading-relaxed text-text-muted">Solo se envía a destinos que tú registraste y que cumplieron su periodo de espera.</p></article>
-        <article class="flex flex-col gap-3.5 rounded-xl border border-border-subtle bg-white p-7 shadow-sm"><span class="grid size-11 place-items-center rounded-xl border border-slate-200 bg-slate-100 text-navy-core"><span class="material-symbols-outlined" aria-hidden="true">key</span></span><h3 class="font-bold text-navy-core">Tus llaves, en tu dispositivo</h3><p class="text-sm leading-relaxed text-text-muted">Las llaves de API se generan en tu equipo; 856 guarda solo la parte pública y no puede firmar por ti.</p></article>
-        <article class="flex flex-col gap-3.5 rounded-xl border border-border-subtle bg-white p-7 shadow-sm md:col-span-2 lg:col-span-1"><span class="grid size-11 place-items-center rounded-xl border border-slate-200 bg-slate-100 text-navy-core"><span class="material-symbols-outlined" aria-hidden="true">shield_lock</span></span><h3 class="font-bold text-navy-core">Aislamiento total por cliente</h3><p class="text-sm leading-relaxed text-text-muted">Cada cliente ve y opera solo lo suyo; todo queda en bitácora auditable.</p></article>
+        <article class="flex flex-col gap-3.5 rounded-xl border border-border-subtle bg-white p-7 shadow-sm"><span class="grid size-11 place-items-center rounded-xl border border-slate-200 bg-slate-100 text-navy-core"><span class="material-symbols-outlined" aria-hidden="true">touch_app</span></span><h3 class="font-bold text-navy-core" data-st="gobierno.titulo">Solo tú originas operaciones</h3><p class="text-sm leading-relaxed text-text-muted">Toda orden nace de tu portal o de tu llave de API. La consola de 856 valida y autoriza; no origina.</p></article>
+        <article class="flex flex-col gap-3.5 rounded-xl border border-border-subtle bg-white p-7 shadow-sm"><span class="grid size-11 place-items-center rounded-xl border border-slate-200 bg-slate-100 text-navy-core"><span class="material-symbols-outlined" aria-hidden="true">verified_user</span></span><h3 class="font-bold text-navy-core" data-st="gobierno.2fa">Salidas con doble factor</h3><p class="text-sm leading-relaxed text-text-muted">Tesorería autoriza cada salida con 2FA; si algo cambia respecto de tu simulación, no se mueve nada.</p></article>
+        <article class="flex flex-col gap-3.5 rounded-xl border border-border-subtle bg-white p-7 shadow-sm"><span class="grid size-11 place-items-center rounded-xl border border-slate-200 bg-slate-100 text-navy-core"><span class="material-symbols-outlined" aria-hidden="true">schedule</span></span><h3 class="font-bold text-navy-core" data-st="gobierno.listaBlanca">Lista blanca con periodo de espera</h3><p class="text-sm leading-relaxed text-text-muted">Solo se envía a destinos que tú registraste y que cumplieron su periodo de espera.</p></article>
+        <article class="flex flex-col gap-3.5 rounded-xl border border-border-subtle bg-white p-7 shadow-sm"><span class="grid size-11 place-items-center rounded-xl border border-slate-200 bg-slate-100 text-navy-core"><span class="material-symbols-outlined" aria-hidden="true">key</span></span><h3 class="font-bold text-navy-core" data-st="gobierno.llaves">Tus llaves, en tu dispositivo</h3><p class="text-sm leading-relaxed text-text-muted">Las llaves de API se generan en tu equipo; 856 guarda solo la parte pública y no puede firmar por ti.</p></article>
+        <article class="flex flex-col gap-3.5 rounded-xl border border-border-subtle bg-white p-7 shadow-sm md:col-span-2 lg:col-span-1"><span class="grid size-11 place-items-center rounded-xl border border-slate-200 bg-slate-100 text-navy-core"><span class="material-symbols-outlined" aria-hidden="true">shield_lock</span></span><h3 class="font-bold text-navy-core" data-st="gobierno.aislamiento">Aislamiento total por cliente</h3><p class="text-sm leading-relaxed text-text-muted">Cada cliente ve y opera solo lo suyo; todo queda en bitácora auditable.</p></article>
       </div>
     </div>
   </section>
@@ -384,7 +387,7 @@
     <div class="relative mx-auto flex max-w-[1440px] flex-col gap-12 px-5 lg:px-12">
       <div class="reveal flex max-w-2xl flex-col gap-2.5">
         <span class="text-xs font-bold uppercase tracking-widest text-prod-green">Conectividad internacional</span>
-        <h2 class="text-3xl font-extrabold tracking-tight lg:text-4xl">Alcance</h2>
+        <h2 class="text-3xl font-extrabold tracking-tight lg:text-4xl" data-st="alcance.titulo">Alcance</h2>
         <p class="text-lg font-medium text-slate-200">Operamos corredores entre LATAM, Europa y Medio Oriente.</p>
       </div>
       <div class="reveal overflow-hidden rounded-2xl border border-white/15 bg-white/5 p-5 sm:p-8">
@@ -404,7 +407,7 @@
         <div class="grid grid-cols-1 gap-6 md:grid-cols-3">
           <article class="flex flex-col gap-3 rounded-xl border border-white/10 bg-navy-dark/90 p-6"><span class="text-xs font-bold uppercase tracking-wider text-slate-300">Origen</span><h3 class="text-xl font-bold">LATAM</h3><p class="text-sm leading-relaxed text-slate-300">Donde nace la infraestructura: compensación entre contrapartes de la región y rieles locales a la medida.</p></article>
           <article class="flex flex-col gap-3 rounded-xl border border-white/10 bg-navy-dark/90 p-6"><span class="text-xs font-bold uppercase tracking-wider text-slate-300">Corredor</span><h3 class="text-xl font-bold">Europa</h3><p class="text-sm leading-relaxed text-slate-300">Entrada de euros por SEPA mediante proveedor regulado y euros digitales (EURe).</p></article>
-          <article class="flex flex-col gap-3 rounded-xl border border-white/10 bg-navy-dark/90 p-6"><span class="text-xs font-bold uppercase tracking-wider text-slate-300">Corredor</span><h3 class="text-xl font-bold">Medio Oriente</h3><p class="text-sm leading-relaxed text-slate-300">Liquidación en dólares digitales para comercio internacional y centros financieros.</p></article>
+          <article class="flex flex-col gap-3 rounded-xl border border-white/10 bg-navy-dark/90 p-6"><span class="text-xs font-bold uppercase tracking-wider text-slate-300">Corredor</span><h3 class="text-xl font-bold" data-st="alcance.medioOriente">Medio Oriente</h3><p class="text-sm leading-relaxed text-slate-300">Liquidación en dólares digitales para comercio internacional y centros financieros.</p></article>
         </div>
       </div>
     </div>
@@ -416,7 +419,7 @@
       <div class="reveal rounded-2xl border border-border-subtle bg-white p-6 shadow-lg sm:p-10 lg:p-12">
         <div class="flex flex-col gap-2 border-b border-border-subtle pb-6">
           <span class="text-xs font-bold uppercase tracking-widest text-text-subtle">Alta institucional</span>
-          <h2 class="text-3xl font-extrabold text-navy-core">Solicitar acceso</h2>
+          <h2 class="text-3xl font-extrabold text-navy-core" data-st="formulario.titulo">Solicitar acceso</h2>
           <p class="text-sm text-text-muted">Para tesorerías corporativas, fondos y fintechs.</p>
         </div>
         <form id="access-form" class="flex flex-col gap-6 pt-6" novalidate>
@@ -450,6 +453,7 @@
       </div>
     </div>
   </section>
+<!--st-noscript-->
 </main>
 
 <footer class="border-t border-white/10 bg-navy-deep text-white">
