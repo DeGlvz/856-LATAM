@@ -277,13 +277,13 @@ const depositView = (w: { id: string; address: string; network: string; derivati
 export async function listDepositAddresses(clientId: string) {
   const { rows } = await pool.query(
     `SELECT id, address, network, derivation_index, created_at, active FROM wallets
-      WHERE client_id = $1 AND purpose = 'deposit' AND active AND archived_at IS NULL
+      WHERE client_id = $1 AND purpose = 'deposit' AND active AND archived_at IS NULL AND hd_generation = $2
         AND EXISTS (
           SELECT 1 FROM client_assets ca JOIN assets s ON s.id = ca.asset_id
            WHERE ca.client_id = wallets.client_id AND s.network = wallets.network
              AND s.active AND ca.status = 'enabled'
         )
-      ORDER BY created_at DESC, id DESC`, [clientId]);
+      ORDER BY created_at DESC, id DESC`, [clientId, config.HD_GENERATION]);
   return { addresses: rows.filter((w) => isEnabled(w.network)).map(depositView) };
 }
 
@@ -291,7 +291,7 @@ export async function listDepositAddresses(clientId: string) {
 export async function createDepositAddress(clientId: string, network: string = primaryNet.id) {
   // En una red donde aún no tiene dirección se le asigna la suya (la misma de sus otras redes EVM); si ya tiene, se genera otra
   const { rows: [has] } = await pool.query(
-    `SELECT 1 FROM wallets WHERE client_id = $1 AND network = $2 AND purpose = 'deposit' AND active AND archived_at IS NULL LIMIT 1`, [clientId, network]);
+    `SELECT 1 FROM wallets WHERE client_id = $1 AND network = $2 AND purpose = 'deposit' AND active AND archived_at IS NULL AND hd_generation = $3 LIMIT 1`, [clientId, network, config.HD_GENERATION]);
   const r = await getOrCreateDepositAddress(clientId, !!has, network);
   const { rows: [w] } = await pool.query(
     `SELECT id, address, network, derivation_index, created_at, active FROM wallets WHERE id = $1 AND client_id = $2`, [r.wallet_id, clientId]);

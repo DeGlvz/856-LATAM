@@ -1,6 +1,8 @@
 import { HDKey, hdKeyToAccount, mnemonicToAccount, privateKeyToAccount } from 'viem/accounts';
 import { hexToBytes, keccak256, concat, toHex, type Address, type Hex, type TransactionSerializable } from 'viem';
+import { KMSClient } from '@aws-sdk/client-kms';
 import { config, isProduction } from '../config.js';
+import { KmsSigner, type KmsLike } from './kms-signer.js';
 
 /**
  * Frontera de custodia. El resto del sistema solo conoce esta interfaz:
@@ -52,8 +54,22 @@ const guardEnvironment = () => {
 };
 
 let signer: Signer | null | undefined;
+
+/** Se llama una vez al arrancar (antes del worker): con SIGNER_BACKEND=kms consulta la llave pública a KMS. */
+export async function initSigner(kmsClient?: KmsLike): Promise<Signer | null> {
+  if (config.SIGNER_BACKEND === 'kms') {
+    if (!config.SIGNER_KMS_KEY_ID) throw new Error('SIGNER_BACKEND=kms exige SIGNER_KMS_KEY_ID');
+    signer = await KmsSigner.create(kmsClient ?? new KMSClient({}), config.SIGNER_KMS_KEY_ID);
+  } else {
+    if (config.SIGNER_PRIVATE_KEY) guardEnvironment();
+    signer = config.SIGNER_PRIVATE_KEY ? new LocalKeySigner(privateKeyToAccount(config.SIGNER_PRIVATE_KEY as Hex)) : null;
+  }
+  return signer;
+}
+
 export function getSigner(): Signer | null {
   if (signer === undefined) {
+    if (config.SIGNER_BACKEND === 'kms') throw new Error('Firmante KMS sin inicializar: initSigner() debe completarse al arrancar');
     if (config.SIGNER_PRIVATE_KEY) guardEnvironment();
     signer = config.SIGNER_PRIVATE_KEY ? new LocalKeySigner(privateKeyToAccount(config.SIGNER_PRIVATE_KEY as Hex)) : null;
   }

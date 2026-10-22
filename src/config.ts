@@ -17,6 +17,11 @@ const Env = z.object({
   RPC_URL: z.string().url().optional(),
   // Llave de PRUEBA (Sepolia) de la hot wallet. En producción se reemplaza por MPC (ver src/chain/signer.ts)
   SIGNER_PRIVATE_KEY: z.string().regex(/^0x[0-9a-fA-F]{64}$/, 'llave hex de 32 bytes con 0x').optional(),
+  // Backend de la hot wallet: local (SIGNER_PRIVATE_KEY, sandbox y pruebas) o kms (AWS KMS, ECC_SECG_P256K1)
+  SIGNER_BACKEND: z.preprocess(blank, z.enum(['local', 'kms']).default('local')),
+  SIGNER_KMS_KEY_ID: z.preprocess(blank, z.string().optional()),
+  // Generacion de la semilla HD vigente: solo se derivan, barren y ligan direcciones de esta generacion
+  HD_GENERATION: z.preprocess(blank, z.coerce.number().int().min(1).default(1)),
   // Semilla HD (hex 32-64 bytes) para direcciones de depósito. Si falta, se deriva de SIGNER_PRIVATE_KEY (solo testnet)
   DEPOSIT_HD_SEED: z.string().regex(/^0x[0-9a-fA-F]{64,128}$/).optional(),
   // Alternativa a DEPOSIT_HD_SEED: frase mnemónica BIP-39 (12 o 24 palabras). En production se exige una de las dos.

@@ -24,4 +24,4 @@ COPY package.json ./
 USER node
 EXPOSE 8080
 HEALTHCHECK CMD wget -qO- http://127.0.0.1:8080/health || exit 1
-CMD ["node", "dist/server.js"]
+CMD ["node", "dist/bootstrap.js"]
