@@ -231,16 +231,6 @@ document.querySelectorAll<HTMLElement>('[data-st]').forEach((host) => {
   });
 });
 
-// Chip por sección (solo visible en táctil): abre la hoja con todas las traducciones de la sección
-sections.forEach((info, section) => {
-  if (info.ids.length === 0) return;
-  const chip = el('button', 'st-chip', 'Ver esta sección sin tecnicismos');
-  chip.type = 'button';
-  chip.setAttribute('aria-haspopup', 'dialog');
-  chip.addEventListener('click', () => openSheet(section, null, chip));
-  section.querySelector('h2')?.after(chip);
-});
-
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (sheet?.open) requestClose();
