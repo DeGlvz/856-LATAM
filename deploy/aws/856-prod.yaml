@@ -14,10 +14,10 @@ Parameters:
   GitHubRepo:
     Type: String
     Default: DeGlvz/856-LATAM
-  GitHubBranch:
+  GitHubRefPattern:
     Type: String
-    Default: main
-    Description: Solo esta rama puede asumir el rol de despliegue.
+    Default: 'refs/tags/v*'
+    Description: Solo los tags de version (v*) pueden asumir el rol de despliegue.
   CreateGitHubOidcProvider:
     Type: String
     Default: 'true'
@@ -189,7 +189,7 @@ Resources:
     DeletionPolicy: Snapshot
     UpdateReplacePolicy: Snapshot
     Properties:
-      DBInstanceIdentifier: 856-prod
+      DBInstanceIdentifier: latam856db # debe iniciar con letra
       Engine: postgres
       EngineVersion: '16'
       DBInstanceClass: !Ref DbInstanceClass
@@ -332,7 +332,8 @@ Resources:
             Condition:
               StringEquals:
                 'token.actions.githubusercontent.com:aud': sts.amazonaws.com
-                'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubRepo}:ref:refs/heads/${GitHubBranch}'
+              StringLike:
+                'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubRepo}:ref:${GitHubRefPattern}'
       Policies:
         - PolicyName: 856-deploy
           PolicyDocument:

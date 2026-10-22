@@ -3,9 +3,8 @@ name: deploy-aws
 # Requiere la variable de repositorio AWS_DEPLOY_ROLE_ARN y AWS_INSTANCE_ID (salidas de deploy/aws/856-prod.yaml). No hay secretos en GitHub.
 on:
   push:
-    branches: [main]
-    paths-ignore: ['**/*.md']
-  workflow_dispatch:
+    tags: ['v*.*.*']
+  workflow_dispatch: # ejecutar eligiendo un tag vX.Y.Z (desde main el rol de AWS se rechaza)
 concurrency:
   group: deploy-aws
   cancel-in-progress: false
