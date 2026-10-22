@@ -1,5 +1,6 @@
 // Página pública de 856: menú móvil, aparición al desplazarse y envío de «Solicitar acceso».
 import './landing.css';
+import './sin-tecnicismos';
 
 document.documentElement.classList.add('js');
 
