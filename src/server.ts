@@ -16,6 +16,7 @@ import { transferRoutes } from './routes/transfers.js';
 import { authRoutes } from './routes/auth.js';
 import { consoleRoutes } from './routes/console.js';
 import { configDraftRoutes } from './routes/config-drafts.js';
+import { branchCaseRoutes } from './routes/branch-cases.js';
 import { usageRoutes } from './routes/usage.js';
 import { startUsageFlush } from './usage.js';
 import { operatorRoutes } from './routes/operators.js';
@@ -191,6 +192,7 @@ await app.register(async (v1) => {
   await v1.register(fiatConsoleRoutes);
   await v1.register(fiatRailsConsoleRoutes);
   await v1.register(configDraftRoutes);
+  await v1.register(branchCaseRoutes);
   await v1.register(usageRoutes);
   await v1.register(gasRoutes);
   await v1.register(accessRequestRoutes);

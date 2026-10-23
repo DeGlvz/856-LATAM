@@ -80,6 +80,18 @@ const Env = z.object({
   PORTAL_SIG_MAX_FAILS: z.coerce.number().int().min(3).default(10),           // firmas inválidas antes de bloquear la llave
   // Regla de origen: solo credenciales del cliente originan operaciones. Se activa en la fase 3 del portal.
   ORIGIN_RULE: z.enum(['off', 'enforce']).default('off'),
+  // Terminal de Caja / Branch Case: operaciones preparadas en sucursal, firmadas por el cliente y liberadas por tesorería
+  BRANCH_CLIENT_SIGN_REQUIRED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
+  // Tesorería siempre libera antes de postear al libro; en PR1 no existe otro modo, por eso solo se admite 'true'
+  BRANCH_TREASURY_ALWAYS: z.enum(['true']).default('true').transform(() => true),
+  BRANCH_CREDIT_ENABLED: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  BRANCH_MAX_LINES: z.coerce.number().int().min(1).max(5000).default(500),
+  // Cuenta de sistema que se debita al acreditar saldo; {asset} se sustituye por el activo de la línea
+  BRANCH_CREDIT_SOURCE_ACCOUNT: z.string().min(3).default('system:{asset}:equity'),
+  // Tope por línea (unidades base) para casos sin firma del cliente (instrucción verbal); vacío = sin tope
+  BRANCH_VERBAL_MAX_AMOUNT: z.string().regex(/^[1-9]\d{0,77}$/).optional().or(z.literal('').transform(() => undefined)),
+  // Sin valor hereda APPROVAL_REQUIRE_2FA
+  BRANCH_APPROVAL_REQUIRE_2FA: z.preprocess(blank, z.enum(['true', 'false']).optional()).transform((v) => (v === undefined ? undefined : v === 'true')),
   // Fase 3 del portal: salidas
   WHITELIST_COOLDOWN_HOURS: z.coerce.number().min(0).max(720).default(24),   // espera antes de usar una dirección nueva
   EXIT_SIMULATION_TTL_MIN: z.coerce.number().int().min(1).max(1440).default(30), // vigencia de una simulación de salida
