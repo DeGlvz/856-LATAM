@@ -1,12 +1,13 @@
 // Prueba end-to-end de depósitos y retiros on-chain contra una cadena LOCAL (Hardhat/Anvil).
 // Uso: BASE=http://localhost:8090 KEY=… RPC_URL=http://127.0.0.1:8545 TOKEN=0x… FUNDER_PK=0x… node test/transfers.e2e.mjs
-// El servidor debe correr con RPC_URL a la misma cadena, SIGNER_PRIVATE_KEY de prueba, CONFIRMATIONS=3 y WORKER_ENABLED=false.
+// API local con WORKER_ENABLED=true, WORKER_INTERVAL_MS=1000, TOTP_ENCRYPTION_KEY y CONFIRMATIONS=3.
 import { createPublicClient, createWalletClient, http, erc20Abi, parseEther } from 'viem';
 import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts';
-import { hardhat } from 'viem/chains';
+import { localChain, workerDriver } from './lib/worker.mjs';
 import { makeApprover } from './lib/approver.mjs';
 
 const { BASE, KEY, RPC_URL, TOKEN, FUNDER_PK } = process.env;
+const hardhat = await localChain(RPC_URL);
 const pub = createPublicClient({ chain: hardhat, transport: http(RPC_URL) });
 const funder = createWalletClient({ account: privateKeyToAccount(FUNDER_PK), chain: hardhat, transport: http(RPC_URL) });
 const R = Math.random().toString(36).slice(2, 10);
@@ -17,7 +18,8 @@ const api = async (method, path, body, idem) => {
   return { status: r.status, body: await r.json() };
 };
 const mine = async (n) => { for (let i = 0; i < n; i++) await pub.request({ method: 'evm_mine', params: [] }); };
-const tick = () => api('POST', '/v1/worker/tick');
+const worker = workerDriver({ BASE, KEY });
+const tick = (options) => worker.run(cl.id, options);
 const bal = async (ref) => (await api('GET', `/v1/accounts/${ref}`)).body.balance;
 const U = (n) => (BigInt(n) * 10n ** 6n).toString(); // TUSD 6 decimales
 const approver = await makeApprover({ BASE, ip: `10.200.${Math.floor(Math.random() * 250)}.1`, tag: `tr-${R}` });
@@ -108,7 +110,7 @@ await pub.waitForTransactionReceipt({ hash: h3 }); await api('POST', '/v1/deposi
 const before = await bal(ACC);
 r = await api('POST', '/v1/withdrawals', { client_id: cl.id, asset_id: TUSD, to_address: DEST, amount: U(2500) }, 'w3');
 await approver.approveWithdrawal(r.body.id);
-for (let i = 0; i < 5; i++) await tick();
+for (let i = 0; i < 5; i++) await tick({ expectedStatus: 'error' });
 w = (await api('GET', `/v1/withdrawals/${r.body.id}`)).body;
 check('sin liquidez on-chain → failed tras 5 intentos', `${w.status}:${w.attempts}`, 'failed:5');
 check('  …saldo del cliente intacto', await bal(ACC), before);

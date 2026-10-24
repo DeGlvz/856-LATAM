@@ -28,65 +28,63 @@ export function sweepMin(assetId: string, fallback: bigint): bigint {
   return BigInt(v);
 }
 
-const lastScan = new Map<string, number>(); // wallet_id -> último escaneo de saldo (memoria; al reiniciar se escanea una vez)
-
 /** Saldos ERC-20 de una dirección en una sola llamada (multicall); si la red no lo soporta, cae a lecturas individuales. */
 async function tokenBalances(client: Net['client'], tokens: { contract_address: string }[], addr: Address): Promise<bigint[]> {
   if (!tokens.length) return [];
   const one = (t: { contract_address: string }) =>
-    client.readContract({ address: t.contract_address as Address, abi: erc20Abi, functionName: 'balanceOf', args: [addr] }).catch(() => 0n);
+    client.readContract({ address: t.contract_address as Address, abi: erc20Abi, functionName: 'balanceOf', args: [addr] });
   if (tokens.length === 1) return [await one(tokens[0])];
   try {
     const res = await client.multicall({
       contracts: tokens.map((t) => ({ address: t.contract_address as Address, abi: erc20Abi, functionName: 'balanceOf' as const, args: [addr] as const })),
-      allowFailure: true,
+      allowFailure: false,
     });
-    return res.map((r) => (r.status === 'success' ? (r.result as bigint) : 0n));
+    return res.map((value) => {
+      if (typeof value !== 'bigint') throw new Error('Respuesta de saldo ERC-20 inválida');
+      return value;
+    });
   } catch {
     return Promise.all(tokens.map(one));
   }
 }
 
-export async function sweepStep(n: Net, log: Log) {
-  const hot = getSigner();
-  const keyring = getDepositKeyring();
-  if (!hot || !keyring || !config.SWEEP_ENABLED) return;
+export async function maintainSweeps(n: Net, log: Log) {
   await broadcastSweeps(n, log);
   await confirmSweeps(n, log);
+}
 
+export async function sweepStep(n: Net, log: Log, clientId: string | null) {
+  const hot = getSigner();
+  const keyring = getDepositKeyring();
+  if (!config.SWEEP_ENABLED) return 'disabled';
+  if (!hot || !keyring) throw new Error('Barrido sin firmante o semilla HD configurados');
   const network = n.id;
   const client = n.client;
   const hotAddr = hot.address().toLowerCase();
   const { rows: native } = await pool.query(`SELECT id FROM assets WHERE network = $1 AND kind = 'native' AND active`, [network]);
-  if (!native[0]) return;
+  if (!native[0]) throw new Error(`No hay activo nativo activo para ${network}`);
   const nativeId = native[0].id as string;
   const { rows: tokens } = await pool.query(
-    `SELECT id, contract_address FROM assets WHERE network = $1 AND kind = 'erc20' AND active ORDER BY id`, [network]);
-  const { rows: allWallets } = await pool.query(
-    `SELECT w.id, w.address, w.derivation_index,
-            (w.client_id IS NULL
-             OR EXISTS (SELECT 1 FROM client_sessions s WHERE s.client_id = w.client_id AND s.revoked_at IS NULL AND s.expires_at > now()
-                         AND s.last_seen_at > now() - make_interval(mins => $2))
-             OR EXISTS (SELECT 1 FROM client_api_keys k WHERE k.client_id = w.client_id AND k.revoked_at IS NULL
-                         AND k.last_used_at > now() - make_interval(mins => $2))
-             OR EXISTS (SELECT 1 FROM withdrawals x WHERE x.client_id = w.client_id
-                         AND (x.status IN ('reserved','signed','broadcast') OR x.created_at > now() - make_interval(mins => $2)))
-             OR EXISTS (SELECT 1 FROM deposits d WHERE d.client_id = w.client_id
-                         AND (d.status = 'pending' OR d.created_at > now() - make_interval(mins => $2)))) AS hot
+    `SELECT id, contract_address FROM assets WHERE network = $1 AND kind = 'erc20' AND active
+       AND ($2::uuid IS NULL OR EXISTS (SELECT 1 FROM client_assets ca WHERE ca.client_id = $2 AND ca.asset_id = assets.id))
+       ORDER BY id`, [network, clientId]);
+  const { rows: wallets } = await pool.query(
+    `SELECT w.id, w.address, w.derivation_index
        FROM wallets w
-      WHERE w.network = $1 AND w.purpose IN ('deposit','fiat_treasury','fiat_client')       AND w.derivation_index IS NOT NULL AND w.active AND w.hd_generation = $3
+      WHERE w.network = $1 AND w.purpose IN ('deposit','fiat_treasury','fiat_client')
+        AND w.derivation_index IS NOT NULL AND w.active AND w.hd_generation = $3
+        AND w.client_id IS NOT DISTINCT FROM $2::uuid
         AND NOT EXISTS (SELECT 1 FROM sweeps s WHERE s.wallet_id = w.id AND s.status IN ('signed','broadcast'))
-            ORDER BY w.derivation_index`, [network, config.SWEEP_ACTIVE_WINDOW_MIN, config.HD_GENERATION]);
-  // Clientes con actividad reciente: cada ciclo. Sin actividad: solo cada SWEEP_IDLE_INTERVAL_MS (ahorra consultas RPC)
-  const now = Date.now();
-  const wallets = allWallets.filter((w) => w.hot || now - (lastScan.get(w.id) ?? 0) >= config.SWEEP_IDLE_INTERVAL_MS);
-  if (!wallets.length) return;
+            ORDER BY w.derivation_index`, [network, clientId, config.HD_GENERATION]);
+  if (!wallets.length) return 'no_wallets';
   const fees = await client.estimateFeesPerGas();
   const chainId = await chainIdOf(n);
 
+  const errors: string[] = [];
+  const nativeAllowed = clientId === null || (await pool.query(
+    'SELECT 1 FROM client_assets WHERE client_id = $1 AND asset_id = $2', [clientId, nativeId])).rowCount;
   for (const w of wallets) {
     try {
-      lastScan.set(w.id, now);
       const depSigner = keyring.derive(w.derivation_index);
       const eth = await client.getBalance({ address: w.address as Address });
       let token: { id: string; contract_address: string; bal: bigint } | null = null;
@@ -110,7 +108,7 @@ export async function sweepStep(n: Net, log: Log) {
           await createSweep(log, { wallet_id: w.id, kind: 'sweep_token', asset_id: token.id, amount: token.bal,
             signer: depSigner, to: token.contract_address, value: 0n, data, gas, chainId, fees, n });
         }
-      } else if (eth >= sweepMin(nativeId, config.SWEEP_MIN_NATIVE_WEI)) {
+      } else if (nativeAllowed && eth >= sweepMin(nativeId, config.SWEEP_MIN_NATIVE_WEI)) {
         const gas = 21000n;
         const value = eth - gas * fees.maxFeePerGas;
         if (value > 0n) {
@@ -120,9 +118,11 @@ export async function sweepStep(n: Net, log: Log) {
       }
     } catch (e) {
       log.warn({ wallet: w.id, err: (e as Error).message.split('\n')[0] }, 'barrido omitido en este ciclo');
+      errors.push(`${w.id}: ${(e as Error).message.split('\n')[0]}`);
     }
   }
-  await broadcastSweeps(n, log);
+  if (errors.length) throw new Error(errors.join('; ').slice(0, 1000));
+  return 'ok';
 }
 
 async function createSweep(log: Log, s: {

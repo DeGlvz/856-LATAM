@@ -16,6 +16,7 @@ const NAV = [
   { to: '/clientes', label: 'Clientes y cuentas', icon: Building2, phase: 2 },
   { to: '/solicitudes', label: 'Solicitudes de acceso', icon: Inbox, phase: 2, ejecutivo: true },
   { to: '/movimientos', label: 'Retiros y depósitos', icon: ArrowLeftRight, phase: 3 },
+  { to: '/worker', label: 'Control del worker', icon: Gauge, phase: 3, ejecutivo: true },
   { to: '/fiat-automaticos', label: 'Proveedores regulados', icon: Euro, phase: 3 },
   { to: '/rieles-fiat', label: 'Control de Rieles Fiat', icon: Landmark, phase: 3, ejecutivo: true },
   { to: '/compensacion', label: 'Compensación', icon: Network, phase: 4 },

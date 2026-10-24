@@ -69,7 +69,7 @@ Reglas del motor:
 | GET | `/v1/deposits` | `pending` → `credited` |
 | POST | `/v1/webhooks/alchemy` | Address Activity firmado: detecta depósitos automáticamente |
 | GET | `/v1/treasury/hot-wallet` | Conciliación: saldo on-chain de la hot wallet vs custodia en libro |
-| POST | `/v1/worker/tick` | Ejecuta un ciclo del worker (operación/pruebas) |
+| POST | `/v1/worker/tick` | Retirado: responde `410 worker_global_removed`; no ejecuta trabajo global |
 
 Ciclo de un retiro: `reserved → signed → broadcast → confirmed` (o `failed` / `cancelled`).
 - **Reserva**: al aceptarlo, el saldo pasa de *disponible* a `withdrawals_pending` (no se puede gastar dos veces).
@@ -89,7 +89,52 @@ Ciclo de un retiro: `reserved → signed → broadcast → confirmed` (o `failed
 - Cada dirección nueva se registra sola en el webhook Address Activity (Alchemy Notify API); si falla, el worker reintenta.
 - Barrido automático: tokens → si la dirección no tiene ETH, la hot wallet le envía gas (`gas_topup`) y luego se barre (`sweep_token`); ETH ≥ `SWEEP_MIN_NATIVE_WEI` → `sweep_native`.
 - El barrido no cambia la custodia (es interno); solo el gas se registra en `network_fees`. El gas enviado por la plataforma nunca se acredita como depósito.
-- **Ahorro de RPC (barrido por actividad):** las direcciones de clientes con sesión del portal, API key en uso, retiros o depósitos abiertos/recientes dentro de `SWEEP_ACTIVE_WINDOW_MIN` (30 min) se revisan en cada ciclo del worker. Las de clientes sin actividad solo cada `SWEEP_IDLE_INTERVAL_MS` (15 min; igualarlo a `WORKER_INTERVAL_MS` desactiva el ahorro). Un depósito o la actividad del cliente lo devuelve a ciclo normal. Los saldos ERC-20 de una dirección se leen con una sola llamada `multicall` (con respaldo a lecturas individuales). Retiros, confirmaciones y créditos no cambian: solo consultan la red si hay trabajo pendiente.
+- **Frecuencia de clientes:** los nuevos escaneos y barridos obedecen a la política persistida por cliente (manual por defecto), no a actividad del portal ni a un mapa en memoria. `SWEEP_ACTIVE_WINDOW_MIN` y `SWEEP_IDLE_INTERVAL_MS` quedan como variables heredadas sin efecto sobre clientes. Los saldos ERC-20 se leen con `multicall` (respaldo a lecturas individuales); un fallo de lectura ahora es un error explícito, no saldo cero.
+
+### Control interno del worker
+
+La consola `/console/worker` permite a **ejecutivos y tesoreros** consultar y cambiar políticas y ejecutar un cliente con sesión interna, CSRF y un código TOTP vigente de un solo uso para cada escritura. Lectura, portal, asistencia y API keys globales no tienen acceso al panel ni a sus endpoints. No se agregan permisos, planes, cobros ni tarifas.
+
+**Alcance decidido: por cliente (`client_id`), una configuración para todas sus billeteras y redes habilitadas**, no por cuenta contable ni wallet. Cada disparo selecciona exclusivamente los retiros de ese cliente, sus direcciones de depósito/fiat de la generación HD vigente y sus activos activos habilitados (`enabled`/`exit_only` para salidas) en las redes de esta instalación. Nunca dispara otro cliente ni una red no habilitada para ese cliente. No incluye wallets de tesorería compartida (`client_id IS NULL`).
+
+| Modo | Comportamiento |
+|---|---|
+| Manual (predeterminado) | Sin disparos programados. Solo ejecutivo/tesorero puede iniciar trabajo. Clientes existentes sin política y nuevos quedan en manual sin backfill que habilite automatismos. |
+| Automático | Al habilitar, próxima ejecución en 1440 minutos (24 h) por defecto; intervalo persistido de 5 a 525600 minutos. El siguiente plazo se mide desde el fin del intento, también si falla. Un cambio de configuración reinicia el plazo. |
+| Programado / horarios definidos | Ventanas semanales **UTC**, días `0=domingo` a `6=sábado`, inicio incluido y fin excluido (`HH:mm`; fin `24:00` permite incluir el último minuto del día). Una ejecución por ventana, no repetición periódica dentro de ella. Para un horario puntual use una ventana corta, mayor que el tiempo de consulta/cola del worker. Sin superposiciones ni cruces de medianoche (dividir en ventanas de días distintos). |
+
+El botón **Ejecutar este cliente** es un disparo interno explícito en cualquier modo, incluso fuera de ventanas; usa la política guardada, no los cambios del formulario sin guardar. No concede al cliente permiso para ejecutar. Si se dispara durante una ventana, la consume para evitar un segundo disparo programado inmediato. La UI se consulta cada 10 s; esa tasa **no controla la frecuencia real**. La próxima fecha es una previsión: bloqueos globales, cliente inactivo, red caída o cola pueden impedirla.
+
+**Separación de fases y salvaguardas:**
+
+- **Gobernadas por política:** firma de retiros reservados (con los gates de autorización/origen existentes), reintento del registro de direcciones en Notify, lecturas de saldos y firma de nuevos barridos/fondeos de gas. El registro conserva retiros rechazados por falta de autorización sin firmarlos. Un fondeo de gas puede requerir otro disparo posterior para barrer el token.
+- **Mantenimiento global, no iniciado por el botón de cliente:** envío/reenvío de retiros y barridos ya firmados, confirmación/liquidación, gas bump de transacciones enviadas y crédito/revisión de depósitos ya detectados. Continúa aunque se cambie a manual o cierre una ventana; no deja nonces ni reservas en vuelo abandonados. Lo recién firmado se envía en el próximo ciclo de mantenimiento.
+- **Fuera de las políticas locales:** expiración de obligaciones, sondeo/conciliación fiat (su intervalo existente), registro y barrido de wallets compartidas de plataforma sin cliente. No se pausa conciliación financiera crítica por una política de cliente. Reportes de depósitos, webhooks y altas explícitas de direcciones conservan sus rutas/gates; no son un disparo del scheduler.
+
+`WORKER_ENABLED=false` bloquea tanto el timer como el disparo interno (no hay bypass por HTTP). `setupRequired` sigue bloqueando ambos. `SWEEP_ENABLED=false` impide nuevos barridos, no el seguimiento de barridos ya firmados/enviados. **No se presupone el estado del worker de ningún despliegue** ni se requiere modificar configuración de producción para este desarrollo.
+
+La migración `036_worker_policies` agrega políticas, fechas y claves de ventana persistidas, revisiones optimistas y un historial de ejecuciones con resultado por red/fase. El candado advisory PostgreSQL `856003`, compartido con gas bump, serializa réplicas, disparos y cambios de política (contención: `409 worker_busy`). Requiere `DB_POOL_MAX >= 2` para reservar conexión de candado y conexiones transaccionales; un valor menor produce error explícito. Un cambio en curso se rechaza, no modifica una ejecución a medias. Cada reclamo guarda siguiente fecha, auditoría de inicio y contador de uso en la misma transacción **antes** de iniciar trabajo. Solicitudes manuales repiten el mismo `request_id` con un TOTP nuevo para recuperar el resultado sin duplicar; después de recibir resultado, un nuevo disparo usa otro ID.
+
+Al recuperar el candado tras un reinicio, los intentos abandonados pasan a `interrupted`, se auditan y se reprograma desde el reloj de PostgreSQL, sin replay ciego de iniciación. Las operaciones firmadas permanecen para mantenimiento idempotente. No hay ráfagas para recuperar intervalos/ventanas vencidos. Errores se guardan y se espera el siguiente plazo; no se reintenta en bucle. La serialización global limita throughput deliberadamente para preservar nonces y el modelo de custodia existente.
+
+La auditoría guarda configuración anterior/nueva, autor, inicio y resultado de ejecuciones. `usage_daily` reutiliza el proveedor `worker` y métricas `client:<UUID>:<disparo>` (intentos iniciados, incluidos fallidos/interrumpidos). `worker_runs` conserva desglose técnico por red/fase y fechas para análisis futuro; los contadores RPC de Alchemy existentes siguen siendo globales y **no** se presentan como atribución exacta por cliente ni como cargos.
+
+Endpoints internos (solo sesión de ejecutivo/tesorero):
+
+| Método | Ruta bajo `/v1` | Uso |
+|---|---|---|
+| GET | `/console/worker/clients?search=...&limit=100` | Selector acotado (máx. 200; buscar por nombre/ID) |
+| GET | `/console/worker/clients/:clientId` | Política efectiva, últimas 30 ejecuciones, uso mensual y gates |
+| PUT | `/console/worker/clients/:clientId/policy` | `{policy:{mode,interval_minutes,timezone:"UTC",windows:[{days,start,end}]},revision,code}` |
+| POST | `/console/worker/clients/:clientId/run` | `{request_id:"UUID",code:"TOTP"}`; devuelve resultado persistido, cuyo `status` puede ser `error` |
+
+Validación local: `npm test` incluye unidades de agenda/permisos. Para integración real, definir `WORKER_TEST_DATABASE_URL` hacia PostgreSQL **local y de pruebas** y ejecutar `npm run test:worker`; crea y elimina un esquema aislado, usa RPC/Notify simulados y prueba migraciones, concurrencia entre conexiones/procesos, reinicios, aislamiento, errores, 2FA e idempotencia contable. Para navegador: `npm run build:web`, `npm --prefix test/playwright ci` y `npm --prefix test/playwright test -- worker-panel.spec.mjs` (requiere Chromium instalado por Playwright); sirve el build local con API interceptada, sin contactar producción.
+
+Los E2E históricos usan ahora `test/lib/worker.mjs`: cada iniciación exige un `client_id` explícito, una sesión interna y TOTP real. El crédito de depósitos y el seguimiento de transacciones se esperan consultando sus recibos y estados, mediante el timer real; no se restaura el tick HTTP global ni se permite ejecutar con `WORKER_ENABLED=false`. Los fallos deliberados de firma se comprueban como ejecuciones `error`, no como éxitos.
+
+Para ejecutarlos de forma reproducible: **Node 22**, `DATABASE_URL` hacia PostgreSQL **local, desechable y de pruebas**, y `npm run test:worker:e2e`. Requiere permiso para crear `pgcrypto` en `public` y esquemas temporales. El harness crea/elimina un esquema, API y cadena(s) Hardhat por escenario; instala contratos ERC-20 sintéticos y usa un Notify local. Cubre retiros, depósitos/barridos, consola, portal, gas, multired y M1. `WORKER_E2E_SUITES=transfers,deposits-sweep` selecciona escenarios. Las cadenas locales tienen los chainId oficiales (11155111/84532), compatibles con la verificación estricta de ola 1b; esto **no** prueba redes públicas. M1 también usa clones locales de las cuatro redes main: su script exige `PROD_LOCAL_RPC_URLS` explícito y rechaza URLs no locales; nunca debe apuntarse a producción.
+
+Al integrar otras migraciones `036`, conservar IDs/archivos: el migrador usa el **ID completo TEXT**, no el prefijo numérico. El alias local del worker es `mWorkerPolicies036`; `036_branch_cases` y `036_worker_policies` pueden registrarse como Caja y luego Worker, sin dependencia entre ambas. No renumerar una migración ya aplicada.
 - Conciliación (`/v1/treasury/hot-wallet`): on-chain (hot + direcciones de depósito) − custodia en libro.
 - Nonces de la hot wallet compartidos entre retiros y barridos (`src/chain/nonce.ts`).
 
@@ -146,7 +191,7 @@ Prueba: `node test/console-fase2.e2e.mjs` (38 verificaciones).
 Pantalla **Retiros y depósitos** (`/console/movimientos`) con pestañas Retiros · Depósitos · Barridos, filtros por estado y cliente, paginación y refresco cada 15 s.
 - **Nuevo retiro** (tesorero): cliente activo → activo con saldo → destino de su lista blanca → monto en unidades humanas (convertido a unidades base sin float) → pantalla de confirmación con el monto exacto y las unidades base.
 - **Detalle del retiro**: línea de tiempo (reservado → firmado → enviado → confirmado), hash, confirmaciones, nonce, gas pagado, último error, asientos de reserva/liquidación/reverso; **cancelar** con motivo mientras esté reservado.
-- **Reportar depósito** por hash (operador) y **ciclo del worker** a demanda (tesorero).
+- **Reportar depósito** por hash (operador) y **Control del worker** por cliente (ejecutivo/tesorero con 2FA).
 - `GET /v1/withdrawals`, `/v1/deposits`, `/v1/sweeps`: ahora con `cursor`/`next_cursor`, filtro `asset_id` y nombre del cliente; estados validados. `POST /v1/withdrawals/:id/cancel` acepta `{reason}` y registra quién canceló.
 
 Prueba: `node test/console-fase3.e2e.mjs` (28 verificaciones, cadena local con depósito, barrido y retiro reales).
@@ -455,7 +500,7 @@ Pruebas: `ORIGIN_RULE=enforce` + `node test/portal-fase4.e2e.mjs` (68 verificaci
 **Varias redes EVM en una sola instalación.** La red principal sigue siendo `ALCHEMY_NETWORK`; `NETWORKS` agrega las demás (csv). Redes conocidas (chainId, explorador y moneda nativa ya cargados): `eth-sepolia` (11155111), `base-sepolia` (84532), `arb-sepolia` (421614), `polygon-amoy` (80002, POL), `bnb-testnet` (97, tBNB), `opt-sepolia` y `avax-fuji`.
 
 - **Arranque:** cada red se verifica contra su chainId esperado; si no coincide o no responde, esa red se apaga (`503 network_down`) y las demás siguen. Pedir algo en una red no encendida → `422 network_not_supported`.
-- **Worker:** recorre las redes una tras otra con su propio manejo de errores; `POST /v1/worker/tick` devuelve `{networks: {<red>: "ok" | error}}`.
+- **Worker:** mantenimiento global independiente y nuevas operaciones por política de cliente; ver **Control interno del worker**. El disparo HTTP global está retirado.
 - **Nonces y unicidad por red:** retiros y barridos usan `(network, from, nonce)`; depósitos, `(network, tx_hash, log_index)`. La misma hot wallet firma en todas las redes con nonces independientes.
 - **Webhooks:** un webhook *Address Activity* de Alchemy por red, con su llave de firma. La red del evento es la de la llave que valida la firma (nunca la que diga el cuerpo).
 - **Direcciones de depósito:** la misma dirección derivada sirve en todas las redes EVM; se registra por red y solo se muestra al cliente si la red está encendida y tiene al menos un activo del cliente en estado `enabled`. Si todos sus activos están en `exit_only` o `disabled`, la dirección se oculta y no se pueden generar nuevas en esa red; las direcciones históricas siguen registradas para detectar depósitos y ponerlos en revisión. En la consola, un tesorero con 2FA puede archivar direcciones con movimientos (se ocultan, pero siguen monitoreándose y acreditando) o eliminar las que no tienen depósitos ni barridos registrados. Debe quedar una dirección visible por red habilitada. La URI del QR incluye la red (`ethereum:<dirección>@<chainId>`).

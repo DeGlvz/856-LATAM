@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build &&     node --test test/simulation.test.mjs test/fiat-domain.test.mjs test/openfort-webhook.test.mjs test/fiat-rail-fields.test.mjs test/kms-signer.test.mjs test/bootstrap.test.mjs test/hd-generation.test.mjs test/branch-case.test.mjs",
+    "test": "npm run build &&     node --test test/simulation.test.mjs test/fiat-domain.test.mjs test/openfort-webhook.test.mjs test/fiat-rail-fields.test.mjs test/kms-signer.test.mjs test/bootstrap.test.mjs test/hd-generation.test.mjs test/worker.test.mjs test/branch-case.test.mjs",
+    "test:worker": "npm run build && node --test test/worker.test.mjs test/worker.integration.test.mjs",
+    "test:worker:e2e": "npm run build && node --test test/legacy-worker.e2e.mjs",
     "start": "node dist/bootstrap.js",
     "build:web": "npm --prefix web ci && npm --prefix web run build",
     "operator:create": "node dist/scripts/create-operator.js"
@@ -32,6 +34,8 @@
     "@noble/curves": "^1.9.1",
     "@types/node": "^26.6.4",
     "@types/pg": "^8.23.1",
+    "hardhat": "2.29.1",
+    "solc": "0.8.38",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }
