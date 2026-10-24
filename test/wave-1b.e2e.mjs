@@ -10,6 +10,7 @@ import pg from 'pg';
 import solc from 'solc';
 import { createPublicClient, createWalletClient, defineChain, erc20Abi, http, parseEther } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
+import { workerDriver } from './lib/worker.mjs';
 
 const databaseUrl = process.env.DATABASE_URL;
 assert.ok(databaseUrl, 'DATABASE_URL debe apuntar a PostgreSQL de pruebas; se crean y eliminan esquemas aislados');
@@ -119,7 +120,8 @@ for (const network of ['opt-sepolia', 'polygon-amoy', 'avax-fuji', 'linea-sepoli
         DATABASE_URL: url.toString(), ENVIRONMENT: 'sandbox', ALCHEMY_NETWORK: network, NETWORKS: network,
         DEFAULT_CLIENT_NETWORKS: network, RPC_URL: rpc, PORT: String(apiPort), HOST: '127.0.0.1',
         ALCHEMY_API_KEY: 'local-test-no-public-rpc', API_KEYS: key,
-        COOKIE_SECURE: 'false', WORKER_ENABLED: 'false', CONFIRMATIONS: '1', RATE_LIMIT_PER_MIN: '100000',
+        COOKIE_SECURE: 'false', WORKER_ENABLED: 'true', WORKER_INTERVAL_MS: '1000', CONFIRMATIONS: '1', RATE_LIMIT_PER_MIN: '100000',
+        TOTP_ENCRYPTION_KEY: 'local-test-wave-1b-encryption-not-a-secret',
         ORIGIN_RULE: 'off', CONSOLE_BOOTSTRAP_EMAIL: 'test@example.invalid', CONSOLE_BOOTSTRAP_PASSWORD: password,
         SWEEP_ENABLED: 'true', MIGRATE_ON_START: 'true', FIAT_LIVE_ENABLED: 'false', FIAT_MODE: 'treasury',
       });
@@ -142,12 +144,14 @@ for (const network of ['opt-sepolia', 'polygon-amoy', 'avax-fuji', 'linea-sepoli
         return data;
       }
       const mine = () => pub.request({ method: 'evm_mine', params: [] });
-      const tick = async () => { await mine(); await api('POST', '/worker/tick'); };
       const wait = (hash) => pub.waitForTransactionReceipt({ hash });
       await api('POST', '/auth/login', { email: 'test@example.invalid', password });
       const client = await api('POST', '/clients', { name: 'Prueba ola 1b', assets: [native.id, usdc.id] });
       await api('PATCH', `/clients/${client.id}`, { status: 'active' });
       const deposit = await api('POST', `/clients/${client.id}/deposit-address`, { network });
+      // Sin disparo global (PR #70): cada ciclo es un disparo por cliente con sesión y TOTP del panel interno.
+      const driver = workerDriver({ BASE: base, KEY: key, env });
+      const tick = async () => { await mine(); await driver.run(client.id); };
       const gas = parseEther('5').toString();
       await wait(await wallet.sendTransaction({ to: hotAddress, value: BigInt(gas) }));
       await api('POST', '/entries', { kind: 'adjustment', postings: [
