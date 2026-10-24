@@ -187,6 +187,9 @@ export async function recordClientSignature(id: string, s: { signerUserId: strin
     if (r.status !== 'pending_client') throw conflict('El caso no espera la firma del cliente', 'not_pending_client');
     assertIntegrity(r);
     if (!s.signature) throw new HttpError(400, 'Firma requerida', 'signature_required');
+    // El firmante debe ser un usuario activo del portal del mismo cliente con rol que pueda autorizar
+    const { rows: [u] } = await c.query(`SELECT 1 FROM client_users WHERE id = $1 AND client_id = $2 AND active AND role IN ('approver','admin')`, [s.signerUserId, r.client_id]);
+    if (!u) throw new HttpError(403, 'El firmante no pertenece al cliente o no tiene rol para firmar', 'invalid_signer');
     await c.query(
       `UPDATE branch_cases SET status = 'pending_treasury', client_signed_at = now(), client_signer_user_id = $2, client_signature = $3, updated_at = now() WHERE id = $1`,
       [id, s.signerUserId, s.signature]);
@@ -257,11 +260,15 @@ export async function approveCase(op: Operator, id: string, code: string | undef
     if (err.statusCode === 409) throw err; // carrera perdida o estado cambiado: no es un fallo del apply
     const detail = err instanceof BranchValidationError ? err.issues.map((i) => `línea ${i.linea} ${i.campo}: ${i.motivo}`).join('; ') : err.statusCode ? err.message : 'error interno';
     const msg = `${current && !(err instanceof BranchValidationError) ? `línea ${current}: ` : ''}${detail}`.slice(0, 500);
-    await pool.query(`UPDATE branch_cases SET last_error = $2, updated_at = now() WHERE id = $1 AND status = 'pending_treasury'`, [id, msg]);
-    if (current) {
-      await pool.query(`UPDATE branch_case_lines SET status = 'pending', result_ref = NULL WHERE branch_case_id = $1 AND status <> 'pending'`, [id]);
-      await pool.query(`UPDATE branch_case_lines SET status = 'failed', result_ref = $3 WHERE branch_case_id = $1 AND line_no = $2`, [id, current, err.code ?? 'error']);
-    }
+    // Tras el ROLLBACK: se re-bloquea el caso y solo se registra el fallo si sigue pending_treasury,
+    // para no pisar un apply exitoso de un reintento concurrente.
+    await tx(async (c) => {
+      const r = await lockCase(c, id);
+      if (r.status !== 'pending_treasury') return;
+      await c.query(`UPDATE branch_cases SET last_error = $2, updated_at = now() WHERE id = $1`, [id, msg]);
+      await c.query(`UPDATE branch_case_lines SET status = 'pending', result_ref = NULL WHERE branch_case_id = $1 AND status = 'failed'`, [id]);
+      if (current) await c.query(`UPDATE branch_case_lines SET status = 'failed', result_ref = $3 WHERE branch_case_id = $1 AND line_no = $2 AND status = 'pending'`, [id, current, err.code ?? 'error']);
+    });
     throw err;
   }
 }
