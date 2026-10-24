@@ -88,6 +88,17 @@ export const NETS: Record<string, { label: string; explorer: string; native?: st
   'base-mainnet': { label: 'Base', explorer: 'https://basescan.org' },
   'arb-mainnet': { label: 'Arbitrum One', explorer: 'https://arbiscan.io' },
   'bnb-mainnet': { label: 'BNB Smart Chain', explorer: 'https://bscscan.com', native: 'BNB' },
+  'opt-mainnet': { label: 'OP Mainnet', explorer: 'https://optimistic.etherscan.io' },
+  'polygon-mainnet': { label: 'Polygon PoS', explorer: 'https://polygonscan.com', native: 'POL' },
+  'avax-mainnet': { label: 'Avalanche C-Chain', explorer: 'https://snowtrace.io', native: 'AVAX' },
+  'linea-mainnet': { label: 'Linea', explorer: 'https://lineascan.build' },
+  'linea-sepolia': { label: 'Linea Sepolia', explorer: 'https://sepolia.lineascan.build' },
+  'celo-mainnet': { label: 'Celo', explorer: 'https://celoscan.io', native: 'CELO' },
+  'celo-sepolia': { label: 'Celo Sepolia', explorer: 'https://celo-sepolia.blockscout.com', native: 'CELO' },
+  'unichain-mainnet': { label: 'Unichain', explorer: 'https://uniscan.xyz' },
+  'unichain-sepolia': { label: 'Unichain Sepolia', explorer: 'https://sepolia.uniscan.xyz' },
+  'worldchain-mainnet': { label: 'World Chain', explorer: 'https://worldscan.org' },
+  'worldchain-sepolia': { label: 'World Chain Sepolia', explorer: 'https://worldchain-sepolia.explorer.alchemy.com' },
 };
 export const explorerFor = (network: string, fromServer?: string | null) => fromServer ?? NETS[network]?.explorer ?? 'https://sepolia.etherscan.io';
 export const netLabel = (network: string) => NETS[network]?.label ?? network;

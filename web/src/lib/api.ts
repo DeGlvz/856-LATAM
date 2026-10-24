@@ -107,6 +107,7 @@ export const newIdemKey = () => `console-${crypto.randomUUID()}`;
 // ───────────── Fase 3: retiros, depósitos y barridos ─────────────
 export type WithdrawalStatus = 'reserved' | 'signed' | 'broadcast' | 'confirmed' | 'failed' | 'cancelled';
 export interface WithdrawalRow {
+  network: string;
   id: string; client_id: string; client_name: string; asset_id: string; to_address: string; amount: string;
   status: WithdrawalStatus; tx_hash: string | null; nonce: string | null; confirmations: number; attempts: number;
   last_error: string | null; created_at: string; updated_at: string;
@@ -135,6 +136,7 @@ export interface DepositRow {
 }
 export type SweepStatus = 'signed' | 'broadcast' | 'confirmed' | 'failed';
 export interface SweepRow {
+  network: string;
   id: string; wallet_id: string; client_id: string | null; client_name: string | null; kind: 'gas_topup' | 'sweep_token' | 'sweep_native';
   asset_id: string; amount: string; from_address: string; to_address: string; nonce: string; tx_hash: string; status: SweepStatus;
   block_number: string | null; gas_cost_wei: string | null; last_error: string | null; created_at: string; updated_at: string;

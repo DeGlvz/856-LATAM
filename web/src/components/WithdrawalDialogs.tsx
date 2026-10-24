@@ -7,7 +7,7 @@ import {
 } from '@/lib/api';
 import { ago, exactUnits, parseUnits, shortHex, toBig } from '@/lib/amount';
 import { useAuth } from '@/lib/auth';
-import { useAssets } from '@/lib/hooks';
+import { useAssets, useNetworks } from '@/lib/hooks';
 import { Amount, CopyButton, ErrorBox, Field, fmtDate } from '@/components/common';
 import { EntryDialog } from '@/components/EntryDialog';
 import { ApprovalPanel } from '@/components/ApprovalPanel';
@@ -57,9 +57,10 @@ function BumpPanel({ id, since, bumps }: { id: string; since: string; bumps: num
 }
 
 // ───────────── Detalle de un retiro ─────────────
-export function WithdrawalDialog({ id, explorer, onClose }: { id: string | null; explorer: string; onClose: () => void }) {
+export function WithdrawalDialog({ id, explorer: defaultExplorer, onClose }: { id: string | null; explorer: string; onClose: () => void }) {
   const { can } = useAuth();
-  const { byId } = useAssets();
+  const { byId, assets } = useAssets();
+  const nets = useNetworks();
   const qc = useQueryClient();
   const [entryId, setEntryId] = useState<string | null>(null);
   const [reason, setReason] = useState('');
@@ -74,7 +75,8 @@ export function WithdrawalDialog({ id, explorer, onClose }: { id: string | null;
   useEffect(() => { if (id) { setReason(''); cancel.reset(); } }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
   const w = q.data;
   const a = w ? byId(w.asset_id) : null;
-  const native = w ? byId('ETH-SEPOLIA') : null;
+  const native = w ? assets.find((asset) => asset.network === w.network && asset.kind === 'native') : null;
+  const explorer = w ? nets.byId(w.network)?.explorer ?? defaultExplorer : defaultExplorer;
   const stepIdx = w ? STEPS.indexOf(w.status) : -1;
 
   return (
@@ -114,6 +116,7 @@ export function WithdrawalDialog({ id, explorer, onClose }: { id: string | null;
                 <dd><Link to={`/clientes/${w.client_id}`} onClick={onClose} className="hover:underline">{w.client_name}</Link></dd>
                 <dt className="text-muted-foreground">Monto</dt>
                 <dd><Amount v={w.amount} asset={a} exact /></dd>
+                <dt className="text-muted-foreground">Red</dt><dd>{nets.label(w.network)}</dd>
                 <dt className="text-muted-foreground">Destino</dt>
                 <dd className="flex items-center gap-1 font-mono text-xs break-all">
                   <a href={`${explorer}/address/${w.to_address}`} target="_blank" rel="noreferrer noopener" className="hover:underline">{w.to_address}</a><CopyButton value={w.to_address} />

@@ -15,6 +15,7 @@ const { pool } = await import('../dist/db.js');
 const { getOrCreateDepositAddress } = await import('../dist/ledger/deposit-addresses.js');
 const { sweepStep } = await import('../dist/ledger/sweeps.js');
 const { primaryNet } = await import('../dist/chain/networks.js');
+primaryNet.healthy = true; // RPC verificado simulado; esta prueba no consulta la cadena.
 
 const queries = [];
 const fakeResult = (sql, params) => {

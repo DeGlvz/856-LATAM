@@ -14,7 +14,7 @@ export function configErrors(): string[] {
   for (const id of networkIds()) {
     const e = envOfNetwork(id);
     if (!e) {
-      if (isProduction) errs.push(`Red desconocida en production: ${id} (solo se permiten redes main del registro)`);
+      errs.push(`Red desconocida en ${env}: ${id} (solo se permiten redes del registro)`);
     } else if (e !== env) {
       errs.push(`La red ${id} es de ${e === 'production' ? 'main' : 'prueba'} y este despliegue es ENVIRONMENT=${env}: no se mezclan redes de ambientes distintos`);
     }

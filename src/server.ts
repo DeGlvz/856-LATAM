@@ -34,7 +34,7 @@ import { fiatRailsConsoleRoutes } from './routes/fiat-rails.js';
 import { gasRoutes } from './routes/gas.js';
 import { accessRequestRoutes, PUBLIC_ACCESS_REQUEST_PATH } from './routes/access-requests.js';
 import { verifyNetworks } from './chain/networks.js';
-import { ensureCatalog } from './chain/catalog.js';
+import { ensureCatalog, verifyEnabledAssetDecimals } from './chain/catalog.js';
 import { assertTreasuryAtBoot, configErrors, foreignNetworks, SETUP_ALLOWED, setupRequired } from './environment.js';
 
 const app = Fastify({ logger: true, trustProxy: true });
@@ -53,9 +53,16 @@ await initSigner();
 if (config.MIGRATE_ON_START) await migrate(pool, (m) => app.log.info(m));
 // Activos de redes del otro ambiente: inactivos (no aparecen ni operan aquí). Activos main: alta idempotente.
 await pool.query('UPDATE assets SET active = false WHERE active AND network = ANY($1)', [foreignNetworks()]);
-await ensureCatalog(app.log);
-await ensureAllSystemAccounts();
-await verifyNetworks(app.log);
+try {
+  await ensureCatalog(app.log);
+  await ensureAllSystemAccounts();
+  await verifyNetworks(app.log);
+  await verifyEnabledAssetDecimals();
+} catch (e) {
+  app.log.fatal((e as Error).message);
+  await pool.end();
+  throw e;
+}
 await ensureHotWalletRegistered();
 await bootstrapOperator(app.log);
 try { await assertTreasuryAtBoot(app.log); } catch (e) {
