@@ -34,6 +34,7 @@ import m032 from './032_operator_access_links.js';
 import m033 from './033_usage_budgets.js';
 import m034 from './034_access_requests.js';
 import m035 from './035_hd_generation.js';
+import mBranchCases036 from './036_branch_cases.js';
 import mWorkerPolicies036 from './036_worker_policies.js';
 
 // Migraciones embebidas en el build (no hay archivos .sql que copiar al contenedor).
@@ -74,6 +75,7 @@ const migrations: [string, string][] = [
   ['033_usage_budgets', m033],
   ['034_access_requests', m034],
   ['035_hd_generation', m035],
+  ['036_branch_cases', mBranchCases036],
   ['036_worker_policies', mWorkerPolicies036],
 ];
 

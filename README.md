@@ -398,6 +398,29 @@ El ejecutivo prepara la configuración de un cliente como **borrador** y el teso
 
 Migración `031_client_config_drafts`. Bitácora: `config_draft_created|submitted|cancelled|released|rejected`.
 
+### Consola — Terminal de Caja / Branch Case (PR1: API, sin UI)
+Un caso agrupa líneas (`credit_available`, `internal_transfer`, `payment_order`) preparadas por el ejecutivo y liberadas por el tesorero. Nada toca el libro antes de la aprobación; el apply es una sola transacción (`SELECT … FOR UPDATE`): si una línea falla hay ROLLBACK total, se guarda `last_error` y el caso sigue `pending_treasury`. El estado `applying` no se persiste.
+
+Flujo: `draft → pending_client` (si `client_required`) `| pending_treasury → applied | rejected | cancelled`. En PR1 `pending_client` no avanza desde la consola (la firma llegará con el portal; `recordClientSignature` existe en el servicio).
+
+| Endpoint (`/v1/console/branch-cases`) | Rol | Descripción |
+|---|---|---|
+| `POST /` | ejecutivo | Crea el caso (`Idempotency-Key`). Con `x-856-simulate: true` valida y simula sin persistir nada |
+| `GET /` `?status&client_id&cursor` · `GET /:id` | operador | Lista paginada / detalle con líneas |
+| `POST /:id/submit` · `/cancel` `{reason}` | ejecutivo | Envía o retira |
+| `POST /:id/approve` `{code}` | tesorero + 2FA | `assertApprover`: distinto de quien creó (`same_operator` 403) y código TOTP; aplica |
+| `POST /:id/reject` `{reason}` | tesorero | Rechaza |
+
+Errores de validación: `{"errors":[{"linea","campo","motivo"}]}`. Montos: enteros positivos en unidades base (texto). Hash `payload_hash` = SHA-256 del JSON canónico (claves ordenadas); un trigger impide mutar el payload fuera de `draft`. Llave por línea: `branchcase:{id}:{line_no}`. Bitácora: `branch_case_created|submitted|approved|applied|rejected|cancelled`.
+
+Variables: `BRANCH_CLIENT_SIGN_REQUIRED` (true), `BRANCH_TREASURY_ALWAYS` (true), `BRANCH_CREDIT_ENABLED` (false), `BRANCH_MAX_LINES` (500), `BRANCH_CREDIT_SOURCE_ACCOUNT` (`system:{asset}:equity`), `BRANCH_VERBAL_MAX_AMOUNT` (opcional, tope por línea sin firma), `BRANCH_APPROVAL_REQUIRE_2FA` (hereda `APPROVAL_REQUIRE_2FA`).
+
+Decisiones cerradas: crédito detrás de `BRANCH_CREDIT_ENABLED=false`, con `external_ref` de evidencia obligatorio y `source_account` opcional por caso (cuenta system del mismo activo; no se integran proveedores fiat, los fondos fiat siguen el flujo existente); `client_required:false` (instrucción verbal) se permite desde la consola con `reason` obligatorio (guardado en `verbal_reason` y auditado), 2FA del tesorero siempre y tope opcional `BRANCH_VERBAL_MAX_AMOUNT`; un solo tesorero (se mantiene `same_operator`); `payment_order` es obligación con el cliente como deudor (`origin_kind='branch_mandate'`, `origin_ref` = id del caso), nace `open` si el caso tiene firma del cliente y `pending_acceptance` si no; `internal_transfer` solo entre cuentas del mismo cliente y activo; `debit_adjustment` se rechaza (diferido a P2). Con `ORIGIN_RULE=enforce` la consola solo origina transferencias/obligaciones dentro del apply de un caso con `client_signed_at` y `mandate_ref`; la regla global no cambia.
+
+**Limitación de PR1 en producción (ORIGIN_RULE=enforce, obligatorio en production):** transferencias internas y órdenes de pago exigen `client_required` y `mandate_ref`, y no existe todavía ruta de firma del cliente (llega con el portal en PR2; `recordClientSignature` es solo servicio interno y valida que el firmante sea un client_users activo del mismo cliente con rol `approver`/`admin`). Por tanto, con enforce esas líneas no son operables de punta a punta desde la consola, y la instrucción verbal solo es posible con `ORIGIN_RULE=off` (sandbox). `credit_available` sí funciona con enforce. La regla global no se afloja. No presentar PR1 como soporte verbal completo.
+
+Migración `036_branch_cases`. Prueba e2e: `test/branch-case.e2e.mjs` (servidor con `BRANCH_CLIENT_SIGN_REQUIRED=false BRANCH_CREDIT_ENABLED=true ORIGIN_RULE=off APPROVAL_REQUIRE_2FA=true COOKIE_SECURE=false`; variables `BASE BOOT_EMAIL BOOT_PASS DATABASE_URL`). Prueba de servicio con enforce: `test/branch-case-service.e2e.mjs` (BD migrada y `ORIGIN_RULE=enforce BRANCH_APPROVAL_REQUIRE_2FA=false BRANCH_CREDIT_ENABLED=true`): firmante inválido, enforce verbal/mandato, flujo firmado y reintento tras fallo.
+
 ### Consola — consumos y topes de gasto
 Página **Consumos y topes** (`/console/consumos`, solo tesorero) para evitar sorpresas en la factura: consumo del mes por proveedor contra un tope mensual, con umbral de alerta (80 % por defecto), proyección al cierre de mes y contador de alertas en el menú.
 
