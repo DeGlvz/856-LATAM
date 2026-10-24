@@ -721,10 +721,16 @@ curl -H 'x-api-key: clave-cliente-1' localhost:8080/v1/block/latest
 ```
 Requisitos: Node.js 20 o superior (el CI y Docker usan Node 22), npm y PostgreSQL accesible mediante `DATABASE_URL`. La API también necesita `ALCHEMY_API_KEY` y `API_KEYS`; usa `COOKIE_SECURE=false` para la consola local en HTTP. Vite sirve la consola y reenvía las rutas `/v1` a la API. `npm run build` compila la API, `npm run build:web` compila la consola y `npm test` compila la API y ejecuta las pruebas unitarias sin conectarse a PostgreSQL ni a proveedores externos. Las pruebas `*.e2e.mjs` y Playwright requieren una API/base de datos configuradas y, según el recorrido, servicios de cadena, credenciales o navegador; no forman parte de la barrera CI.
 
-## Despliegue en AWS
-Producción (Fase AWS1) corre en AWS us-east-2: EC2 t4g.small con Docker Compose (`app` + `caddy` con TLS Let's Encrypt, sin SSH; acceso por SSM Session Manager), RDS PostgreSQL 16 privada y cifrada, llave de firma de la hot wallet en **KMS** (`SIGNER_BACKEND=kms`, `ECC_SECG_P256K1`; la llave privada nunca sale de KMS) y secretos en **SSM Parameter Store** (`SECRETS_SOURCE=ssm`, `/856/production/*`, cargados por `src/bootstrap.ts` antes de iniciar el servidor). CI/CD: GitHub Actions por OIDC → ECR (arm64) → `ssm send-command`. El sandbox sigue en Railway. Plantilla, pasos de despliegue, migración de datos y rollback: [`deploy/aws/README.md`](deploy/aws/README.md).
+## Despliegue en DigitalOcean (producción)
+Producción corre en DigitalOcean NYC1 con **la app separada de las llaves**:
+- `prod856-app` (droplet 2 GB): Docker Compose `app` + `caddy` (TLS Let's Encrypt). **No guarda llaves**: `SIGNER_BACKEND=remote`.
+- `prod856-signer` (droplet 1 GB, firewall: solo acepta tráfico de `prod856-app`): servicio firmante (`src/signer-service`) con la hot wallet y la semilla HD en un almacén cifrado (scrypt + AES-256-GCM). Arranca **bloqueado** y se desbloquea manualmente con contraseña. Antes de firmar aplica la política (`deploy/do/signer/policy.json`): redes y contratos permitidos, topes por transacción y por día, barridos solo hacia la hot wallet, mensajes listados y pausa de emergencia. Cada decisión queda en una bitácora JSONL.
+- `prod856-db`: PostgreSQL 17 administrado, accesible solo desde `prod856-app`.
+- CI/CD: tag `vX.Y.Z` → pruebas → imagen `ghcr.io/deglvz/cripto-api:<tag>` → SSH a `prod856-app` → health check con vuelta atrás (`deploy-do.yml`). El firmante se actualiza aparte y a mano (`deploy-signer.yml`).
 
-- `SIGNER_BACKEND=local|kms` y `SIGNER_KMS_KEY_ID`: con `kms` en production el arranque exige la llave y rechaza `SIGNER_PRIVATE_KEY`. `local` (sandbox y pruebas) no cambia.
+Pasos, variables, desbloqueo, migración desde Railway y operación: [`deploy/do/README.md`](deploy/do/README.md). El sandbox sigue en Railway.
+
+- `SIGNER_BACKEND=local|kms|remote`. Con `remote` la app exige `SIGNER_REMOTE_URL`, `SIGNER_REMOTE_SECRET` y, en production, los anclajes públicos `SIGNER_REMOTE_HOT_ADDRESS` y `DEPOSIT_HD_XPUB`; rechaza `SIGNER_PRIVATE_KEY`, `DEPOSIT_HD_SEED` y `HD_MNEMONIC`. Las direcciones de depósito se derivan de la xpub (solo llaves públicas).
 - `HD_GENERATION` (default 1; migración `035_hd_generation`): solo la generación vigente de la semilla HD se deriva, barre y liga; las anteriores quedan archivadas, visibles y sin barrido automático.
 
 ## Despliegue en Akash

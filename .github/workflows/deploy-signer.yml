@@ -1,0 +1,55 @@
+name: deploy-signer
+# Actualiza el firmante (prod856-signer) a un tag ya publicado. Manual a propósito: al reiniciar, el firmante queda
+# BLOQUEADO y los pagos se pausan hasta que el operador lo desbloquea (ver deploy/do/README.md, paso "Desbloqueo").
+# Acceso: por el droplet de la app como salto (el firewall del firmante solo acepta SSH desde prod856-app).
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag publicado (vX.Y.Z)'
+        required: true
+permissions:
+  contents: read
+  packages: read
+env:
+  IMAGE_REPO: ghcr.io/deglvz/cripto-api
+jobs:
+  deploy-signer:
+    if: vars.DO_APP_HOST != '' && vars.DO_SIGNER_PRIVATE_IP != ''
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - name: Llave SSH
+        env:
+          KEY: ${{ secrets.DO_SSH_KEY }}
+          KNOWN: ${{ vars.DO_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN" > ~/.ssh/known_hosts
+      - name: Desplegar firmante
+        env:
+          JUMP: deploy@${{ vars.DO_APP_HOST }}
+          HOST: ${{ vars.DO_SIGNER_PRIVATE_IP }}
+          TAG: ${{ inputs.tag }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "tag inválido"; exit 1; }
+          SSH="ssh -o StrictHostKeyChecking=accept-new -J $JUMP"
+          scp -q -o StrictHostKeyChecking=accept-new -J "$JUMP" deploy/do/signer/docker-compose.yml deploy@"$HOST":/opt/856-signer/
+          $SSH deploy@"$HOST" "TAG='$TAG' GHCR_USER='$GHCR_USER' GHCR_TOKEN='$GHCR_TOKEN' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd /opt/856-signer
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin >/dev/null
+          export IMAGE_TAG="$TAG"
+          docker compose --env-file stack.env pull
+          docker compose --env-file stack.env up -d
+          docker logout ghcr.io >/dev/null
+          echo "$TAG" > current-tag
+          echo "firmante actualizado a $TAG: QUEDA BLOQUEADO. Desbloquear manualmente."
+          REMOTE

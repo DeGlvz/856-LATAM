@@ -3,6 +3,7 @@ import { hexToBytes, keccak256, concat, toHex, type Address, type Hex, type Tran
 import { KMSClient } from '@aws-sdk/client-kms';
 import { config, isProduction } from '../config.js';
 import { KmsSigner, type KmsLike } from './kms-signer.js';
+import { RemoteHdKeyring, RemoteSigner, RemoteSignerClient } from './remote-signer.js';
 
 /**
  * Frontera de custodia. El resto del sistema solo conoce esta interfaz:
@@ -56,7 +57,21 @@ const guardEnvironment = () => {
 let signer: Signer | null | undefined;
 
 /** Se llama una vez al arrancar (antes del worker): con SIGNER_BACKEND=kms consulta la llave pública a KMS. */
-export async function initSigner(kmsClient?: KmsLike): Promise<Signer | null> {
+export async function initSigner(kmsClient?: KmsLike, remoteClient?: RemoteSignerClient): Promise<Signer | null> {
+  if (config.SIGNER_BACKEND === 'remote') {
+    // La app no tiene llaves: hot wallet y semilla HD viven en el servicio firmante (otro droplet, red privada)
+    if (!config.SIGNER_REMOTE_URL || !config.SIGNER_REMOTE_SECRET) throw new Error('SIGNER_BACKEND=remote exige SIGNER_REMOTE_URL y SIGNER_REMOTE_SECRET');
+    const client = remoteClient ?? new RemoteSignerClient({ url: config.SIGNER_REMOTE_URL, secret: config.SIGNER_REMOTE_SECRET });
+    const info = await client.info();
+    // Anclaje: si el firmante fuera sustituido, sus direcciones no coincidirían con las fijadas en la app
+    if (config.SIGNER_REMOTE_HOT_ADDRESS && config.SIGNER_REMOTE_HOT_ADDRESS.toLowerCase() !== info.hot.toLowerCase()) {
+      throw new Error(`El firmante remoto reporta la hot wallet ${info.hot}, distinta de SIGNER_REMOTE_HOT_ADDRESS`);
+    }
+    if (config.DEPOSIT_HD_XPUB && config.DEPOSIT_HD_XPUB !== info.xpub) throw new Error('El firmante remoto reporta una xpub distinta de DEPOSIT_HD_XPUB');
+    signer = new RemoteSigner(client, { kind: 'hot' }, info.hot);
+    keyring = new RemoteHdKeyring(client, config.DEPOSIT_HD_XPUB ?? info.xpub);
+    return signer;
+  }
   if (config.SIGNER_BACKEND === 'kms') {
     if (!config.SIGNER_KMS_KEY_ID) throw new Error('SIGNER_BACKEND=kms exige SIGNER_KMS_KEY_ID');
     signer = await KmsSigner.create(kmsClient ?? new KMSClient({}), config.SIGNER_KMS_KEY_ID);
@@ -69,7 +84,7 @@ export async function initSigner(kmsClient?: KmsLike): Promise<Signer | null> {
 
 export function getSigner(): Signer | null {
   if (signer === undefined) {
-    if (config.SIGNER_BACKEND === 'kms') throw new Error('Firmante KMS sin inicializar: initSigner() debe completarse al arrancar');
+    if (config.SIGNER_BACKEND !== 'local') throw new Error(`Firmante ${config.SIGNER_BACKEND} sin inicializar: initSigner() debe completarse al arrancar`);
     if (config.SIGNER_PRIVATE_KEY) guardEnvironment();
     signer = config.SIGNER_PRIVATE_KEY ? new LocalKeySigner(privateKeyToAccount(config.SIGNER_PRIVATE_KEY as Hex)) : null;
   }
@@ -78,6 +93,10 @@ export function getSigner(): Signer | null {
 
 let keyring: DepositKeyring | null | undefined;
 export function getDepositKeyring(): DepositKeyring | null {
+  if (config.SIGNER_BACKEND === 'remote') {
+    if (keyring === undefined) throw new Error('Firmante remoto sin inicializar: initSigner() debe completarse al arrancar');
+    return keyring;
+  }
   if (keyring === undefined) {
     let seed = config.DEPOSIT_HD_SEED as Hex | undefined;
     const mnemonic = config.HD_MNEMONIC ?? null;
