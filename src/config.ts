@@ -33,10 +33,9 @@ const Env = z.object({
   // Barrido: ETH mínimo (wei) para barrer saldo nativo de una dirección de depósito
   SWEEP_MIN_NATIVE_WEI: z.coerce.bigint().default(1_000_000_000_000_000n), // 0.001 ETH
   SWEEP_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
-  // Ahorro de RPC: clientes con sesión del portal, API key en uso, retiros/depósitos abiertos o recientes dentro de la ventana se barren
-  // en cada ciclo; los demás solo cada SWEEP_IDLE_INTERVAL_MS (igualarlo a WORKER_INTERVAL_MS desactiva el ahorro)
   // Orígenes de la página pública (alojada aparte, p. ej. Vercel) autorizados a enviar «Solicitar acceso»; vacío = mismo origen
   LANDING_ORIGINS: z.string().default('').transform((v) => new Set(v.split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean))),
+  // Compatibilidad de entorno: reemplazadas por worker_policies; ya no gobiernan escaneos de clientes.
   SWEEP_ACTIVE_WINDOW_MIN: z.coerce.number().int().min(1).default(30),
   SWEEP_IDLE_INTERVAL_MS: z.coerce.number().int().min(1000).default(900_000),
   CONFIRMATIONS: z.coerce.number().int().min(1).default(3),

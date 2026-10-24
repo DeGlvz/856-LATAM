@@ -136,17 +136,20 @@ export async function deleteUnusedDepositAddress(clientId: string, walletId: str
 }
 
 /** Worker: registra en el webhook de la red las direcciones que quedaron pendientes. */
-export async function registerPendingAddresses(n: Net, log: Log) {
-  if (!n.webhookId || !config.ALCHEMY_NOTIFY_TOKEN) return;
+export async function registerPendingAddresses(n: Net, log: Log, clientId: string | null) {
+  if (!n.webhookId || !config.ALCHEMY_NOTIFY_TOKEN) return 'not_configured';
   const { rows } = await pool.query(
     `SELECT id, address FROM wallets WHERE purpose IN ('deposit','fiat_treasury','fiat_client') AND derivation_index IS NOT NULL
-       AND NOT webhook_registered AND active AND network = $1 AND hd_generation = $2 LIMIT 100`, [n.id, config.HD_GENERATION]);
-  if (!rows.length) return;
+       AND NOT webhook_registered AND active AND network = $1 AND hd_generation = $2
+       AND client_id IS NOT DISTINCT FROM $3::uuid LIMIT 100`, [n.id, config.HD_GENERATION, clientId]);
+  if (!rows.length) return 'no_pending_addresses';
   try {
     await registerOnWebhook(n, rows.map((r) => r.address));
     await pool.query('UPDATE wallets SET webhook_registered = true WHERE id = ANY($1)', [rows.map((r) => r.id)]);
     log.info({ network: n.id, count: rows.length }, 'direcciones registradas en webhook de Alchemy');
+    return 'ok';
   } catch (e) {
     log.warn({ network: n.id, err: (e as Error).message }, 'no se pudieron registrar direcciones en el webhook');
+    throw e;
   }
 }

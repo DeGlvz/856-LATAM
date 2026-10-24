@@ -1,12 +1,13 @@
 // E2E fase 3: retiros, depósitos y barridos desde la consola, contra cadena LOCAL (Hardhat/Anvil).
 // Uso: BASE KEY RPC_URL FUNDER_PK BOOT_EMAIL BOOT_PASS node test/console-fase3.e2e.mjs
-// API con COOKIE_SECURE=false, WORKER_ENABLED=false, SWEEP_ENABLED=true, CONFIRMATIONS=1, firmante de prueba.
+// API local con COOKIE_SECURE=false, WORKER_ENABLED=true, intervalo 1000 ms, SWEEP_ENABLED=true, CONFIRMATIONS=1.
 import { execFileSync } from 'node:child_process';
 import { createPublicClient, createWalletClient, http, parseEther } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
-import { hardhat } from 'viem/chains';
+import { localChain, workerDriver } from './lib/worker.mjs';
 
 const { BASE, KEY, RPC_URL, FUNDER_PK, BOOT_EMAIL, BOOT_PASS } = process.env;
+const hardhat = await localChain(RPC_URL);
 const pub = createPublicClient({ chain: hardhat, transport: http(RPC_URL) });
 const funder = createWalletClient({ account: privateKeyToAccount(FUNDER_PK), chain: hardhat, transport: http(RPC_URL) });
 const R = Math.random().toString(36).slice(2, 8);
@@ -31,7 +32,8 @@ createOperator(`op3-${R}@ejemplo.mx`, 'ejecutivo', 'clave-operador-123');
 createOperator(`lec3-${R}@ejemplo.mx`, 'lectura', 'clave-lectura-123');
 const opr = browser(`${NET}.2`); await opr.login(`op3-${R}@ejemplo.mx`, 'clave-operador-123');
 const lec = browser(`${NET}.3`); await lec.login(`lec3-${R}@ejemplo.mx`, 'clave-lectura-123');
-const tick = () => tes.call('POST', '/v1/worker/tick', {});
+const worker = workerDriver({ BASE, KEY });
+const tick = () => worker.run(cl.id);
 
 // Cuadrar gas de la hot wallet en el libro (fondos previos en la cadena local)
 const hw = (await tes.call('GET', '/v1/treasury/hot-wallet')).body;
@@ -77,7 +79,7 @@ check('tesorero solicita retiro → 202', w1.status, 202);
 const cx = await opr.call('POST', `/v1/withdrawals/${w1.body.id}/cancel`, { reason: 'Error de captura' });
 check('cancelado', cx.body.status, 'cancelled');
 const rev = (await lec.call('GET', `/v1/entries/${cx.body.reversal_entry_id}`)).body;
-check('reverso registra quién y por qué', rev.description.includes(BOOT_EMAIL) && rev.description.includes('Error de captura'), true);
+check('reverso registra quién canceló y por qué', rev.description.includes(`op3-${R}@ejemplo.mx`) && rev.description.includes('Error de captura'), true);
 check('saldo restituido', (await lec.call('GET', `/v1/accounts/client:${cl.id}:ETH-SEPOLIA:available`)).body.balance, parseEther('0.3').toString());
 
 // ── Retiro completo: firma, envío y confirmación
@@ -97,7 +99,7 @@ check('retiros paginados (2 páginas distintas)', l1.withdrawals[0].id !== l2.wi
 check('filtro por estado', (await lec.call('GET', `/v1/withdrawals?client_id=${cl.id}&status=cancelled`)).body.withdrawals.length, 1);
 check('estado inválido → 400', (await lec.call('GET', '/v1/withdrawals?status=raro')).status, 400);
 check('cursor inválido → 400', (await lec.call('GET', '/v1/deposits?cursor=xyz')).status, 400);
-check('lectura no ejecuta worker → 403', (await lec.call('POST', '/v1/worker/tick', {})).status, 403);
+check('lectura no ejecuta worker → 403', (await lec.call('POST', `/v1/console/worker/clients/${cl.id}/run`, {})).status, 403);
 const s = (await lec.call('GET', '/v1/summary')).body;
 check('tablero: conciliación ETH en cero', s.reconciliation.balances.find((b) => b.asset_id === 'ETH-SEPOLIA').difference, '0');
 

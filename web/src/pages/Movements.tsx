@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Cog, ExternalLink, FileSearch, Loader2, Plus, X } from 'lucide-react';
+import { ExternalLink, FileSearch, Loader2, Plus, X } from 'lucide-react';
 import {
   api, type ClientDetail, type DepositRow, type DepositStatus, type Summary, type SweepRow, type SweepStatus,
   type WithdrawalRow, type WithdrawalStatus,
@@ -64,7 +64,6 @@ export function Movements() {
   const [wdId, setWdId] = useState<string | null>(null);
   const [newWd, setNewWd] = useState(false);
   const [report, setReport] = useState(false);
-  const [tickOpen, setTickOpen] = useState(false);
 
   return (
     <div className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)] gap-6">
@@ -74,7 +73,7 @@ export function Movements() {
           <p className="text-sm text-muted-foreground">Movimientos on-chain de la plataforma. Se actualiza cada 15 s.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {can('tesorero') && <Button variant="outline" onClick={() => setTickOpen(true)}><Cog />Ciclo del worker</Button>}
+          {can('ejecutivo') && <Button variant="outline" asChild><Link to="/worker">Control del worker</Link></Button>}
           {can('ejecutivo') && <Button variant="outline" onClick={() => setReport(true)}><FileSearch />Reportar depósito</Button>}
           {can('ejecutivo') && <Button onClick={() => setNewWd(true)}><Plus />Nuevo retiro</Button>}
         </div>
@@ -115,7 +114,6 @@ export function Movements() {
       <WithdrawalDialog id={wdId} explorer={explorer} onClose={() => setWdId(null)} />
       <NewWithdrawalDialog open={newWd} onOpenChange={setNewWd} presetClientId={clientId} onCreated={(id) => { set('tab', 'retiros'); setWdId(id); }} />
       <ReportDepositDialog open={report} onOpenChange={setReport} explorer={explorer} onDone={() => { qc.invalidateQueries({ queryKey: ['deposits'] }); set('tab', 'depositos'); }} />
-      <WorkerTickDialog open={tickOpen} onOpenChange={setTickOpen} />
     </div>
   );
 }
@@ -280,30 +278,6 @@ function ReportDepositDialog({ open, onOpenChange, explorer, onDone }: { open: b
             <Button type="submit" disabled={!valid || m.isPending}>{m.isPending && <Loader2 className="animate-spin" />}Reportar</Button>
           </DialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function WorkerTickDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
-  const qc = useQueryClient();
-  const m = useMutation({
-    mutationFn: () => api<unknown>('/worker/tick', { method: 'POST', json: {} }),
-    onSuccess: () => ['withdrawals', 'deposits', 'sweeps', 'summary'].forEach((k) => qc.invalidateQueries({ queryKey: [k] })),
-  });
-  return (
-    <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) m.reset(); }}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Ejecutar un ciclo del worker</DialogTitle>
-          <DialogDescription>Firma y envía retiros reservados, actualiza confirmaciones, acredita depósitos, registra direcciones en el webhook y ejecuta barridos. El worker ya corre solo cada pocos segundos; úselo solo para forzar un ciclo.</DialogDescription>
-        </DialogHeader>
-        <ErrorBox error={m.error} />
-        {m.isSuccess && <pre className="max-h-48 overflow-auto rounded bg-muted p-2 text-xs">{JSON.stringify(m.data, null, 2)}</pre>}
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cerrar</Button>
-          <Button onClick={() => m.mutate()} disabled={m.isPending}>{m.isPending && <Loader2 className="animate-spin" />}Ejecutar</Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
