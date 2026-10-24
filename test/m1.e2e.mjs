@@ -51,7 +51,7 @@ let b = await boot({ ...prodEnv(), ENVIRONMENT: 'sandbox', ALCHEMY_NETWORK: 'eth
 check('sandbox con una red main → arranque rechazado', `${b.code} ${b.out.includes('no se mezclan')}`, '1 true');
 b = await boot(prodEnv({ NETWORKS: 'base-mainnet,base-sepolia' }));
 check('production con una red de prueba → arranque rechazado', `${b.code} ${b.out.includes('no se mezclan')}`, '1 true');
-b = await boot(prodEnv({ NETWORKS: 'opt-mainnet' }));
+b = await boot(prodEnv({ NETWORKS: 'unknown-mainnet' }));
 check('production con una red desconocida → rechazado', `${b.code} ${b.out.includes('Red desconocida')}`, '1 true');
 b = await boot(prodEnv({ ORIGIN_RULE: 'off' }));
 check('production sin ORIGIN_RULE=enforce → rechazado', `${b.code} ${b.out.includes('ORIGIN_RULE=enforce es obligatorio')}`, '1 true');

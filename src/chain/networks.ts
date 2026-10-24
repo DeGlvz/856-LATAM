@@ -27,11 +27,22 @@ export const KNOWN: Record<string, Known> = {
   'bnb-testnet': { chainId: 97, explorer: 'https://testnet.bscscan.com', native: 'BNB', label: 'BNB Smart Chain Testnet', env: 'test' },
   'opt-sepolia': { chainId: 11155420, explorer: 'https://sepolia-optimism.etherscan.io', native: 'ETH', label: 'OP Sepolia', env: 'test' },
   'avax-fuji': { chainId: 43113, explorer: 'https://testnet.snowtrace.io', native: 'AVAX', label: 'Avalanche Fuji', env: 'test' },
+  'linea-sepolia': { chainId: 59141, explorer: 'https://sepolia.lineascan.build', native: 'ETH', label: 'Linea Sepolia', env: 'test' },
+  'celo-sepolia': { chainId: 11142220, explorer: 'https://celo-sepolia.blockscout.com', native: 'CELO', label: 'Celo Sepolia', env: 'test' },
+  'unichain-sepolia': { chainId: 1301, explorer: 'https://sepolia.uniscan.xyz', native: 'ETH', label: 'Unichain Sepolia', env: 'test' },
+  'worldchain-sepolia': { chainId: 4801, explorer: 'https://worldchain-sepolia.explorer.alchemy.com', native: 'ETH', label: 'World Chain Sepolia', env: 'test' },
   // Fase M1 — redes principales (dinero real)
   'eth-mainnet': { chainId: 1, explorer: 'https://etherscan.io', native: 'ETH', label: 'Ethereum', env: 'main' },
   'base-mainnet': { chainId: 8453, explorer: 'https://basescan.org', native: 'ETH', label: 'Base', env: 'main' },
   'arb-mainnet': { chainId: 42161, explorer: 'https://arbiscan.io', native: 'ETH', label: 'Arbitrum One', env: 'main' },
   'bnb-mainnet': { chainId: 56, explorer: 'https://bscscan.com', native: 'BNB', label: 'BNB Smart Chain', env: 'main' },
+  'opt-mainnet': { chainId: 10, explorer: 'https://optimistic.etherscan.io', native: 'ETH', label: 'OP Mainnet', env: 'main' },
+  'polygon-mainnet': { chainId: 137, explorer: 'https://polygonscan.com', native: 'POL', label: 'Polygon PoS', env: 'main' },
+  'avax-mainnet': { chainId: 43114, explorer: 'https://snowtrace.io', native: 'AVAX', label: 'Avalanche C-Chain', env: 'main' },
+  'linea-mainnet': { chainId: 59144, explorer: 'https://lineascan.build', native: 'ETH', label: 'Linea', env: 'main' },
+  'celo-mainnet': { chainId: 42220, explorer: 'https://celoscan.io', native: 'CELO', label: 'Celo', env: 'main' },
+  'unichain-mainnet': { chainId: 130, explorer: 'https://uniscan.xyz', native: 'ETH', label: 'Unichain', env: 'main' },
+  'worldchain-mainnet': { chainId: 480, explorer: 'https://worldscan.org', native: 'ETH', label: 'World Chain', env: 'main' },
 };
 /** Ambiente al que pertenece una red ('production' | 'sandbox'); null si no es conocida. */
 export const envOfNetwork = (id: string): 'production' | 'sandbox' | null =>
@@ -55,15 +66,21 @@ function build(id: string): Net {
   return {
     id, label: k?.label ?? id, primary, rpcUrl, local: !!override,
     client: createPublicClient({ transport: http(rpcUrl, { retryCount: 2, timeout: 15_000, onFetchRequest: override ? undefined : () => recordUsage('alchemy', `rpc:${id}`) }) }) as PublicClient,
-    // Con RPC propio (cadena local de pruebas) no se exige el chainId público, salvo en production (M1): ahí siempre
-    expectedChainId: override && config.ENVIRONMENT !== 'production' ? null : k?.chainId ?? null, chainId: null, healthy: true, error: null,
-    confirmations: Number(env(`CONFIRMATIONS_${S}`) ?? config.CONFIRMATIONS),
+    // El RPC local de pruebas debe usar el mismo chainId que la red registrada.
+    expectedChainId: k?.chainId ?? null, chainId: null, healthy: false, error: 'pendiente de verificación',
+    confirmations: confirmationsOf(S),
     gasLowWei: BigInt(env(`GAS_LOW_WEI_${S}`) ?? config.GAS_LOW_WEI),
     maxFeeWei: BigInt(env(`GAS_BUMP_MAX_FEE_WEI_${S}`) ?? config.GAS_BUMP_MAX_FEE_WEI),
     explorer: env(`EXPLORER_URL_${S}`) ?? k?.explorer ?? null,
     webhookId: env(`ALCHEMY_WEBHOOK_ID_${S}`) ?? (primary ? config.ALCHEMY_WEBHOOK_ID ?? null : null),
     signingKey: env(`ALCHEMY_WEBHOOK_SIGNING_KEY_${S}`) ?? (primary ? config.ALCHEMY_WEBHOOK_SIGNING_KEY ?? null : null),
   };
+}
+
+function confirmationsOf(suffix: string): number {
+  const value = Number(env(`CONFIRMATIONS_${suffix}`) ?? config.CONFIRMATIONS);
+  if (!Number.isSafeInteger(value) || value < 1) throw new Error(`CONFIRMATIONS_${suffix} debe ser un entero positivo`);
+  return value;
 }
 
 // La red principal (ALCHEMY_NETWORK) siempre va primero: conserva el comportamiento previo
@@ -87,27 +104,25 @@ export const findNet = (id: string) => byId.get(id) ?? null;
 export const explorerOf = (id: string) => byId.get(id)?.explorer ?? KNOWN[id]?.explorer ?? null;
 
 /**
- * Al arrancar: lee el chainId de cada red. Si no coincide con el público esperado, la red NO se enciende
- * (protege contra una URL mal configurada que firmaría en otra cadena). Una red sin conexión queda marcada
- * y se reintenta en cada ciclo del worker.
+ * Al arrancar: todas las redes deben responder con su chainId esperado, incluso con RPC local.
+ * No se abre el servicio con una red sin verificar.
  */
 export async function verifyNetworks(log: { info: (o: object, m: string) => void; error: (o: object, m: string) => void }) {
   await Promise.all(networks.map(async (n) => {
     try {
       const id = await n.client.getChainId();
       n.chainId = id;
-      if (n.expectedChainId != null && id !== n.expectedChainId) {
-        n.healthy = false; n.error = `chainId ${id} no coincide con ${n.expectedChainId}`;
-        log.error({ network: n.id, chainId: id, expected: n.expectedChainId }, 'red desactivada: chainId inesperado');
-      } else {
-        n.healthy = true; n.error = null;
-        log.info({ network: n.id, chainId: id }, 'red encendida');
-      }
+      if (n.expectedChainId != null && id !== n.expectedChainId) throw new Error(`chainId ${id} no coincide con ${n.expectedChainId}`);
+      n.healthy = true; n.error = null;
+      log.info({ network: n.id, chainId: id }, 'red encendida');
     } catch (e) {
+      n.healthy = false;
       n.error = (e as Error).message.split('\n')[0].slice(0, 200);
-      log.error({ network: n.id, err: n.error }, 'red sin conexión al arrancar; se reintenta en el worker');
+      log.error({ network: n.id }, 'red no verificada al arrancar');
     }
   }));
+  const failed = networks.filter((n) => !n.healthy);
+  if (failed.length) throw new Error(`Arranque rechazado: ${failed.map((n) => `${n.id}: ${n.error}`).join('; ')}`);
 }
 
 /** chainId de la red (cacheado tras la primera lectura). */

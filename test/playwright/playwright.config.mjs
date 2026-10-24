@@ -6,6 +6,7 @@ import { defineConfig, devices } from '@playwright/test';
 export default defineConfig({
   testDir: '.',
   testMatch: /.*\.spec\.mjs/,
+  testIgnore: /wave-1b\.spec\.mjs$/, // Suite aislada: wave-1b.config.mjs inicia su propio frontend.
   fullyParallel: false,
   workers: 1,
   retries: 0,

@@ -136,6 +136,7 @@ function TxLink({ explorer, hash }: { explorer: string; hash: string | null }) {
 
 function WithdrawalsTable({ clientId, status, explorer, onOpen }: { clientId: string | null; status: WithdrawalStatus | ''; explorer: string; onOpen: (id: string) => void }) {
   const { byId } = useAssets();
+  const nets = useNetworks();
   const q = useList<WithdrawalRow>('withdrawals', '/withdrawals', { client_id: clientId ?? undefined, status: status || undefined }, 'withdrawals');
   const rows = q.data?.pages.flatMap((p) => p.items) ?? [];
   return (
@@ -158,7 +159,7 @@ function WithdrawalsTable({ clientId, status, explorer, onOpen }: { clientId: st
               <TableCell><Link to={`/clientes/${w.client_id}`} onClick={(e) => e.stopPropagation()} className="block max-w-48 truncate font-medium hover:underline">{w.client_name}</Link></TableCell>
               <TableCell className="text-right"><Amount v={w.amount} asset={byId(w.asset_id)} /></TableCell>
               <TableCell className="font-mono text-xs" title={w.to_address}>{shortHex(w.to_address)}</TableCell>
-              <TableCell><TxLink explorer={explorer} hash={w.tx_hash} /></TableCell>
+              <TableCell><div className="text-xs">{nets.label(w.network)}</div><TxLink explorer={nets.byId(w.network)?.explorer ?? explorer} hash={w.tx_hash} /></TableCell>
               <TableCell className="num text-right">{w.confirmations}</TableCell>
               <TableCell className="num text-right text-muted-foreground" title={fmtDate(w.created_at)}>{ago(w.created_at)}</TableCell>
             </TableRow>
@@ -208,7 +209,8 @@ function DepositsTable({ clientId, status, explorer }: { clientId: string | null
 }
 
 function SweepsTable({ status, explorer }: { status: SweepStatus | ''; explorer: string }) {
-  const { byId } = useAssets();
+  const { byId, assets } = useAssets();
+  const nets = useNetworks();
   const q = useList<SweepRow>('sweeps', '/sweeps', { status: status || undefined }, 'sweeps');
   const rows = q.data?.pages.flatMap((p) => p.items) ?? [];
   return (
@@ -222,7 +224,9 @@ function SweepsTable({ status, explorer }: { status: SweepStatus | ''; explorer:
         <TableBody>
           {q.isPending && <TableRow><TableCell colSpan={8}><Skeleton className="h-6" /></TableCell></TableRow>}
           {!q.isPending && rows.length === 0 && <TableRow><TableCell colSpan={8} className="py-8 text-center text-muted-foreground">Sin barridos</TableCell></TableRow>}
-          {rows.map((s) => (
+          {rows.map((s) => {
+            const native = assets.find((a) => a.network === s.network && a.kind === 'native');
+            return (
             <TableRow key={s.id}>
               <TableCell><Badge variant={SW_STATUS[s.status].variant}>{SW_STATUS[s.status].label}</Badge>
                 {s.last_error && <div className="mt-1 max-w-48 truncate text-[11px] text-destructive" title={s.last_error}>{s.last_error}</div>}</TableCell>
@@ -230,11 +234,12 @@ function SweepsTable({ status, explorer }: { status: SweepStatus | ''; explorer:
               <TableCell>{s.client_id ? <Link to={`/clientes/${s.client_id}`} className="block max-w-40 truncate hover:underline">{s.client_name}</Link> : '—'}</TableCell>
               <TableCell className="text-right"><Amount v={s.amount} asset={byId(s.asset_id)} /></TableCell>
               <TableCell className="font-mono text-xs"><span title={s.from_address}>{shortHex(s.from_address, 4)}</span> → <span title={s.to_address}>{shortHex(s.to_address, 4)}</span></TableCell>
-              <TableCell><TxLink explorer={explorer} hash={s.tx_hash} /></TableCell>
-              <TableCell className="text-right">{s.gas_cost_wei ? <Amount v={s.gas_cost_wei} asset={byId('ETH-SEPOLIA')} /> : '—'}</TableCell>
+              <TableCell><div className="text-xs">{nets.label(s.network)}</div><TxLink explorer={nets.byId(s.network)?.explorer ?? explorer} hash={s.tx_hash} /></TableCell>
+              <TableCell className="text-right">{s.gas_cost_wei && native ? <Amount v={s.gas_cost_wei} asset={native} /> : '—'}</TableCell>
               <TableCell className="num text-right text-muted-foreground" title={fmtDate(s.created_at)}>{ago(s.created_at)}</TableCell>
             </TableRow>
-          ))}
+            );
+          })}
         </TableBody>
       </Table>
       <LoadMore q={q} />
@@ -244,9 +249,10 @@ function SweepsTable({ status, explorer }: { status: SweepStatus | ''; explorer:
 
 function ReportDepositDialog({ open, onOpenChange, explorer, onDone }: { open: boolean; onOpenChange: (v: boolean) => void; explorer: string; onDone: () => void }) {
   const { byId } = useAssets();
+  const nets = useNetworks();
   const [hash, setHash] = useState('');
   const m = useMutation({
-    mutationFn: () => api<{ tx_hash: string; deposits: DepositRow[]; required_confirmations: number }>('/deposits/report', { method: 'POST', json: { tx_hash: hash.trim() } }),
+    mutationFn: () => api<{ network: string; tx_hash: string; deposits: DepositRow[]; required_confirmations: number }>('/deposits/report', { method: 'POST', json: { tx_hash: hash.trim() } }),
     onSuccess: onDone,
   });
   const valid = /^0x[0-9a-fA-F]{64}$/.test(hash.trim());
@@ -272,7 +278,7 @@ function ReportDepositDialog({ open, onOpenChange, explorer, onDone }: { open: b
                     <Amount v={d.amount} asset={byId(d.asset_id)} /><span className="text-muted-foreground">· {d.confirmations}/{m.data.required_confirmations} conf.</span>
                   </div>
                 ))}
-              <a className="mt-2 inline-flex items-center gap-1 text-xs hover:underline" href={`${explorer}/tx/${m.data.tx_hash}`} target="_blank" rel="noreferrer noopener">Ver en el explorador<ExternalLink className="size-3" /></a>
+              <a className="mt-2 inline-flex items-center gap-1 text-xs hover:underline" href={`${nets.byId(m.data.network)?.explorer ?? explorer}/tx/${m.data.tx_hash}`} target="_blank" rel="noreferrer noopener">Ver en el explorador<ExternalLink className="size-3" /></a>
             </div>
           )}
           <DialogFooter>

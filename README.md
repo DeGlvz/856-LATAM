@@ -2,6 +2,48 @@
 
 API REST (Node 22 + TypeScript + Fastify + viem) sobre RPC de **Alchemy**, con **PostgreSQL** como libro contable. Desplegado en **Railway** (núcleo + base de datos); imagen portable a Akash/Flux.
 
+## Multi-red EVM: ola 1b
+
+Se registran estas 14 redes sobre el mismo motor EVM, sin migraciones nuevas. El catálogo se da de alta idempotentemente **solo para redes encendidas**. No se activan automáticamente nuevas redes ni activos para clientes existentes.
+
+| Red (documentación oficial de chainId, gas y explorador) | Alchemy main / test | chainId main / test | Gas | Activos main / test |
+|---|---|---|---|---|
+| [OP](https://docs.optimism.io/op-mainnet/network-information/connecting-to-op) | `opt-mainnet` / `opt-sepolia` | 10 / 11155420 | ETH | ETH, USDC / ETH, USDC |
+| [Polygon PoS](https://docs.polygon.technology/pos/reference/rpc-endpoints/) | `polygon-mainnet` / `polygon-amoy` | 137 / 80002 | POL | POL, USDC nativo / POL, USDC |
+| [Avalanche C-Chain](https://build.avax.network/docs/primary-network) | `avax-mainnet` / `avax-fuji` | 43114 / 43113 | AVAX | AVAX, USDC, USDT / AVAX, USDC |
+| [Linea](https://docs.linea.build/network/build/connect) | `linea-mainnet` / `linea-sepolia` | 59144 / 59141 | ETH | ETH, USDC / ETH, USDC |
+| [Celo](https://docs.celo.org/learn/network/overview) | `celo-mainnet` / `celo-sepolia` | 42220 / 11142220 | CELO | CELO, USDC, USDT / CELO, USDC |
+| [Unichain](https://developers.uniswap.org/docs/unichain/technical-information/network-information) | `unichain-mainnet` / `unichain-sepolia` | 130 / 1301 | ETH | ETH, USDC / ETH, USDC |
+| [World Chain](https://docs.world.org/world-chain/quick-start/info) | `worldchain-mainnet` / `worldchain-sepolia` | 480 / 4801 | ETH | ETH, USDC / ETH, USDC |
+
+**Fuentes de contratos consultadas el 23-oct-2026:** [Circle, USDC mainnet y testnet](https://developers.circle.com/stablecoins/usdc-contract-addresses) y [Tether, protocolos soportados](https://tether.to/en/supported-protocols/). Todos los tokens nuevos tienen 6 decimales; los nativos, 18. Cada dirección enlaza al explorador publicado por el emisor:
+
+| Red | USDC main (Circle) | USDC test (Circle) |
+|---|---|---|
+| OP | [0x0b2c639c533813f4aa9d7837caf62653d097ff85](https://optimistic.etherscan.io/token/0x0b2c639c533813f4aa9d7837caf62653d097ff85) | [0x5fd84259d66cd46123540766be93dfe6d43130d7](https://sepolia-optimism.etherscan.io/address/0x5fd84259d66cd46123540766be93dfe6d43130d7) |
+| Polygon | [0x3c499c542cef5e3811e1192ce70d8cc03d5c3359](https://polygonscan.com/token/0x3c499c542cef5e3811e1192ce70d8cc03d5c3359) | [0x41e94eb019c0762f9bfcf9fb1e58725bfb0e7582](https://amoy.polygonscan.com/address/0x41e94eb019c0762f9bfcf9fb1e58725bfb0e7582) |
+| Avalanche | [0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e](https://snowtrace.io/token/0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e) | [0x5425890298aed601595a70ab815c96711a31bc65](https://testnet.snowtrace.io/token/0x5425890298aed601595a70ab815c96711a31bc65) |
+| Linea | [0x176211869ca2b568f2a7d4ee941e073a821ee1ff](https://lineascan.build/token/0x176211869ca2b568f2a7d4ee941e073a821ee1ff) | [0xfece4462d57bd51a6a552365a011b95f0e16d9b7](https://sepolia.lineascan.build/address/0xfece4462d57bd51a6a552365a011b95f0e16d9b7) |
+| Celo | [0xceba9300f2b948710d2653dd7b07f33a8b32118c](https://celoscan.io/token/0xceba9300f2b948710d2653dd7b07f33a8b32118c) | [0x01c5c0122039549ad1493b8220cabedd739bc44e](https://celo-sepolia.blockscout.com/token/0x01c5c0122039549ad1493b8220cabedd739bc44e) |
+| Unichain | [0x078d782b760474a361dda0af3839290b0ef57ad6](https://uniscan.xyz/token/0x078d782b760474a361dda0af3839290b0ef57ad6) | [0x31d0220469e10c4e71834a79b1f276d740d3768f](https://unichain-sepolia.blockscout.com/token/0x31d0220469e10c4e71834a79b1f276d740d3768f) |
+| World Chain | [0x79a02482a880bce3f13e09da970dc34db4cd24d1](https://worldscan.org/address/0x79a02482a880bce3f13e09da970dc34db4cd24d1) | [0x66145f38cbac35ca6f1dfb4914df98f1614aea88](https://sepolia.worldscan.org/address/0x66145f38cbac35ca6f1dfb4914df98f1614aea88) |
+
+USDT de Tether: Avalanche [0x9702230a8ea53601f5cd2dc00fdbc13d4df4a8c7](https://snowtrace.io/token/0x9702230a8ea53601f5cd2dc00fdbc13d4df4a8c7) y Celo [0x48065fbbe25f71c9282ddf5e1cd6d6a887483d5e](https://celoscan.io/token/0x48065fbbe25f71c9282ddf5e1cd6d6a887483d5e).
+
+**Pendientes, no registrados:** USDT en OP, Polygon y Linea, y USDT en las testnets solicitadas. No se verificó su contrato en una fuente admitida; no se sustituyen por tokens puenteados ni USDT0 de forma implícita. Polygon usa exclusivamente USDC nativo, nunca USDC.e.
+
+Configuración:
+- `ENVIRONMENT=production` solo acepta redes main; `sandbox`, solo test. `ALCHEMY_NETWORK` sigue siendo la principal y `NETWORKS` agrega redes. Se conservan los valores por defecto anteriores de `DEFAULT_CLIENT_NETWORKS`; agregar expresamente las nuevas redes si deben habilitarse a clientes nuevos. Para clientes existentes, usar el flujo de habilitación de activos.
+- Por red: `ALCHEMY_WEBHOOK_ID_<RED>` y `ALCHEMY_WEBHOOK_SIGNING_KEY_<RED>`, con slug en mayúsculas y guiones convertidos a `_`. `.env.example` enumera los nombres sin valores. Configurar los secretos solo en el gestor de secretos.
+- Por activo: `SWEEP_MIN_<ID_ACTIVO>`, misma conversión a `_`, unidades base enteras. Los IDs y contratos están en `src/chain/catalog.ts`. Sin valor se conserva el mínimo nativo general o el mínimo ERC-20 existente.
+- Confirmaciones: se hereda `CONFIRMATIONS` (3 por defecto), ajustable con `CONFIRMATIONS_<RED>` entero positivo. Este umbral cuenta bloques L2, **no garantiza finalidad L1**.
+- El arranque falla antes de escuchar si alguna red no responde, el chainId difiere o `decimals()` de un ERC-20 activo en una red encendida falla/difiere. También valida el catálogo persistido. Los RPC locales deben usar el chainId público de la testnet; ya no se admite apuntar una red conocida a 31337/31338.
+- El fondeo y gasto de gas usa el activo nativo de cada red; en Celo es **CELO**, sin `feeCurrency` ni pago en stablecoins. No se agregan adaptadores de cadena.
+
+Riesgos operativos: configurar webhooks, mínimos y fondeo nativo por separado; una red/RPC caída bloquea ahora el arranque para evitar operar sin verificar. Las pruebas locales no reproducen tarifas L1, secuenciadores, reorganizaciones ni finalización de cada L2.
+
+Pruebas reproducibles: `npm ci && npm test` ejecuta la regresión unitaria y los rechazos de configuración, chainId y decimales. Con `DATABASE_URL` apuntando a PostgreSQL **de pruebas**, `npm run test:wave-1b` inicia Hardhat y la API por cada testnet con su chainId real, inyecta un ERC-20 local en la dirección de USDC (sin consultar RPC públicos), deposita, barre, retira a lista blanca y exige diferencia de conciliación exactamente `"0"`. Crea y elimina únicamente esquemas aleatorios propios; el usuario de prueba necesita permiso para crearlos y para instalar `pgcrypto`. Las llaves de prueba se generan en memoria. Para navegador: `npm run build:web`, `npm --prefix test/playwright ci`, `npm --prefix test/playwright exec playwright install chromium` y `npm --prefix test/playwright test -- --config wave-1b.config.mjs`. Estas pruebas Playwright usan el frontend compilado y respuestas API simuladas para verificar etiquetas, exploradores y moneda de gas en las 14 redes; no sustituyen las suites históricas que requieren sus propios datos y servicios. CI ejecuta estas comprobaciones con Node 22 y PostgreSQL 17.
+
 ## Endpoints
 | Método | Ruta | Auth |
 |---|---|---|
