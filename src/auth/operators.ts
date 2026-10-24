@@ -203,6 +203,8 @@ const TESORERO = new Set([
   'POST /v1/console/fiat/rails/:rail_id/clients', 'POST /v1/console/fiat/rails/:rail_id/clients/:client_id/unassign',
   // Configuración de cliente preparada por el ejecutivo: solo tesorería la libera o rechaza
   'POST /v1/config-drafts/:id/release', 'POST /v1/config-drafts/:id/reject',
+  // Terminal de Caja / Branch Case: solo tesorería aprueba (aplica al libro) o rechaza
+  'POST /v1/console/branch-cases/:id/approve', 'POST /v1/console/branch-cases/:id/reject',
   // Topes de consumo por proveedor
   'PUT /v1/usage/:provider',
   // Registro de gas en el libro

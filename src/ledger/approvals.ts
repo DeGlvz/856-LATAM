@@ -28,11 +28,11 @@ export function decider(req: FastifyRequest): Operator {
  * Valida al aprobador: distinto del solicitante y, si APPROVAL_REQUIRE_2FA, con 2FA activo y un código TOTP vigente
  * (el código se consume: no sirve para una segunda aprobación).
  */
-export async function assertApprover(op: Operator, requestedByOperator: string | null, code: string | undefined) {
+export async function assertApprover(op: Operator, requestedByOperator: string | null, code: string | undefined, require2fa: boolean = config.APPROVAL_REQUIRE_2FA) {
   if (requestedByOperator && requestedByOperator === op.id) {
     throw new HttpError(403, 'Doble aprobación: quien solicitó no puede aprobar', 'same_operator');
   }
-  if (!config.APPROVAL_REQUIRE_2FA) return;
+  if (!require2fa) return;
   if (!op.totp_enabled) throw new HttpError(403, 'Para aprobar necesita el 2FA activo (Seguridad → Activar 2FA)', 'totp_required');
   if (!code || !/^\d{6}$/.test(code)) throw new HttpError(400, 'Código 2FA de 6 dígitos requerido para aprobar', 'totp_code_required');
   if ((await consumeTotp(op.id, code)) == null) throw new HttpError(422, 'Código 2FA incorrecto o ya usado', 'bad_code');
