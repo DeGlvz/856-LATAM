@@ -3,9 +3,10 @@
 import fs from 'node:fs';
 import { createPublicClient, createWalletClient, http, erc20Abi, parseEther, keccak256, concat, toHex, hexToBytes } from 'viem';
 import { privateKeyToAccount, generatePrivateKey, HDKey, hdKeyToAccount } from 'viem/accounts';
-import { hardhat } from 'viem/chains';
+import { localChain, workerDriver } from './lib/worker.mjs';
 
 const { BASE, KEY, RPC_URL, TOKEN, FUNDER_PK, SIGNER_PK, NOTIFY_LOG } = process.env;
+const hardhat = await localChain(RPC_URL);
 const pub = createPublicClient({ chain: hardhat, transport: http(RPC_URL) });
 const funder = createWalletClient({ account: privateKeyToAccount(FUNDER_PK), chain: hardhat, transport: http(RPC_URL) });
 const R = Math.random().toString(36).slice(2, 10);
@@ -16,7 +17,8 @@ const api = async (method, path, body, idem) => {
   return { status: r.status, body: await r.json() };
 };
 const mine = async (n) => { for (let i = 0; i < n; i++) await pub.request({ method: 'evm_mine', params: [] }); };
-const tick = () => api('POST', '/v1/worker/tick');
+const worker = workerDriver({ BASE, KEY });
+const tick = () => worker.run(cl.id);
 const bal = async (ref) => (await api('GET', `/v1/accounts/${ref}`)).body.balance;
 const tbal = (a) => pub.readContract({ address: TOKEN, abi: erc20Abi, functionName: 'balanceOf', args: [a] });
 const U = (n) => (BigInt(n) * 10n ** 6n).toString();

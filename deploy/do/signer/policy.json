@@ -1,0 +1,80 @@
+{
+  "_comentario": "Generado del catalogo verificado (src/chain/catalog.ts). Topes INICIALES a ajustar por el tesorero: nativo 0.25/tx y 1/dia (ETH o BNB); estables (USDT, USDC, EURe) 10,000/tx y 50,000/dia. Unidades base.",
+  "chains": {
+    "1": {
+      "native": {
+        "perTx": "250000000000000000",
+        "perDay": "1000000000000000000"
+      },
+      "tokens": {
+        "0xdac17f958d2ee523a2206206994597c13d831ec7": {
+          "perTx": "10000000000",
+          "perDay": "50000000000"
+        },
+        "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": {
+          "perTx": "10000000000",
+          "perDay": "50000000000"
+        },
+        "0x39b8b6385416f4ca36a20319f70d28621895279d": {
+          "perTx": "10000000000000000000000",
+          "perDay": "50000000000000000000000"
+        }
+      }
+    },
+    "56": {
+      "native": {
+        "perTx": "250000000000000000",
+        "perDay": "1000000000000000000"
+      },
+      "tokens": {
+        "0x55d398326f99059ff775485246999027b3197955": {
+          "perTx": "10000000000000000000000",
+          "perDay": "50000000000000000000000"
+        },
+        "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d": {
+          "perTx": "10000000000000000000000",
+          "perDay": "50000000000000000000000"
+        }
+      }
+    },
+    "8453": {
+      "native": {
+        "perTx": "250000000000000000",
+        "perDay": "1000000000000000000"
+      },
+      "tokens": {
+        "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": {
+          "perTx": "10000000000",
+          "perDay": "50000000000"
+        },
+        "0xbf6e2966a9c3d99c9e4d069e04f7bdb9c8aa762c": {
+          "perTx": "10000000000000000000000",
+          "perDay": "50000000000000000000000"
+        }
+      }
+    },
+    "42161": {
+      "native": {
+        "perTx": "250000000000000000",
+        "perDay": "1000000000000000000"
+      },
+      "tokens": {
+        "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9": {
+          "perTx": "10000000000",
+          "perDay": "50000000000"
+        },
+        "0xaf88d065e77c8cc2239327c5edb3a432268e5831": {
+          "perTx": "10000000000",
+          "perDay": "50000000000"
+        },
+        "0x0c06ccf38114ddfc35e07427b9424adcca9f44f8": {
+          "perTx": "10000000000000000000000",
+          "perDay": "50000000000000000000000"
+        }
+      }
+    }
+  },
+  "messages": [
+    "I hereby declare that I am the address owner."
+  ]
+}

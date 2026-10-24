@@ -6,11 +6,12 @@ import { execFileSync } from 'node:child_process';
 import pg from 'pg';
 import { createPublicClient, http } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
-import { hardhat } from 'viem/chains';
+import { localChain, workerDriver } from './lib/worker.mjs';
 import { totp } from './lib/totp.mjs';
 import { makeApprover } from './lib/approver.mjs';
 
 const { BASE, KEY, DATABASE_URL, RPC_URL } = process.env;
+const hardhat = await localChain(RPC_URL);
 const R = Math.random().toString(36).slice(2, 8);
 const NET = `10.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
 let ok = 0, fail = 0;
@@ -44,7 +45,8 @@ async function signed(priv, prefix, method, path, body) {
   return { status: r.status, body: await r.json().catch(() => null) };
 }
 const createOperator = (email, role) => execFileSync('node', ['dist/scripts/create-operator.js', email, role], { input: 'clave-ejecutivo-123\n', env: process.env, stdio: ['pipe', 'pipe', 'ignore'] });
-const tick = () => api('POST', '/v1/worker/tick');
+const worker = workerDriver({ BASE, KEY });
+const tick = (options) => worker.run(A.id, options);
 
 // ═════ Preparación
 const A = (await api('POST', '/v1/clients', { name: `Salidas Alfa ${R}`, assets: [ETH] }, 'a')).body;
@@ -87,7 +89,7 @@ await ej.call('POST', '/v1/auth/totp/enable', { code: await ejOtp.next() });
 const DEST = privateKeyToAccount(generatePrivateKey()).address;
 check('API global no crea retiros → 403 origin_not_client', (await api('POST', '/v1/withdrawals', { client_id: A.id, asset_id: ETH, to_address: DEST, amount: E(0.01) }, 'w0')).body.code, 'origin_not_client');
 check('ni el tesorero (superusuario) da de alta lista blanca de un cliente → 403 origin_not_client', (await T1.call('POST', '/v1/wallets', { client_id: A.id, chain: 'ethereum', network: 'eth-sepolia', address: DEST, purpose: 'withdrawal_whitelist' })).body.code, 'origin_not_client');
-check('la instrucción de consola supera la regla de origen y conserva lista blanca', (await T1.call('POST', '/v1/withdrawals', { client_id: A.id, asset_id: ETH, to_address: DEST, amount: E(0.01) })).body.code, 'address_not_whitelisted');
+check('la instrucción de consola supera la regla de origen y conserva lista blanca', (await T1.call('POST', '/v1/withdrawals', { client_id: A.id, asset_id: ETH, to_address: DEST, amount: E(0.01) }, { 'idempotency-key': `console-w-${R}` })).body.code, 'address_not_whitelisted');
 check('API global no hace transferencias internas → 403', (await api('POST', '/v1/internal-transfers', { from: `client:${A.id}:${ETH}:available`, to: `client:${B.id}:${ETH}:available`, amount: '1' }, 'it')).body.code, 'origin_not_client');
 
 // ═════ Lista blanca
@@ -182,7 +184,7 @@ const x6 = await opr.s.call('POST', '/exits', { simulation_id: (await sim(opr.s,
 await T1.approveWithdrawal(x6.body.id);
 const EVIL = privateKeyToAccount(generatePrivateKey()).address.toLowerCase();
 await db.query('UPDATE withdrawals SET to_address = $2 WHERE id = $1', [x6.body.id, EVIL]); // alteración directa en base
-await tick();
+await tick({ expectedStatus: 'error' });
 const x6v = (await vwr.s.call('GET', `/exits/${x6.body.id}`)).body;
 check('fila alterada después de autorizar → no se firma, falla y devuelve saldo', `${x6v.state} ${x6v.tx_hash}`, 'failed null');
 check('  …nada salió hacia la dirección alterada', (await chain.getBalance({ address: EVIL })).toString(), '0');

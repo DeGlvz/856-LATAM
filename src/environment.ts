@@ -40,6 +40,13 @@ export function configErrors(): string[] {
       if (!config.SIGNER_KMS_KEY_ID) errs.push('SIGNER_BACKEND=kms exige SIGNER_KMS_KEY_ID');
       if (config.SIGNER_PRIVATE_KEY) errs.push('SIGNER_BACKEND=kms rechaza SIGNER_PRIVATE_KEY: la llave de firma vive solo en KMS');
     }
+    if (config.SIGNER_BACKEND === 'remote') {
+      if (!config.SIGNER_REMOTE_URL || !config.SIGNER_REMOTE_SECRET) errs.push('SIGNER_BACKEND=remote exige SIGNER_REMOTE_URL y SIGNER_REMOTE_SECRET');
+      if (!config.SIGNER_REMOTE_HOT_ADDRESS || !config.DEPOSIT_HD_XPUB) errs.push('SIGNER_BACKEND=remote en production exige anclar SIGNER_REMOTE_HOT_ADDRESS y DEPOSIT_HD_XPUB');
+      if (config.SIGNER_PRIVATE_KEY || config.DEPOSIT_HD_SEED || config.HD_MNEMONIC) {
+        errs.push('SIGNER_BACKEND=remote rechaza SIGNER_PRIVATE_KEY, DEPOSIT_HD_SEED y HD_MNEMONIC: las llaves viven solo en el firmante');
+      }
+    }
     if ((config.SIGNER_PRIVATE_KEY || config.SIGNER_BACKEND === 'kms') && !config.DEPOSIT_HD_SEED && !config.HD_MNEMONIC) {
       errs.push('En production la semilla de direcciones de depósito es propia: defina HD_MNEMONIC o DEPOSIT_HD_SEED (no se deriva de la llave de la hot wallet)');
     }

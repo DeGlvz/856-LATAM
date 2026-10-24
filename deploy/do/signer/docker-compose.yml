@@ -1,0 +1,32 @@
+# Droplet prod856-signer. Se ejecuta en /opt/856-signer:  IMAGE_TAG=<tag> docker compose --env-file stack.env up -d
+# stack.env (no secreto): IMAGE_REPO, PRIVATE_IP (IP privada de la VPC de este droplet).
+# signer.env (SECRETO, 600): SIGNER_SECRET (el mismo que SIGNER_REMOTE_SECRET de la app).
+# Llaves: /var/lib/856-signer/keystore.json (cifrado). Política: /etc/856-signer/policy.json. Pausa: /etc/856-signer/PAUSE.
+# El servicio arranca BLOQUEADO; desbloqueo manual:  docker compose exec signer node dist/signer-service/main.js unlock
+services:
+  signer:
+    image: ${IMAGE_REPO}:${IMAGE_TAG}
+    restart: unless-stopped
+    command: ["node", "dist/signer-service/main.js", "serve"]
+    env_file: signer.env
+    environment:
+      SIGNER_BIND: 0.0.0.0:8443
+      SIGNER_ADMIN_PORT: "8444"
+    # Solo en la IP privada (VPC): nunca en la IP publica. El firewall de DigitalOcean ademas limita el origen a prod856-app.
+    ports:
+      - "${PRIVATE_IP}:8443:8443"
+    volumes:
+      - /var/lib/856-signer:/var/lib/856-signer
+      - /etc/856-signer:/etc/856-signer:ro
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "node", "dist/signer-service/main.js", "status"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "10" }

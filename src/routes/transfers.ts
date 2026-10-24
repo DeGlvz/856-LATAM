@@ -126,5 +126,7 @@ export async function transferRoutes(app: FastifyInstance) {
     if (p?.kind === 'operator') await stepUp(p.operator, parse(z.object({ code: z.string().regex(/^\d{6}$/) }), req.body ?? {}).code);
     return T.releaseHeldDeposit(parse(uuid, req.params.id), p?.kind === 'operator' ? p.operator.email : 'api');
   });
-  app.post('/worker/tick', async (req) => T.workerTick(req.log));
+  app.post('/worker/tick', async () => {
+    throw new LedgerError(410, 'Disparo global retirado; use el panel interno por cliente', 'worker_global_removed');
+  });
 }

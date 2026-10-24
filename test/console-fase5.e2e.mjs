@@ -1,14 +1,16 @@
 // E2E fase 5: 2FA (TOTP), autorización individual de retiros, doble aprobación de corridas, bitácora y restablecimiento de 2FA.
 // Uso: BASE KEY RPC_URL FUNDER_PK BOOT_EMAIL BOOT_PASS node test/console-fase5.e2e.mjs
-// API con COOKIE_SECURE=false, WORKER_ENABLED=false, CONFIRMATIONS=1, DUAL_APPROVAL=console, APPROVAL_REQUIRE_2FA=true,
+// API local con COOKIE_SECURE=false, WORKER_ENABLED=true, intervalo 1000 ms, CONFIRMATIONS=1, DUAL_APPROVAL=console, APPROVAL_REQUIRE_2FA=true,
 // TOTP_ENCRYPTION_KEY definida y firmante de prueba contra una cadena LOCAL (Hardhat/Anvil).
 import { execFileSync } from 'node:child_process';
 import { createPublicClient, createWalletClient, http, parseEther } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
-import { hardhat } from 'viem/chains';
+import { localChain, workerDriver } from './lib/worker.mjs';
 import { totp } from './lib/totp.mjs';
 
 const { BASE, KEY, RPC_URL, FUNDER_PK, BOOT_EMAIL, BOOT_PASS } = process.env;
+const hardhat = await localChain(RPC_URL);
+const worker = workerDriver({ BASE, KEY });
 const pub = createPublicClient({ chain: hardhat, transport: http(RPC_URL) });
 const funder = createWalletClient({ account: privateKeyToAccount(FUNDER_PK), chain: hardhat, transport: http(RPC_URL) });
 const AS = 'USDC-ETH-SEPOLIA', ETH = 'ETH-SEPOLIA';
@@ -83,7 +85,7 @@ const bal = async () => (await tes.call('GET', `/v1/accounts/${accEth}`)).body.b
 const w1 = (await tes.call('POST', '/v1/withdrawals', { client_id: cl.id, asset_id: ETH, to_address: DEST, amount: '10000000000000000' }, idem('w1'))).body;
 check('instrucción de consola queda lista para ejecución directa', `${w1.status} ${w1.approval_status} ${w1.requested_by}`, `reserved not_required ${BOOT_EMAIL.toLowerCase()}`);
 check('  …saldo reservado al pedirlo', await bal(), '40000000000000000');
-await tes.call('POST', '/v1/worker/tick', {});
+await worker.run(cl.id);
 check('worker ejecuta instrucción de consola sin aprobación adicional', ['signed', 'broadcast', 'confirmed'].includes((await lec.call('GET', `/v1/withdrawals/${w1.id}`)).body.status), true);
 
 const wk = (await key('POST', '/v1/withdrawals', { client_id: cl.id, asset_id: ETH, to_address: DEST, amount: '1000' }, 'wk')).body;
@@ -96,7 +98,7 @@ check('aprobar con código incorrecto → 422', (await t2.call('POST', `/v1/with
 const apw = (await t2.call('POST', `/v1/withdrawals/${wk.id}/approve`, { code: await otp.next() })).body;
 check('tesorero autoriza con una sola aprobación', `${apw.approval_status} ${apw.approved_by}`, `approved ${T2}`);
 check('aprobar dos veces → 409', (await t2.call('POST', `/v1/withdrawals/${wk.id}/approve`, { code: await otp.next() })).status, 409);
-await tes.call('POST', '/v1/worker/tick', {});
+await worker.run(cl.id);
 check('el worker ejecuta la solicitud API autorizada', ['signed', 'broadcast', 'confirmed'].includes((await lec.call('GET', `/v1/withdrawals/${wk.id}`)).body.status), true);
 
 const balanceBeforeReject = await bal();

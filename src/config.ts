@@ -18,8 +18,14 @@ const Env = z.object({
   // Llave de PRUEBA (Sepolia) de la hot wallet. En producción se reemplaza por MPC (ver src/chain/signer.ts)
   SIGNER_PRIVATE_KEY: z.string().regex(/^0x[0-9a-fA-F]{64}$/, 'llave hex de 32 bytes con 0x').optional(),
   // Backend de la hot wallet: local (SIGNER_PRIVATE_KEY, sandbox y pruebas) o kms (AWS KMS, ECC_SECG_P256K1)
-  SIGNER_BACKEND: z.preprocess(blank, z.enum(['local', 'kms']).default('local')),
+  SIGNER_BACKEND: z.preprocess(blank, z.enum(['local', 'kms', 'remote']).default('local')),
   SIGNER_KMS_KEY_ID: z.preprocess(blank, z.string().optional()),
+  // remote: servicio firmante separado (src/signer-service) en la red privada; la app no guarda llaves
+  SIGNER_REMOTE_URL: z.preprocess(blank, z.string().url().optional()),
+  SIGNER_REMOTE_SECRET: z.preprocess(blank, z.string().min(32, 'mínimo 32 caracteres aleatorios').optional()),
+  // Anclajes públicos (no secretos): dirección de la hot wallet y xpub del nodo m/44'/60'/0'/0 que reporta el firmante
+  SIGNER_REMOTE_HOT_ADDRESS: z.preprocess(blank, z.string().regex(/^0x[0-9a-fA-F]{40}$/).optional()),
+  DEPOSIT_HD_XPUB: z.preprocess(blank, z.string().startsWith('xpub').optional()),
   // Generacion de la semilla HD vigente: solo se derivan, barren y ligan direcciones de esta generacion
   HD_GENERATION: z.preprocess(blank, z.coerce.number().int().min(1).default(1)),
   // Semilla HD (hex 32-64 bytes) para direcciones de depósito. Si falta, se deriva de SIGNER_PRIVATE_KEY (solo testnet)
@@ -33,10 +39,9 @@ const Env = z.object({
   // Barrido: ETH mínimo (wei) para barrer saldo nativo de una dirección de depósito
   SWEEP_MIN_NATIVE_WEI: z.coerce.bigint().default(1_000_000_000_000_000n), // 0.001 ETH
   SWEEP_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
-  // Ahorro de RPC: clientes con sesión del portal, API key en uso, retiros/depósitos abiertos o recientes dentro de la ventana se barren
-  // en cada ciclo; los demás solo cada SWEEP_IDLE_INTERVAL_MS (igualarlo a WORKER_INTERVAL_MS desactiva el ahorro)
   // Orígenes de la página pública (alojada aparte, p. ej. Vercel) autorizados a enviar «Solicitar acceso»; vacío = mismo origen
   LANDING_ORIGINS: z.string().default('').transform((v) => new Set(v.split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean))),
+  // Compatibilidad de entorno: reemplazadas por worker_policies; ya no gobiernan escaneos de clientes.
   SWEEP_ACTIVE_WINDOW_MIN: z.coerce.number().int().min(1).default(30),
   SWEEP_IDLE_INTERVAL_MS: z.coerce.number().int().min(1000).default(900_000),
   CONFIRMATIONS: z.coerce.number().int().min(1).default(3),

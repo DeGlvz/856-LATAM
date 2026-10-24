@@ -3,18 +3,27 @@
 //  2. production: modo de alta sin tesorero con 2FA, catálogo de activos main (decimales 6 vs 18, conversión exacta).
 //  3. sandbox (servidor en BASE): transferencia interna valida activos (422), modo de un solo tesorero, mínimo de barrido.
 // Uso: BASE KEY DATABASE_URL RPC_URL TOKEN FUNDER_PK PROD_DB TOTP_ENCRYPTION_KEY node test/m1.e2e.mjs
-//   El servidor en BASE: ENVIRONMENT=sandbox, ORIGIN_RULE=off, SWEEP_ENABLED=true, WORKER_ENABLED=false, CONFIRMATIONS=1,
+//   El servidor en BASE: ENVIRONMENT=sandbox, ORIGIN_RULE=off, SWEEP_ENABLED=true, WORKER_ENABLED=true, intervalo 1000 ms, CONFIRMATIONS=1,
 //   SWEEP_MIN_TUSD_M1=500000000 y base de datos NUEVA (cuenta tesoreros con 2FA desde cero).
 //   PROD_DB: otra base vacía (se usa para el servidor de production que lanza esta prueba en el puerto 8087).
 import { spawn } from 'node:child_process';
 import pg from 'pg';
 import { createPublicClient, createWalletClient, erc20Abi, http } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
-import { hardhat } from 'viem/chains';
+import { localChain, workerDriver, assertLocalUrl } from './lib/worker.mjs';
+import assert from 'node:assert/strict';
 import { totp } from './lib/totp.mjs';
 import { makeApprover } from './lib/approver.mjs';
 
 const { BASE, KEY, DATABASE_URL, RPC_URL, TOKEN, FUNDER_PK, PROD_DB, TOTP_ENCRYPTION_KEY } = process.env;
+const hardhat = await localChain(RPC_URL);
+const worker = workerDriver({ BASE, KEY });
+assertLocalUrl(PROD_DB);
+const prodRpcs = JSON.parse(process.env.PROD_LOCAL_RPC_URLS ?? '{}');
+for (const network of ['eth-mainnet', 'base-mainnet', 'arb-mainnet', 'bnb-mainnet']) {
+  assert.ok(prodRpcs[network], `Defina PROD_LOCAL_RPC_URLS con RPC local para ${network}; nunca se consulta una red real`);
+  assertLocalUrl(prodRpcs[network]);
+}
 const R = Math.random().toString(36).slice(2, 8);
 const NET = `10.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
 let ok = 0, fail = 0;
@@ -31,6 +40,8 @@ const prodEnv = (extra = {}) => ({
   ENVIRONMENT: 'production', ALCHEMY_NETWORK: 'eth-mainnet', NETWORKS: 'base-mainnet,arb-mainnet,bnb-mainnet',
   ORIGIN_RULE: 'enforce', TOTP_ENCRYPTION_KEY, COOKIE_SECURE: 'false', WORKER_ENABLED: 'false', RATE_LIMIT_PER_MIN: '100000',
   SIGNER_PRIVATE_KEY: generatePrivateKey(), HD_MNEMONIC: TEST_MNEMONIC, ...extra,
+  RPC_URL: prodRpcs['eth-mainnet'],
+  ...Object.fromEntries(Object.entries(prodRpcs).map(([network, url]) => [`RPC_URL_${network.toUpperCase().replaceAll('-', '_')}`, url])),
 });
 const clean = (e) => Object.fromEntries(Object.entries(e).filter(([, v]) => v !== undefined));
 /** Lanza el servidor; termina cuando sale (rechazo) o cuando escucha (arranque). */
@@ -210,13 +221,14 @@ const U = (n) => BigInt(n) * 10n ** 6n;
 const ra = await api('POST', '/v1/assets', { id: 'TUSD-M1', symbol: 'TUSD', chain: 'ethereum', network: 'eth-sepolia', kind: 'erc20', contract_address: TOKEN, decimals: 6 });
 check('activo de prueba TUSD-M1', [201, 409].includes(ra.status), true);
 const cS = (await api('POST', '/v1/clients', { name: `M1 Barrido ${R}`, assets: ['TUSD-M1'] }, 'cs')).body;
+await api('PATCH', `/v1/clients/${cS.id}`, { status: 'active' });
 const dep = (await api('POST', `/v1/clients/${cS.id}/deposit-address`, {})).body;
 const send = async (n) => {
   const h = await funder.writeContract({ address: TOKEN, abi: erc20Abi, functionName: 'transfer', args: [dep.address, U(n)] });
   await pub.waitForTransactionReceipt({ hash: h });
   await api('POST', '/v1/deposits/report', { tx_hash: h });
   for (let i = 0; i < 3; i++) await pub.request({ method: 'evm_mine', params: [] });
-  await api('POST', '/v1/worker/tick'); await api('POST', '/v1/worker/tick');
+  await worker.run(cS.id); await worker.run(cS.id);
 };
 const sweeps = async () => (await db.query(`SELECT count(*)::int AS n FROM sweeps s JOIN wallets w ON w.id = s.wallet_id WHERE w.address = $1`, [dep.address.toLowerCase()])).rows[0].n;
 await send(100);
