@@ -45,9 +45,11 @@ test('dirección nueva: solo se busca la generación vigente y se deriva/guarda 
 
 test('barrido: solo direcciones de la generación vigente', async () => {
   queries.length = 0;
-  await sweepStep(primaryNet, { info() {}, warn() {} });
+  await sweepStep(primaryNet, { info() {}, warn() {} }, '00000000-0000-4000-8000-000000000001');
   const q = queries.find((x) => /FROM wallets w/.test(x.sql));
   assert.ok(q, 'se consultó la lista de direcciones a barrer');
   assert.match(q.sql, /w\.hd_generation = \$3/);
   assert.equal(q.params[2], 2);
+  assert.match(q.sql, /w\.client_id IS NOT DISTINCT FROM \$2::uuid/);
+  assert.equal(q.params[1], '00000000-0000-4000-8000-000000000001');
 });

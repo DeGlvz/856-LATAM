@@ -20,7 +20,9 @@ import { usageRoutes } from './routes/usage.js';
 import { startUsageFlush } from './usage.js';
 import { operatorRoutes } from './routes/operators.js';
 import { audit, bootstrapOperator, hasRole, requiredRole, sessionFromRequest } from './auth/operators.js';
-import { ensureHotWalletRegistered, startWorker } from './ledger/transfers.js';
+import { ensureHotWalletRegistered } from './ledger/transfers.js';
+import { startWorker } from './ledger/worker.js';
+import { workerRoutes } from './routes/worker.js';
 import { getSigner, initSigner } from './chain/signer.js';
 import { pool } from './db.js';
 import { migrate } from './migrations/index.js';
@@ -187,6 +189,7 @@ await app.register(async (v1) => {
   await v1.register(ledgerRoutes);
   await v1.register(nettingRoutes);
   await v1.register(transferRoutes);
+  await v1.register(workerRoutes);
   await v1.register(clientAssetRoutes);
   await v1.register(fiatConsoleRoutes);
   await v1.register(fiatRailsConsoleRoutes);

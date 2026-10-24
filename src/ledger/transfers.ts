@@ -7,15 +7,11 @@ import { assertAssetEnabled, assetStatus } from './client-assets.js';
 import { getSigner } from '../chain/signer.js';
 import { nextNonce } from '../chain/nonce.js';
 import { config } from '../config.js';
-import { setupRequired } from '../environment.js';
 import { pool, tx, type Tx } from '../db.js';
 import { LedgerError, openClientAccount, postEntryIn } from './service.js';
-import { registerPendingAddresses } from './deposit-addresses.js';
-import { sweepStep } from './sweeps.js';
-import { bumpNow, bumpStuck, findReceipt, listAttempts, recordOriginal } from '../chain/replace.js';
+import { bumpNow, findReceipt, listAttempts, recordOriginal } from '../chain/replace.js';
 import { decodeCursor, page } from '../pagination.js';
-import { expirePending } from '../portal/obligations.js';
-import { fiatTick, kickPoll } from '../fiat/service.js';
+import { kickPoll } from '../fiat/service.js';
 
 const MAX_ATTEMPTS = 5;
 const lower = (a: string) => a.toLowerCase();
@@ -240,9 +236,10 @@ export async function rejectWithdrawal(id: string, by: string, reason: string) {
 }
 
 // ── Worker: firmar ──
-async function signReserved(n: Net, log: Logger) {
+export async function signReserved(n: Net, log: Logger, clientId: string) {
   const signer = getSigner();
-  if (!signer) return;
+  if (!signer) throw new LedgerError(503, 'Firmante no configurado', 'signer_missing');
+  const errors: string[] = [];
   const from = lower(signer.address());
   const chainId = await chainIdOf(n);
   const client = n.client;
@@ -253,7 +250,11 @@ async function signReserved(n: Net, log: Logger) {
         // Solo instrucciones internas directas o solicitudes ya autorizadas pueden llegar al worker.
         `SELECT * FROM withdrawals WHERE status = 'reserved'
           AND (approval_status = 'approved' OR (approval_status = 'not_required' AND origin_kind = 'console')) AND network = $1
-          ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1`, [n.id],
+          AND client_id = $2
+          AND EXISTS (SELECT 1 FROM clients c WHERE c.id = withdrawals.client_id AND c.status = 'active')
+          AND EXISTS (SELECT 1 FROM client_assets ca JOIN assets a ON a.id = ca.asset_id
+                       WHERE ca.client_id = withdrawals.client_id AND ca.asset_id = withdrawals.asset_id AND a.active)
+          ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1`, [n.id, clientId],
       );
       if (!w) return true;
       const asset = await getAsset(c, w.asset_id);
@@ -263,6 +264,7 @@ async function signReserved(n: Net, log: Logger) {
         await c.query(`UPDATE withdrawals SET status = 'failed', last_error = $2, reversal_entry_id = $3, updated_at = now() WHERE id = $1`,
           [w.id, 'autorización no coincide con el hash del alcance', rev]);
         log.error({ withdrawal: w.id }, 'retiro bloqueado: la autorización no coincide con el hash');
+        errors.push(`${w.id}: autorización no coincide con el hash`);
         return false;
       }
       try {
@@ -286,6 +288,7 @@ async function signReserved(n: Net, log: Logger) {
         log.info({ withdrawal: w.id, network: n.id, nonce }, 'retiro firmado');
       } catch (e) {
         const msg = (e as Error).message.split('\n')[0].slice(0, 500);
+        errors.push(`${w.id}: ${msg}`);
         const attempts = w.attempts + 1;
         if (attempts >= MAX_ATTEMPTS) {
           const rev = await reverseReservation(c, w, `no se pudo firmar: ${msg}`);
@@ -300,12 +303,15 @@ async function signReserved(n: Net, log: Logger) {
       }
       return false;
     });
-    if (done) return;
+    if (done) {
+      if (errors.length) throw new Error(errors.join('; ').slice(0, 1000));
+      return;
+    }
   }
 }
 
 // ── Worker: enviar (y reenviar lo firmado que no salió) ──
-async function broadcastSigned(n: Net, log: Logger) {
+export async function broadcastSigned(n: Net, log: Logger) {
   const { rows } = await pool.query(`SELECT id, raw_tx, tx_hash, attempts FROM withdrawals WHERE status = 'signed' AND network = $1 ORDER BY nonce`, [n.id]);
   for (const w of rows) {
     try {
@@ -327,7 +333,7 @@ async function broadcastSigned(n: Net, log: Logger) {
 }
 
 // ── Worker: confirmaciones y liquidación contable ──
-async function confirmBroadcast(n: Net, log: Logger) {
+export async function confirmBroadcast(n: Net, log: Logger) {
   const { rows } = await pool.query(`SELECT id, tx_hash FROM withdrawals WHERE status = 'broadcast' AND network = $1 ORDER BY nonce`, [n.id]);
   if (!rows.length) return;
   const head = await n.client.getBlockNumber({ cacheTime: 0 });
@@ -479,7 +485,7 @@ export async function listDeposits(f: { client_id?: string; status?: string; ass
   return page(rows, limit);
 }
 
-async function creditConfirmedDeposits(n: Net, log: Logger) {
+export async function creditConfirmedDeposits(n: Net, log: Logger) {
   const { rows } = await pool.query(`SELECT id, tx_hash FROM deposits WHERE status = 'pending' AND network = $1 ORDER BY created_at`, [n.id]);
   if (!rows.length) return;
   const head = await n.client.getBlockNumber({ cacheTime: 0 });
@@ -592,56 +598,4 @@ export async function ensureHotWalletRegistered() {
 
 // ═════════════ WORKER ═════════════
 
-type Logger = { info: (o: object, m: string) => void; warn: (o: object, m: string) => void; error: (o: object, m: string) => void };
-let running = false;
-
-/** Un ciclo: firmar → enviar → confirmar retiros, y acreditar depósitos. Solo una réplica a la vez. */
-export async function workerTick(log: Logger) {
-  if (running) return { skipped: 'en curso' };
-  running = true;
-  const c = await pool.connect();
-  try {
-    const { rows: [l] } = await c.query('SELECT pg_try_advisory_lock(856003) AS ok');
-    if (!l.ok) return { skipped: 'otra réplica tiene el candado' };
-    try {
-      // Una red a la vez; una red caída o con error no detiene a las demás
-      const out: Record<string, string> = {};
-      for (const n of activeNetworks()) {
-        try {
-          await signReserved(n, log);
-          await broadcastSigned(n, log);
-          await confirmBroadcast(n, log);
-          await bumpStuck(n, log);
-          await creditConfirmedDeposits(n, log);
-          await registerPendingAddresses(n, log);
-          await sweepStep(n, log);
-          n.error = null;
-          out[n.id] = 'ok';
-        } catch (e) {
-          n.error = (e as Error).message.split('\n')[0].slice(0, 200);
-          out[n.id] = `error: ${n.error}`;
-          log.error({ network: n.id, err: n.error }, 'ciclo del worker con error en esta red');
-        }
-      }
-      await expirePending(); // fase 4: aceptaciones de obligaciones fuera de plazo
-      // Fase F1: sondeo y conciliación del proveedor de fiat (respeta FIAT_POLL_INTERVAL_MS; un error no detiene lo demás)
-      const fiat = await fiatTick(log).catch((e) => ({ error: (e as Error).message }));
-      return { ok: true, networks: out, fiat };
-    } finally {
-      await c.query('SELECT pg_advisory_unlock(856003)');
-    }
-  } finally {
-    c.release();
-    running = false;
-  }
-}
-
-export function startWorker(log: Logger) {
-  const t = setInterval(() => {
-    // Modo de alta (production sin tesorero con 2FA): no se firma ni se barre nada
-    setupRequired().then((on) => on ? undefined : workerTick(log)).catch((e) => log.error({ err: (e as Error).message }, 'error en worker'));
-  },
-    config.WORKER_INTERVAL_MS);
-  t.unref();
-  return () => clearInterval(t);
-}
+export type Logger = { info: (o: object, m: string) => void; warn: (o: object, m: string) => void; error: (o: object, m: string) => void };
