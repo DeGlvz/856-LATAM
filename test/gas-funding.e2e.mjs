@@ -1,13 +1,14 @@
 // E2E registro de gas en el libro: fondeo de la hot wallet verificado en cadena, idempotente, solo tesorero con 2FA,
 // y un barrido detenido por falta de custodia nativa que se liquida al registrar el fondeo.
-// Uso: BASE KEY RPC_URL TOKEN FUNDER_PK SIGNER_PK node test/gas-funding.e2e.mjs   (API con WORKER_ENABLED=false)
+// Uso: BASE KEY RPC_URL TOKEN FUNDER_PK SIGNER_PK node test/gas-funding.e2e.mjs (API local con WORKER_ENABLED=true, intervalo 1000 ms)
 import { execFileSync } from 'node:child_process';
 import { createPublicClient, createWalletClient, http, erc20Abi, parseEther } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { hardhat } from 'viem/chains';
+import { localChain, workerDriver } from './lib/worker.mjs';
 import { makeApprover } from './lib/approver.mjs';
 
 const { BASE, KEY, RPC_URL, TOKEN, FUNDER_PK, SIGNER_PK } = process.env;
+const hardhat = await localChain(RPC_URL);
 const pub = createPublicClient({ chain: hardhat, transport: http(RPC_URL) });
 const funder = createWalletClient({ account: privateKeyToAccount(FUNDER_PK), chain: hardhat, transport: http(RPC_URL) });
 const hotW = createWalletClient({ account: privateKeyToAccount(SIGNER_PK), chain: hardhat, transport: http(RPC_URL) });
@@ -21,7 +22,8 @@ const api = async (method, path, body, idem) => {
 };
 const wait = (h) => pub.waitForTransactionReceipt({ hash: h });
 const mine = async (n) => { for (let i = 0; i < n; i++) await pub.request({ method: 'evm_mine', params: [] }); };
-const tick = () => api('POST', '/v1/worker/tick');
+const worker = workerDriver({ BASE, KEY, allowSettlementError: true });
+const tick = () => worker.run(cl.id);
 const custody = async () => (await api('GET', '/v1/accounts/system:ETH-SEPOLIA:custody')).body.balance;
 const netRow = async () => (await api('GET', '/v1/summary')).body.networks.find((n) => n.id === 'eth-sepolia');
 const NETWORK = 'eth-sepolia';

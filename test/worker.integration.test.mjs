@@ -26,7 +26,7 @@ Object.assign(process.env, {
 });
 const { pool, tx } = await import('../dist/db.js');
 const { migrate } = await import('../dist/migrations/index.js');
-const { networks } = await import('../dist/chain/networks.js');
+const { networks, verifyNetworks } = await import('../dist/chain/networks.js');
 const { config } = await import('../dist/config.js');
 const { getDepositKeyring } = await import('../dist/chain/signer.js');
 const { postEntryIn, openClientAccount, ensureAllSystemAccounts } = await import('../dist/ledger/service.js');
@@ -46,7 +46,7 @@ globalThis.fetch = async (url, init) => {
   return new Response(failNotify ? 'test failure' : '{}', { status: failNotify ? 503 : 200 });
 };
 for (const n of networks) {
-  n.chainId = n.expectedChainId ?? (n.id === 'eth-sepolia' ? 11155111 : 84532);
+  n.client.getChainId = async () => n.id === 'eth-sepolia' ? 11155111 : 84532;
   n.webhookId = `test-${n.id}`;
   n.client.getTransactionCount = async () => 0;
   n.client.estimateGas = async () => 21000n;
@@ -56,6 +56,8 @@ for (const n of networks) {
   n.client.sendRawTransaction = async () => `0x${'a'.repeat(64)}`;
   n.client.getTransactionReceipt = async () => { throw new Error('not mined'); };
 }
+await verifyNetworks(log);
+assert.ok(networks.every((n) => n.healthy), 'RPC simulados verificados antes de ejecutar');
 const policy = (mode, extra = {}) => WorkerPolicyInput.parse({ mode, ...extra });
 let op, c1, c2;
 const walletRows = [];

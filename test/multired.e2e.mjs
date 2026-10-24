@@ -1,7 +1,7 @@
 // E2E multi-red EVM (ola 1) y activos habilitados por cliente, contra DOS cadenas locales simultáneas.
 // Uso: BASE KEY DATABASE_URL RPC_URL RPC_B FUNDER_PK SIGNER_PK TOKEN node test/multired.e2e.mjs
-//   API con NETWORKS=eth-sepolia,base-sepolia, RPC_URL (red A, chainId 31337) y RPC_URL_BASE_SEPOLIA (red B, chainId 31338),
-//   ALCHEMY_WEBHOOK_SIGNING_KEY (A) y ALCHEMY_WEBHOOK_SIGNING_KEY_BASE_SEPOLIA (B), ORIGIN_RULE=off, WORKER_ENABLED=false.
+//   API local con NETWORKS=eth-sepolia,base-sepolia, chainIds 11155111/84532 (también con RPC local),
+//   ALCHEMY_WEBHOOK_SIGNING_KEY (A/B), ORIGIN_RULE=off, WORKER_ENABLED=true e intervalo 1000 ms.
 //   El token de prueba (TOKEN) está desplegado en la MISMA dirección en ambas cadenas: sirve para probar el aislamiento.
 import { createHmac, randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -9,6 +9,7 @@ import pg from 'pg';
 import { createPublicClient, createWalletClient, erc20Abi, http, parseEther } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { makeApprover } from './lib/approver.mjs';
+import { localChain, workerDriver } from './lib/worker.mjs';
 
 const { BASE, KEY, DATABASE_URL, RPC_URL, RPC_B, FUNDER_PK, SIGNER_PK, TOKEN } = process.env;
 const WH_A = process.env.ALCHEMY_WEBHOOK_SIGNING_KEY, WH_B = process.env.ALCHEMY_WEBHOOK_SIGNING_KEY_BASE_SEPOLIA;
@@ -17,8 +18,8 @@ const NET = `10.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 
 let ok = 0, fail = 0;
 const check = (n, got, want) => { if (String(got) === String(want)) { ok++; console.log('✔', n); } else { fail++; console.log(`✘ ${n} — esperado ${want}, obtenido ${got}`); } };
 const db = new pg.Pool({ connectionString: DATABASE_URL });
-const chainA = { id: 31337, name: 'A', nativeCurrency: { name: 'E', symbol: 'E', decimals: 18 }, rpcUrls: { default: { http: [RPC_URL] } } };
-const chainB = { id: 31338, name: 'B', nativeCurrency: { name: 'E', symbol: 'E', decimals: 18 }, rpcUrls: { default: { http: [RPC_B] } } };
+const chainA = await localChain(RPC_URL, 'A');
+const chainB = await localChain(RPC_B, 'B');
 const pubA = createPublicClient({ chain: chainA, transport: http() }), pubB = createPublicClient({ chain: chainB, transport: http() });
 const funder = privateKeyToAccount(FUNDER_PK);
 const walA = createWalletClient({ account: funder, chain: chainA, transport: http() }), walB = createWalletClient({ account: funder, chain: chainB, transport: http() });
@@ -36,7 +37,8 @@ const webhook = async (key, hash) => {
   const r = await fetch(BASE + '/v1/webhooks/alchemy', { method: 'POST', headers: { 'content-type': 'application/json', 'x-alchemy-signature': sig }, body: raw });
   return { status: r.status, body: await r.json().catch(() => null) };
 };
-const tick = () => api('POST', '/v1/worker/tick');
+const worker = workerDriver({ BASE, KEY });
+const tick = () => worker.run(cl.id);
 function session(ip) {
   let cookie = null;
   const call = async (method, path, body) => {
@@ -49,7 +51,7 @@ function session(ip) {
 
 // ═════ Redes encendidas
 const nets = (await api('GET', '/v1/networks')).body.networks;
-check('dos redes encendidas con su chainId', nets.map((n) => `${n.id}:${n.chain_id}:${n.healthy}`).join(','), 'eth-sepolia:31337:true,base-sepolia:31338:true');
+check('dos redes encendidas con su chainId', nets.map((n) => `${n.id}:${n.chain_id}:${n.healthy}`).join(','), 'eth-sepolia:11155111:true,base-sepolia:84532:true');
 check('  …sin URL ni llaves en la vista', JSON.stringify(nets).includes('local-dummy-key') || JSON.stringify(nets).includes('whsec'), false);
 const sum = (await api('GET', '/v1/summary')).body;
 check('tablero: estado por red', sum.networks.map((n) => `${n.id}:${n.status}`).join(','), 'eth-sepolia:ok,base-sepolia:ok');
@@ -82,7 +84,7 @@ check('webhook con la llave de B detecta el depósito en B', `${wb.body?.network
 const rA = await api('POST', '/v1/deposits/report', { tx_hash: hA });
 check('reporte por hash sin red: lo encuentra en A', `${rA.status} ${rA.body.network} ${rA.body.deposits.length}`, '202 eth-sepolia 1');
 const t1 = (await tick()).body;
-check('el worker recorre ambas redes', JSON.stringify(t1.networks), JSON.stringify({ 'eth-sepolia': 'ok', 'base-sepolia': 'ok' }));
+check('el disparo incluye solo las redes habilitadas del cliente', Object.keys(t1.networks).sort().join(','), 'base-sepolia,eth-sepolia');
 const bal = async () => Object.fromEntries((await db.query(`SELECT asset_id, balance::text FROM accounts WHERE client_id = $1`, [cl.id])).rows.map((r) => [r.asset_id, r.balance]));
 let b = await bal();
 check('saldos separados por red', `${b[ETH_A]} ${b[ETH_B]}`, `${parseEther('0.5')} ${parseEther('1')}`);

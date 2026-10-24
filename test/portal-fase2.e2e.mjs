@@ -5,10 +5,11 @@ import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import pg from 'pg';
 import { createPublicClient, createWalletClient, http, erc20Abi } from 'viem';
 import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts';
-import { hardhat } from 'viem/chains';
+import { localChain, workerDriver } from './lib/worker.mjs';
 import { totp } from './lib/totp.mjs';
 
 const { BASE, KEY, DATABASE_URL, RPC_URL, FUNDER_PK } = process.env;
+const hardhat = await localChain(RPC_URL);
 const TOKEN = process.env.TOKEN;
 const R = Math.random().toString(36).slice(2, 8);
 const NET = `10.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
@@ -61,7 +62,8 @@ const bearer = async (t, method, path, who) => {
 const tokenOf = (link) => link.split('#')[1];
 const PW = 'clave-portal-12345';
 const mine = async (n) => { for (let i = 0; i < n; i++) await chain.request({ method: 'evm_mine', params: [] }); };
-const tick = () => api('POST', '/v1/worker/tick');
+const worker = workerDriver({ BASE, KEY });
+const tick = () => worker.run(A.id);
 // Unidades humanas exactas (6 decimales fijos) → base, sin flotantes
 const fromHuman = (s, d) => { const [i, f = ''] = s.split('.'); return BigInt(i + f.padEnd(d, '0')); };
 const human = (v, d) => { const s = BigInt(v).toString().padStart(d + 1, '0'); return `${s.slice(0, -d)}.${s.slice(-d)}`; };
@@ -136,7 +138,7 @@ check('depósito a la dirección ANTERIOR detectado', rep.body.deposits?.length,
 let deps = (await v.call('GET', '/deposits')).body.deposits;
 check('depósito visible como pending (antes de acreditar)', `${deps.length} ${deps[0]?.status} ${deps[0]?.tx_hash === h} ${deps[0]?.amount}`, `1 pending true ${DEP_AMT}`);
 check('  …filtro status=credited vacío', (await v.call('GET', '/deposits?status=credited')).body.deposits.length, 0);
-await mine(1); await tick();
+await mine(3); await tick();
 deps = (await v.call('GET', '/deposits')).body.deposits;
 check('depósito pending → credited', `${deps[0].status} ${deps[0].confirmations >= 1} ${deps[0].to_address === d1.body.address}`, 'credited true true');
 check('  …sin datos internos (wallet_id, entry_id, client_name)', ['wallet_id', 'entry_id', 'client_name', 'client_id'].some((k) => k in deps[0]), false);

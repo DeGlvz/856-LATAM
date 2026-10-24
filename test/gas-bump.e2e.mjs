@@ -1,14 +1,15 @@
 // E2E gas bump: reemplazo de transacciones atascadas contra una cadena LOCAL (Hardhat/Anvil) con minado manual.
 // Uso: BASE KEY RPC_URL FUNDER_PK DATABASE_URL BOOT_EMAIL BOOT_PASS node test/gas-bump.e2e.mjs
-// API con COOKIE_SECURE=false, WORKER_ENABLED=false, CONFIRMATIONS=1, GAS_BUMP_AFTER_SEC=3 y firmante de prueba.
+// API local con COOKIE_SECURE=false, WORKER_ENABLED=true, intervalo 1000 ms, CONFIRMATIONS=1 y firmante de prueba.
 import { execFileSync } from 'node:child_process';
 import pg from 'pg';
 import { createPublicClient, createWalletClient, http, parseEther } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
-import { hardhat } from 'viem/chains';
+import { localChain, workerDriver, until } from './lib/worker.mjs';
 import { makeApprover } from './lib/approver.mjs';
 
 const { BASE, KEY, RPC_URL, FUNDER_PK, BOOT_EMAIL, BOOT_PASS, DATABASE_URL } = process.env;
+const hardhat = await localChain(RPC_URL);
 const pub = createPublicClient({ chain: hardhat, transport: http(RPC_URL) });
 const funder = createWalletClient({ account: privateKeyToAccount(FUNDER_PK), chain: hardhat, transport: http(RPC_URL) });
 const ETH = 'ETH-SEPOLIA';
@@ -17,7 +18,6 @@ const NET = `10.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 
 let ok = 0, fail = 0;
 const check = (n, got, want) => { if (String(got) === String(want)) { ok++; console.log('✔', n); } else { fail++; console.log(`✘ ${n} — esperado ${want}, obtenido ${got}`); } };
 const rpc = (method, params = []) => pub.request({ method, params });
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function browser(ip) {
   let cookie = null;
@@ -36,7 +36,8 @@ const key = async (method, path, body, idem) => {
 const tes = browser(`${NET}.1`); check('login tesorero', (await tes.login(BOOT_EMAIL, BOOT_PASS)).status, 200);
 execFileSync('node', ['dist/scripts/create-operator.js', `opg-${R}@ejemplo.mx`, 'ejecutivo'], { input: 'clave-operador-123\n', env: process.env, stdio: ['pipe', 'pipe', 'ignore'] });
 const opr = browser(`${NET}.2`); await opr.login(`opg-${R}@ejemplo.mx`, 'clave-operador-123');
-const tick = () => tes.call('POST', '/v1/worker/tick', {});
+const worker = workerDriver({ BASE, KEY });
+const tick = () => worker.run(cl.id);
 const approver = await makeApprover({ BASE, ip: `${NET}.20`, tag: `gb-${R}` });
 const db = new pg.Client({ connectionString: DATABASE_URL }); await db.connect();
 
@@ -74,9 +75,9 @@ try {
   check('  …historial: original + manual con autor', d.attempts_log.map((a) => `${a.reason}:${a.requested_by ?? ''}`).join(','), `original:,manual:${BOOT_EMAIL.toLowerCase()}`);
   check('  …el reemplazo está en el mempool', !!(await rpc('eth_getTransactionByHash', [b1.body.tx_hash])), true);
 
-  await sleep(3500); await tick(); // GAS_BUMP_AFTER_SEC=3
+  await until(async () => (await tes.call('GET', `/v1/withdrawals/${w1.id}`)).body.bumps >= 2, 'gas bump del timer');
   d = (await tes.call('GET', `/v1/withdrawals/${w1.id}`)).body;
-  check('el worker acelera solo tras GAS_BUMP_AFTER_SEC', `${d.bumps} ${d.attempts_log.at(-1).reason}`, '2 bump');
+  check('el worker acelera solo tras GAS_BUMP_AFTER_SEC', `${d.bumps >= 2} ${d.attempts_log.at(-1).reason}`, 'true bump');
   const h2 = d.tx_hash;
 
   await rpc('evm_mine'); await tick();
@@ -92,11 +93,24 @@ try {
   await approver.approveWithdrawal(w2.id);
   await tick();
   const h1 = (await tes.call('GET', `/v1/withdrawals/${w2.id}`)).body.tx_hash;
-  await rpc('evm_mine'); // se mina el original…
   const fake = '0x' + 'ab'.repeat(32);
-  await db.query('UPDATE withdrawals SET tx_hash = $2 WHERE id = $1', [w2.id, fake]); // …pero el registro apunta a otro intento
-  check('acelerar con el nonce ya minado → 409 already_mined', (await tes.call('POST', `/v1/withdrawals/${w2.id}/bump`, {})).body.code, 'already_mined');
-  await tick();
+  // Fixture atómica: el timer no puede confirmar entre minar el original y simular el puntero a otro intento.
+  await db.query('SELECT pg_advisory_lock(856003)');
+  try {
+    await rpc('evm_mine');
+    await db.query('UPDATE withdrawals SET tx_hash = $2 WHERE id = $1', [w2.id, fake]);
+  } finally {
+    await db.query('SELECT pg_advisory_unlock(856003)');
+  }
+  const minedBump = await until(async () => {
+    const response = await tes.call('POST', `/v1/withdrawals/${w2.id}/bump`, {});
+    return response.body.code === 'worker_busy' ? false : response;
+  }, 'rechazo de reemplazo del nonce ya minado');
+  check('nonce ya minado no admite reemplazo (el timer puede haberlo confirmado)', minedBump.status === 409 && ['already_mined', 'not_broadcast'].includes(minedBump.body.code), true);
+  await until(async () => {
+    const row = (await tes.call('GET', `/v1/withdrawals/${w2.id}`)).body;
+    return row.status === 'confirmed' && row.tx_hash === h1;
+  }, 'confirmación del intento anterior por el timer');
   d = (await tes.call('GET', `/v1/withdrawals/${w2.id}`)).body;
   check('confirma con el intento anterior y adopta su hash', `${d.status} ${d.tx_hash === h1}`, 'confirmed true');
   check('  …destino suma 0.15 ETH', await pub.getBalance({ address: DEST }), parseEther('0.15').toString());
