@@ -1,0 +1,43 @@
+{
+	email {$ACME_EMAIL}
+}
+
+(seguridad) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}
+
+# Raiz y www: toda la aplicacion (landing, /console, /portal, /v1).
+{$DOMAIN}, www.{$DOMAIN} {
+	import seguridad
+	encode zstd gzip
+	reverse_proxy app:8080
+}
+
+# hooks: solo los webhooks entrantes (Alchemy, Monerium, Openfort); nada mas se expone en este host.
+hooks.{$DOMAIN} {
+	import seguridad
+	@webhooks path /v1/webhooks/* /v1/fiat/webhooks/*
+	handle @webhooks {
+		reverse_proxy app:8080
+	}
+	handle {
+		respond "not found" 404
+	}
+}
+
+# H2H (futuro): API con certificado de cliente (mTLS). Descomentar al dar de alta el primer cliente:
+# h2h.{$DOMAIN} {
+# 	import seguridad
+# 	tls {
+# 		client_auth {
+# 			mode require_and_verify
+# 			trust_pool file /etc/caddy/h2h-ca.pem
+# 		}
+# 	}
+# 	reverse_proxy app:8080
+# }

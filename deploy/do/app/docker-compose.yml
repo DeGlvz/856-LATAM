@@ -1,12 +1,16 @@
-# Se ejecuta en la instancia: cd /opt/856 && IMAGE_TAG=<sha> docker compose --env-file stack.env up -d
-# stack.env (no secreto): DOMAIN, ACME_EMAIL, IMAGE_REPO. app.env (no secreto): ver deploy/aws/README.md.
-# Los secretos NO viajan por variables de entorno del host: la app los carga de SSM al arrancar (src/bootstrap.ts).
+# Droplet prod856-app. Se ejecuta en /opt/856:  IMAGE_TAG=<tag> docker compose --env-file stack.env up -d
+# stack.env (no secreto): DOMAIN, ACME_EMAIL, IMAGE_REPO.
+# app.env (SECRETO, permisos 600, solo en el droplet): variables de la app. NO contiene llaves: SIGNER_BACKEND=remote.
 services:
   app:
     image: ${IMAGE_REPO}:${IMAGE_TAG}
     restart: unless-stopped
     env_file: app.env
     expose: ["8080"]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     logging: &logging
       driver: json-file
       options: { max-size: "10m", max-file: "5" }
