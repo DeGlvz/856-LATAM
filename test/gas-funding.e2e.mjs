@@ -90,11 +90,12 @@ check('hash inexistente → 404', (await post('t', { network: NETWORK, tx_hash: 
 // ═════ 3. Registro válido, monto de la cadena, idempotente
 const reg = await post('t', { network: NETWORK, tx_hash: hF, code: await T1.code() });
 check('tesorero con 2FA registra → 201 con el monto de la cadena', `${reg.status} ${reg.body.amount} ${reg.body.asset_id} ${reg.body.network}`, `201 ${parseEther('1.25')} ETH-SEPOLIA ${NETWORK}`);
-check('  …custodia del libro = monto registrado', await custody(), parseEther('1.25').toString());
 check('  …mismo hash otra vez → 409 already_registered', (await post('t', { network: NETWORK, tx_hash: hF, code: await T1.code() })).body?.code, 'already_registered');
 check('  …mismo hash con mayúsculas → 409', (await post('t', { network: NETWORK, tx_hash: hF.toUpperCase().replace('0X', '0x'), code: await T1.code() })).body?.code, 'already_registered');
 const e = (await api('GET', `/v1/entries/${reg.body.id}`)).body;
 check('  …asiento: cargo custodia / abono patrimonio, clase gas_funding', `${e.kind} ${e.postings.map((p) => `${p.account_code.split(':')[2]}:${p.direction}`).sort().join(',')}`, 'gas_funding custody:debit,equity:credit');
+// El timer puede liquidar el barrido y descontar gas antes de consultar el saldo global.
+check('  …asiento registra el monto completo de cadena en ambas partidas', e.postings.map((p) => p.amount).join(','), `${parseEther('1.25')},${parseEther('1.25')}`);
 check('  …con quién lo registró y el origen', `${e.metadata.registered_by === T1.email} ${e.metadata.from === privateKeyToAccount(FUNDER_PK).address.toLowerCase()}`, 'true true');
 const list = (await T1.call('GET', `/v1/gas-fundings?network=${NETWORK}`)).body.items;
 check('lista de fondeos registrados', list.some((g) => g.tx_hash === hF.toLowerCase() && g.amount === parseEther('1.25').toString()), true);
